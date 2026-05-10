@@ -522,6 +522,7 @@ class AIServiceManager(Host):
         self._mcp_manager.handle_stop_request()
         if self._skill_reconciler is not None:
             self._skill_reconciler.stop()
+        self._skill_manager.stop_watching()
 
     def update_mcp_server_connections(self, disabled_mcp_servers: list[str]):
         self._mcp_manager.update_mcp_server_connections(disabled_mcp_servers)

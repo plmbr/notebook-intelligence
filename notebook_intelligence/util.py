@@ -22,17 +22,32 @@ def get_jupyter_root_dir() -> str:
     return _jupyter_root_dir
 
 
+_UNSET = object()
+_cached_which_claude: object = _UNSET
+
+
 def resolve_claude_cli_path() -> Optional[str]:
     """Resolve the Claude Code CLI binary path.
 
     NBI_CLAUDE_CLI_PATH wins when set; otherwise fall back to the first
     `claude` on PATH. Returns None when nothing is found, so callers can
     decide between raising and proceeding without the CLI.
+
+    The PATH lookup is memoized — capabilities is hot and PATH doesn't
+    change at runtime. Use ``invalidate_claude_cli_cache`` from tests.
     """
     explicit = os.getenv("NBI_CLAUDE_CLI_PATH")
     if explicit:
         return explicit
-    return shutil.which("claude")
+    global _cached_which_claude
+    if _cached_which_claude is _UNSET:
+        _cached_which_claude = shutil.which("claude")
+    return _cached_which_claude  # type: ignore[return-value]
+
+
+def invalidate_claude_cli_cache() -> None:
+    global _cached_which_claude
+    _cached_which_claude = _UNSET
 
 
 def resolve_github_token() -> Optional[str]:

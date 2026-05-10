@@ -111,7 +111,7 @@ def is_acceptable_marketplace_source(source: str) -> bool:
     lower = s.lower()
     if lower.startswith(_GITHUB_PREFIX_SCHEMES):
         return True
-    if lower.startswith(_LOCAL_PREFIXES):
+    if s.startswith(_LOCAL_PREFIXES):
         return True
     if lower.startswith(_ALLOWED_NON_GITHUB_SCHEMES):
         return True

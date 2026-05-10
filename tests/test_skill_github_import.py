@@ -287,6 +287,23 @@ class TestGetGitHubToken:
             ):
                 assert resolve_github_token() is None
 
+    def test_gh_cli_strips_extra_lines(self):
+        # Defensive: a misbehaving gh install could prepend warnings or
+        # trailing whitespace. Take the first non-empty line so we don't
+        # smuggle unrelated bytes into the token.
+        with patch.dict("os.environ", {}, clear=True):
+            fake = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="\n  \nrealtoken\n\nextra\n",
+                stderr="",
+            )
+            with patch(
+                "notebook_intelligence.util.subprocess.run",
+                return_value=fake,
+            ):
+                assert resolve_github_token() == "realtoken"
+
 
 class _FakeUrlopenResponse:
     def __enter__(self):

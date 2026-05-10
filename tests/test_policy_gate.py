@@ -196,3 +196,63 @@ class TestPolicyGateIntegration(AsyncHTTPTestCase):
         response = self.fetch("/gate-parent-finished")
         assert response.code == 401
         assert json.loads(response.body) == {"error": "from parent"}
+
+
+class TestPolicyGatedHandlerErrorMap:
+    """Direct unit coverage for ``PolicyGatedHandler._error`` MRO walking.
+
+    The mixin sorts mapped exception classes by MRO depth so a narrower
+    subclass wins over its base. This was previously only exercised
+    transitively by the skills handler tests; pin it directly so a
+    regression in the sort key surfaces here.
+    """
+
+    def _stub_handler(self, exception_status_map):
+        from notebook_intelligence.extension import PolicyGatedHandler
+
+        handler = MagicMock(spec=PolicyGatedHandler)
+        handler.exception_status_map = exception_status_map
+        captured: dict = {}
+
+        def _finish(payload):
+            captured["body"] = payload
+
+        handler.set_status.side_effect = lambda code: captured.setdefault(
+            "status", code
+        )
+        handler.finish.side_effect = _finish
+        return handler, captured
+
+    def test_most_specific_class_wins_via_mro_depth(self):
+        from notebook_intelligence.extension import PolicyGatedHandler
+
+        handler, captured = self._stub_handler(
+            {OSError: 500, FileNotFoundError: 404}
+        )
+        PolicyGatedHandler._error(handler, FileNotFoundError("missing"))
+        assert captured["status"] == 404
+
+    def test_unmapped_exception_falls_back_to_400(self):
+        from notebook_intelligence.extension import PolicyGatedHandler
+
+        handler, captured = self._stub_handler({FileNotFoundError: 404})
+        PolicyGatedHandler._error(handler, RuntimeError("oops"))
+        assert captured["status"] == 400
+        assert json.loads(captured["body"]) == {"error": "oops"}
+
+    def test_subclass_extends_inherited_map(self):
+        from notebook_intelligence.extension import PolicyGatedHandler
+
+        # Mimics a handler that adds KeyError to an inherited
+        # PermissionError mapping. Each entry must be honored.
+        handler, captured = self._stub_handler(
+            {PermissionError: 403, KeyError: 422}
+        )
+        PolicyGatedHandler._error(handler, KeyError("k"))
+        assert captured["status"] == 422
+
+        handler, captured = self._stub_handler(
+            {PermissionError: 403, KeyError: 422}
+        )
+        PolicyGatedHandler._error(handler, PermissionError("nope"))
+        assert captured["status"] == 403

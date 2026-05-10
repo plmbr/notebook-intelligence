@@ -423,9 +423,17 @@ export class NBIConfig {
     const result = {} as IFeaturePolicies;
     for (const name of names) {
       const entry = v[name];
-      const enabled = defaultOpen.has(name)
-        ? entry?.enabled !== false
-        : entry?.enabled === true;
+      // Strict polarity: only default-open when the entry is wholly absent
+      // (old backend). A malformed entry (string "false", null, missing
+      // `enabled` field) falls through to closed for default-closed gates
+      // and stays open only when the field is explicitly true for default-open
+      // gates — never silently land in the open bucket.
+      let enabled: boolean;
+      if (entry === undefined) {
+        enabled = defaultOpen.has(name);
+      } else {
+        enabled = entry.enabled === true;
+      }
       result[name] = {
         enabled,
         locked: entry?.locked === true

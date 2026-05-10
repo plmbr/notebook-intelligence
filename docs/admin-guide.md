@@ -373,6 +373,8 @@ Force-off does three things at once:
 
 Use this when an org wants to disable user-authored Claude skills entirely.
 
+> **Blast radius.** Force-off only kills the _management UI_ — skill bundles already on disk under `~/.claude/skills/` or a project's `.claude/skills/` keep being discovered by Claude Code itself because Claude's skill loader doesn't consult NBI's policy. To stop existing skills from loading, remove them on disk before flipping the policy.
+
 ### Disabling the Claude-mode MCP Servers tab
 
 ```python
@@ -389,6 +391,8 @@ Force-off:
 The Claude-mode tab is **independent** of the existing non-Claude **MCP Servers** tab. The former wraps Claude Code's own config (`~/.claude.json` and project `.mcp.json`); the latter manages NBI's own MCP servers used by the non-Claude chat path. They never appear at the same time — the non-Claude tab is hidden when Claude mode is on, and the Claude-mode tab is hidden when it's off.
 
 Reads come from Claude's JSON config files directly (fast, no health checks). Writes (add / remove) shell out to `claude mcp add` / `claude mcp remove` so Claude remains the source of truth for any side effects (project-trust prompts, OAuth bookkeeping).
+
+> **Blast radius.** Force-off only kills the _management UI_ — MCP servers already configured in `~/.claude.json` or `<cwd>/.mcp.json` keep loading inside Claude Code sessions because Claude's MCP loader doesn't consult NBI's policy. To stop existing servers, remove them on disk (or via the `claude mcp remove` CLI) before flipping the policy.
 
 > **Trust model.** MCP servers run as subprocesses (stdio transport) or accept arbitrary URLs (sse/http transport) inside Claude Code sessions; NBI does not validate or sandbox the command, environment, or network endpoint beyond rejecting CLI flag-smuggling. For multi-tenant or regulated deployments, default to `claude_mcp_management_policy = force-off` and ship a curated set of servers via `~/.claude/settings.json` instead.
 

@@ -358,7 +358,6 @@ class GetCapabilitiesHandler(APIHandler):
     enable_chat_feedback = False
     allow_github_skill_import = True
     additional_skipped_workspace_directories = []
-    allow_github_plugin_import = True
     feature_policies = {}
     string_overrides = {}
 
@@ -442,12 +441,12 @@ class GetCapabilitiesHandler(APIHandler):
             ),
             "claude_models": ai_service_manager.claude_models,
             # Drives launcher-tile visibility (issue #183).
-            "claude_cli_available": shutil.which("claude") is not None,
+            "claude_cli_available": resolve_claude_cli_path() is not None,
             "default_chat_mode": nbi_config.default_chat_mode,
             "chat_feedback_enabled": self.enable_chat_feedback,
             "allow_github_skill_import": self.allow_github_skill_import,
             "additional_skipped_workspace_directories": self.additional_skipped_workspace_directories,
-            "allow_github_plugin_import": self.allow_github_plugin_import,
+            "allow_github_plugin_import": PluginsBaseHandler.allow_github_plugin_import,
             "cell_output_features": _build_cell_output_features_response(
                 self.feature_policies.get("explain_error", POLICY_USER_CHOICE),
                 self.feature_policies.get("output_followup", POLICY_USER_CHOICE),
@@ -873,6 +872,7 @@ class PluginsBaseHandler(PolicyGatedHandler):
     """Shared helpers + policy gate for plugin endpoints."""
 
     claude_plugins_management_enabled = True
+    allow_github_plugin_import = True
     policy_enabled_attr = "claude_plugins_management_enabled"
     policy_disabled_message = "Plugins management is disabled by your administrator"
     exception_status_map = {
@@ -943,11 +943,6 @@ class PluginsDetailHandler(PluginsBaseHandler):
 
 
 class PluginsMarketplaceListHandler(PluginsBaseHandler):
-    # Only the marketplace-add path needs the github gate; class-attribute
-    # lives here rather than on the base so unrelated handlers (list,
-    # uninstall, enable/disable) don't carry it.
-    allow_github_plugin_import = True
-
     @tornado.web.authenticated
     async def get(self):
         try:
@@ -2377,19 +2372,9 @@ class NotebookIntelligence(ExtensionApp):
         PluginsBaseHandler.claude_plugins_management_enabled = not is_force_off(
             feature_policies, "claude_plugins_management"
         )
-        env_allow_gh_plugin = os.environ.get(
-            "NBI_ALLOW_GITHUB_PLUGIN_IMPORT", ""
-        ).strip().lower()
-        if env_allow_gh_plugin in ("true", "1", "yes", "on"):
-            allow_github_plugin_import = True
-        elif env_allow_gh_plugin in ("false", "0", "no", "off"):
-            allow_github_plugin_import = False
-        else:
-            allow_github_plugin_import = bool(self.allow_github_plugin_import)
-        PluginsMarketplaceListHandler.allow_github_plugin_import = allow_github_plugin_import
-        # Mirror onto GetCapabilitiesHandler so the frontend can hide the
-        # "From GitHub" affordance — both handlers see the same resolved value.
-        GetCapabilitiesHandler.allow_github_plugin_import = allow_github_plugin_import
+        PluginsBaseHandler.allow_github_plugin_import = _resolve_bool_with_env(
+            "NBI_ALLOW_GITHUB_PLUGIN_IMPORT", self.allow_github_plugin_import
+        )
         self._publish_policies(feature_policies, string_overrides)
         NotebookIntelligence.handlers = [
             (route_pattern_capabilities, GetCapabilitiesHandler),

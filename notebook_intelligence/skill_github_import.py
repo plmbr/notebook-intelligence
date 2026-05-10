@@ -153,7 +153,10 @@ def parse_github_url(url: str) -> GitHubRef:
     subpath = ""
     if len(parts) >= 4 and parts[2] in ("tree", "blob"):
         ref = parts[3]
-        subpath = "/".join(parts[4:])
+        sub_parts = parts[4:]
+        if any(p in ("..", "") for p in sub_parts):
+            raise ValueError("Subpath must not contain '..' or empty segments")
+        subpath = "/".join(sub_parts)
     return GitHubRef(owner=owner, repo=repo, ref=ref, subpath=subpath)
 
 

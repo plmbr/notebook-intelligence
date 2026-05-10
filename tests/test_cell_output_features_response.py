@@ -6,6 +6,7 @@ and value-presence-locks to the frontend."""
 from types import SimpleNamespace
 
 from notebook_intelligence.extension import (
+    FEATURE_POLICY_NAMES,
     _build_cell_output_features_response,
     _build_feature_policies_response,
     _build_setting_locks_response,
@@ -158,6 +159,14 @@ class TestBuildFeaturePoliciesResponse:
         assert response["claude_mode"]["enabled"] is False
         assert response["claude_continue_conversation"]["enabled"] is False
         assert response["claude_code_tools"]["enabled"] is False
+
+    def test_response_includes_every_known_policy_name(self):
+        # Pins the wire contract: the response must expose exactly the
+        # FEATURE_POLICY_NAMES set so the frontend's iteration over the
+        # capabilities entries lines up. Catches drift when a new policy
+        # is added to the spec but not to the response builder.
+        response = _build_feature_policies_response({}, _config())
+        assert set(response.keys()) == set(FEATURE_POLICY_NAMES)
 
 
 class TestBuildSettingLocksResponse:
