@@ -477,6 +477,68 @@ class TestPluginManagerWrites:
         with pytest.raises(ValueError, match="plugin not found"):
             asyncio.run(manager.uninstall_plugin(plugin="x", scope="user"))
 
+    def test_cli_failure_scrubs_injected_token_from_stderr(
+        self, fake_cli, monkeypatch
+    ):
+        # If a downstream tool (git, curl in verbose mode, a misconfigured
+        # credential helper) echoes the injected token into stderr, the
+        # ValueError surfaced to the browser via `_error()` would otherwise
+        # leak the secret. `_claude_cli` must scrub `env_overrides` values
+        # before raising.
+        secret = "ghp_supersecrettoken1234567890"
+
+        async def fake_subprocess(*argv, **kwargs):
+            proc = MagicMock()
+
+            async def communicate():
+                return (
+                    b"",
+                    f"auth failed: tried {secret} but expired".encode(),
+                )
+
+            proc.communicate = communicate
+            proc.returncode = 1
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subprocess)
+        monkeypatch.setenv("GITHUB_TOKEN", secret)
+        manager = PluginManager()
+        try:
+            asyncio.run(
+                manager.add_marketplace(
+                    source="https://github.com/owner/repo",
+                    scope="user",
+                    allow_github=True,
+                )
+            )
+        except ValueError as exc:
+            assert secret not in str(exc), "Token leaked in error message"
+            assert "<redacted>" in str(exc)
+        else:
+            raise AssertionError("expected ValueError")
+
+    def test_passes_cwd_to_cli(self, fake_cli, monkeypatch):
+        # Project-scope writes must resolve against the user's working
+        # directory, not the Jupyter server's cwd. A missing cwd means
+        # `--scope project` lands the manifest in the wrong tree.
+        captured: dict = {}
+
+        async def fake_subprocess(*argv, **kwargs):
+            captured["cwd"] = kwargs.get("cwd")
+            proc = MagicMock()
+
+            async def communicate():
+                return (b"[]", b"")
+
+            proc.communicate = communicate
+            proc.returncode = 0
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subprocess)
+        manager = PluginManager(working_dir="/home/user/work")
+        asyncio.run(manager.list_plugins())
+        assert captured["cwd"] == "/home/user/work"
+
     def test_missing_cli_raises_filenotfound(self, monkeypatch):
         monkeypatch.setattr(
             "notebook_intelligence._claude_cli.resolve_claude_cli_path",

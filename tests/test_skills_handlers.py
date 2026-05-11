@@ -400,6 +400,34 @@ class TestResolveCsvAppended:
             ) == ["build", "foo", "dist"]
 
 
+class TestResolvePolicyWithEnv:
+    """``_resolve_policy_with_env`` must fail loud on typos so a misspelled
+    ``NBI_SKILLS_MANAGEMENT_POLICY=forceoff`` doesn't silently boot with
+    the (lax) traitlet default. Matches the contract of
+    ``_resolve_bool_with_env``."""
+
+    ENV = "NBI_TEST_POLICY"
+
+    def test_unset_env_returns_traitlet(self, monkeypatch):
+        monkeypatch.delenv(self.ENV, raising=False)
+        assert (
+            ext_module._resolve_policy_with_env(self.ENV, "force-off")
+            == "force-off"
+        )
+
+    def test_valid_env_overrides_traitlet(self):
+        with patch.dict("os.environ", {self.ENV: "force-on"}):
+            assert (
+                ext_module._resolve_policy_with_env(self.ENV, "force-off")
+                == "force-on"
+            )
+
+    def test_invalid_env_raises(self):
+        with patch.dict("os.environ", {self.ENV: "forceoff"}):
+            with pytest.raises(ValueError, match=self.ENV):
+                ext_module._resolve_policy_with_env(self.ENV, "user-choice")
+
+
 class TestSkillBundleFileHandler:
     def test_write_and_read_bundle_file(self, skill_manager):
         skill_manager.create_skill("user", "bun", "d", [], "")

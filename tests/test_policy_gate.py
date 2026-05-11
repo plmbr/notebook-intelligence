@@ -256,3 +256,39 @@ class TestPolicyGatedHandlerErrorMap:
         )
         PolicyGatedHandler._error(handler, PermissionError("nope"))
         assert captured["status"] == 403
+
+
+class TestPolicyGatedHandlerSubclassGuard:
+    """The mixin's `__init_subclass__` refuses concrete subclasses that
+    forget to declare `policy_enabled_attr` — force-off must fail closed,
+    so a silent bypass would be a security regression worth catching at
+    import time."""
+
+    def test_concrete_subclass_without_attr_raises(self):
+        from notebook_intelligence.extension import PolicyGatedHandler
+
+        with pytest.raises(TypeError, match="policy_enabled_attr"):
+            # NOTE: not suffixed BaseHandler — should error.
+            class _Forgotten(PolicyGatedHandler):
+                pass
+
+    def test_intermediate_base_class_is_allowed_to_defer(self):
+        from notebook_intelligence.extension import PolicyGatedHandler
+
+        # An intermediate *BaseHandler can defer; concrete subclasses must
+        # still set the attribute themselves (or inherit it).
+        class _IntermediateBaseHandler(PolicyGatedHandler):
+            pass
+
+        with pytest.raises(TypeError, match="policy_enabled_attr"):
+            class _ConcreteChild(_IntermediateBaseHandler):
+                pass
+
+        class _AnotherBaseHandler(PolicyGatedHandler):
+            policy_enabled_attr = "something_enabled"
+
+        # OK: concrete subclass inherits the attribute.
+        class _ConcreteOK(_AnotherBaseHandler):
+            pass
+
+        assert _ConcreteOK.policy_enabled_attr == "something_enabled"

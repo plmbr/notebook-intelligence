@@ -144,18 +144,20 @@ def _resolve_supports_vision(ai_service_manager) -> bool:
 
 
 def _resolve_policy_with_env(env_var_name: str, traitlet_value: str) -> str:
-    """Resolve a feature policy: env var wins if valid, else traitlet."""
+    """Resolve a feature policy: env var wins if valid, else traitlet.
+
+    Raises ValueError on unrecognized env values so a typo can't silently
+    relax a force-off gate. Matches the polarity of `_resolve_bool_with_env`.
+    """
     env_value = os.environ.get(env_var_name, "").strip()
-    if env_value:
-        if env_value in VALID_POLICIES:
-            return env_value
-        log.warning(
-            "Ignoring %s=%r: must be one of %s",
-            env_var_name,
-            env_value,
-            ", ".join(VALID_POLICIES),
-        )
-    return traitlet_value
+    if not env_value:
+        return traitlet_value
+    if env_value in VALID_POLICIES:
+        return env_value
+    raise ValueError(
+        f"Invalid {env_var_name}={env_value!r}: "
+        f"must be one of {', '.join(VALID_POLICIES)}"
+    )
 
 
 _TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
@@ -356,7 +358,6 @@ class GetCapabilitiesHandler(APIHandler):
     disabled_providers = []
     allow_enabling_providers_with_env = False
     enable_chat_feedback = False
-    allow_github_skill_import = True
     additional_skipped_workspace_directories = []
     feature_policies = {}
     string_overrides = {}
@@ -444,7 +445,9 @@ class GetCapabilitiesHandler(APIHandler):
             "claude_cli_available": resolve_claude_cli_path() is not None,
             "default_chat_mode": nbi_config.default_chat_mode,
             "chat_feedback_enabled": self.enable_chat_feedback,
-            "allow_github_skill_import": self.allow_github_skill_import,
+            # Single source of truth lives on each domain's base handler so
+            # `_setup_handlers` only writes one site per flag.
+            "allow_github_skill_import": SkillsBaseHandler.allow_github_skill_import,
             "additional_skipped_workspace_directories": self.additional_skipped_workspace_directories,
             "allow_github_plugin_import": PluginsBaseHandler.allow_github_plugin_import,
             "cell_output_features": _build_cell_output_features_response(
@@ -760,6 +763,22 @@ class PolicyGatedHandler(APIHandler):
     policy_enabled_attr: str = ""
     policy_disabled_message: str = "This feature is disabled by your administrator"
 
+    def __init_subclass__(cls, **kwargs):
+        # Force-off must fail closed; a concrete handler that forgets to
+        # declare `policy_enabled_attr` would silently bypass the gate.
+        # Intermediate `*BaseHandler` classes are allowed to defer the
+        # declaration to the concrete subclass; everything else must set it
+        # explicitly (or its MRO must, which getattr below picks up).
+        super().__init_subclass__(**kwargs)
+        if cls.__name__.endswith("BaseHandler"):
+            return
+        if not getattr(cls, "policy_enabled_attr", ""):
+            raise TypeError(
+                f"{cls.__name__} subclasses PolicyGatedHandler but does not "
+                "declare policy_enabled_attr — set it on the class or on an "
+                "intermediate *BaseHandler"
+            )
+
     async def prepare(self):
         # APIHandler.prepare is async (xsrf/auth); must await before applying
         # the policy gate.
@@ -822,7 +841,7 @@ class ClaudeMCPListHandler(ClaudeMCPBaseHandler):
     def get(self):
         try:
             servers = [s.to_dict() for s in self.manager.list_servers()]
-        except Exception as e:
+        except (FileNotFoundError, TimeoutError, ValueError) as e:
             self._error(e)
             return
         self.finish(json.dumps({"servers": servers}))
@@ -883,7 +902,9 @@ class PluginsBaseHandler(PolicyGatedHandler):
 
     @property
     def manager(self) -> "PluginManager":
-        return PluginManager()
+        # Same as ClaudeMCPBaseHandler: scope=project resolves against the
+        # CLI cwd, so the user's Jupyter root must be passed through.
+        return PluginManager(working_dir=get_jupyter_root_dir() or None)
 
 
 class PluginsListHandler(PluginsBaseHandler):
@@ -964,9 +985,7 @@ class PluginsMarketplaceListHandler(PluginsBaseHandler):
                 allow_github=bool(self.allow_github_plugin_import),
             )
             self.finish(json.dumps({"success": True}))
-        except PermissionError as e:
-            self._error(e)
-        except (FileNotFoundError, TimeoutError, ValueError) as e:
+        except (FileNotFoundError, PermissionError, TimeoutError, ValueError) as e:
             self._error(e)
 
 
@@ -2352,11 +2371,9 @@ class NotebookIntelligence(ExtensionApp):
         GetCapabilitiesHandler.disabled_providers = self.disabled_providers
         GetCapabilitiesHandler.allow_enabling_providers_with_env = self.allow_enabling_providers_with_env
         GetCapabilitiesHandler.enable_chat_feedback = self.enable_chat_feedback
-        allow_github_skill_import = _resolve_bool_with_env(
+        SkillsBaseHandler.allow_github_skill_import = _resolve_bool_with_env(
             "NBI_ALLOW_GITHUB_SKILL_IMPORT", self.allow_github_skill_import
         )
-        GetCapabilitiesHandler.allow_github_skill_import = allow_github_skill_import
-        SkillsBaseHandler.allow_github_skill_import = allow_github_skill_import
         GetCapabilitiesHandler.additional_skipped_workspace_directories = (
             _resolve_csv_appended(
                 "NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES",

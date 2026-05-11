@@ -264,6 +264,69 @@ class TestClaudeMCPManagerWrites:
         assert result.name == "my-srv"
         assert result.scope == scope
 
+    @pytest.mark.parametrize(
+        "env_key",
+        ["-flag", "--inject", "BAD=KEY"],
+    )
+    def test_add_rejects_env_key_that_could_smuggle_flag(
+        self, claude_home, working_dir, env_key
+    ):
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        with pytest.raises(ValueError, match="env key"):
+            asyncio.run(
+                manager.add_server(
+                    name="s",
+                    scope="user",
+                    transport="stdio",
+                    command_or_url="npx",
+                    env={env_key: "v"},
+                )
+            )
+
+    @pytest.mark.parametrize(
+        "header_key",
+        ["-flag", "--inject", "Bad:Name"],
+    )
+    def test_add_rejects_header_name_that_could_smuggle_flag(
+        self, claude_home, working_dir, header_key
+    ):
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        with pytest.raises(ValueError, match="header name"):
+            asyncio.run(
+                manager.add_server(
+                    name="s",
+                    scope="user",
+                    transport="http",
+                    command_or_url="https://example.com",
+                    headers={header_key: "v"},
+                )
+            )
+
+    @pytest.mark.parametrize("transport", ["sse", "http"])
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "http://example.com",
+            "http://169.254.169.254/latest/meta-data/",
+            "file:///etc/passwd",
+            "ftp://example.com",
+        ],
+    )
+    def test_add_rejects_non_https_network_transport(
+        self, claude_home, working_dir, transport, bad_url
+    ):
+        # SSRF defense: sse/http transports must be https only.
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        with pytest.raises(ValueError, match="https"):
+            asyncio.run(
+                manager.add_server(
+                    name="s",
+                    scope="user",
+                    transport=transport,
+                    command_or_url=bad_url,
+                )
+            )
+
     def test_remove_invokes_cli(self, claude_home, working_dir, monkeypatch):
         monkeypatch.setattr(
             "notebook_intelligence._claude_cli.resolve_claude_cli_path",

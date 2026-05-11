@@ -30,6 +30,7 @@ from notebook_intelligence.skillset import (
     _parse_frontmatter,
     list_bundle_files,
 )
+from notebook_intelligence.util import resolve_github_token
 
 log = logging.getLogger(__name__)
 
@@ -165,7 +166,6 @@ def _tarball_url(owner: str, repo: str, ref: Optional[str]) -> str:
     return f"https://api.github.com/repos/{owner}/{repo}/tarball/{ref_path}"
 
 
-from notebook_intelligence.util import resolve_github_token  # noqa: E402
 
 
 def _github_api_headers(override_token: Optional[str] = None) -> dict:

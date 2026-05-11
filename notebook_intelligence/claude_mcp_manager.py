@@ -179,6 +179,25 @@ class ClaudeMCPManager:
             raise ValueError("Missing command or URL")
         reject_flag_smuggling("name", name)
         reject_flag_smuggling("command_or_url", command_or_url)
+        # For network transports, require HTTPS — `http://`/`file://`/etc.
+        # would let a user point Claude at internal endpoints (SSRF) or
+        # exfil credentials in plaintext. Stdio is a subprocess, not a URL.
+        if transport in ("sse", "http"):
+            scheme = command_or_url.split(":", 1)[0].lower()
+            if scheme != "https":
+                raise ValueError(
+                    f"Transport {transport!r} requires https:// URL; got {scheme!r}"
+                )
+        # The CLI parses `-e KEY=VALUE` and `-H NAME: VALUE` as the next
+        # positional argv; a key like `--inject` would either break the
+        # CLI's parser or smuggle in a side-flag depending on version. The
+        # separator (`=` for env, `:` for headers) is also reserved.
+        for key in (env or {}):
+            if not key or key.startswith("-") or "=" in key:
+                raise ValueError(f"Invalid env key {key!r}")
+        for key in (headers or {}):
+            if not key or key.startswith("-") or ":" in key:
+                raise ValueError(f"Invalid header name {key!r}")
 
         tail = ["mcp", "add", "--scope", scope, "--transport", transport]
         for key, value in (env or {}).items():

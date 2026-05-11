@@ -131,8 +131,11 @@ class PluginManager:
     # so an instance lock would fail to serialize concurrent CLI writes.
     _write_lock = asyncio.Lock()
 
-    def __init__(self):
-        pass
+    def __init__(self, working_dir: Optional[str] = None):
+        # `claude plugin {install,marketplace add,…} --scope project` resolves
+        # the project against the CLI's cwd, so the working_dir must be the
+        # user's Jupyter root, not the server process's cwd.
+        self._working_dir = working_dir
 
     # --- reads ---------------------------------------------------------
 
@@ -288,5 +291,6 @@ class PluginManager:
             tail,
             timeout=timeout,
             label="claude plugin",
+            cwd=self._working_dir,
             env_overrides=env_overrides,
         )

@@ -144,6 +144,27 @@ async def run_claude_cli(
     out = stdout.decode("utf-8", errors="replace")
     err = stderr.decode("utf-8", errors="replace")
     if proc.returncode != 0:
-        msg = (err or out).strip() or f"{label} failed (exit {proc.returncode})"
-        raise ValueError(msg)
+        raw = (err or out).strip() or f"{label} failed (exit {proc.returncode})"
+        # The CLI's stderr is forwarded to the browser via the handlers'
+        # `_error()`; scrub any injected secret that the underlying tool
+        # might have echoed (git in verbose mode, curl 401 challenges, etc.).
+        raise ValueError(_scrub_env_overrides(raw, env_overrides))
     return out
+
+
+def _scrub_env_overrides(text: str, env_overrides: Optional[dict[str, str]]) -> str:
+    """Replace any env_overrides values that appear in `text` with `<redacted>`.
+
+    Defense-in-depth: tokens flow via env (not argv) so they don't reach
+    process listings, but a misbehaving downstream tool (git with
+    GIT_TRACE=1, a verbose credential helper) can still echo them into
+    stderr. The handler surfaces stderr to the browser; this scrub prevents
+    the resulting 4xx response body from containing the secret.
+    """
+    if not env_overrides:
+        return text
+    scrubbed = text
+    for value in env_overrides.values():
+        if value and len(value) >= 8:
+            scrubbed = scrubbed.replace(value, "<redacted>")
+    return scrubbed
