@@ -27,7 +27,14 @@ export function NotebookGenerationPopover(
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    textareaRef.current?.focus();
+    // Defer to the next frame so the focus call lands after Lumino's
+    // attach lifecycle and JupyterLab's focus tracker have settled —
+    // otherwise the active notebook can win the focus race and the
+    // textarea stays unfocused (issue #231).
+    const handle = window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(handle);
   }, []);
 
   const trimmed = prompt.trim();
