@@ -115,6 +115,59 @@ class TestNBIConfigSaveAndLoad:
             assert saved_config['active_rules'] == {'test.md': True}
 
 
+class TestAdditionalSkippedWorkspaceDirectories:
+    """The setting layers env-prefix and user `config.json` entries.
+    Both contribute (set-union); the final merge with the traitlet
+    and the `NBI_*` env var happens in `_setup_handlers`."""
+
+    def test_returns_empty_when_neither_layer_sets_it(self, mock_nbi_config):
+        config = mock_nbi_config
+        config.env_config = {}
+        config.user_config = {}
+        assert config.additional_skipped_workspace_directories == []
+
+    def test_reads_from_env_config_only(self, mock_nbi_config):
+        config = mock_nbi_config
+        config.env_config = {'additional_skipped_workspace_directories': ['build']}
+        config.user_config = {}
+        assert config.additional_skipped_workspace_directories == ['build']
+
+    def test_reads_from_user_config_only(self, mock_nbi_config):
+        config = mock_nbi_config
+        config.env_config = {}
+        config.user_config = {'additional_skipped_workspace_directories': ['venv']}
+        assert config.additional_skipped_workspace_directories == ['venv']
+
+    def test_merges_env_and_user_layers_preserving_order(self, mock_nbi_config):
+        config = mock_nbi_config
+        config.env_config = {'additional_skipped_workspace_directories': ['build', 'dist']}
+        config.user_config = {'additional_skipped_workspace_directories': ['venv']}
+        assert config.additional_skipped_workspace_directories == [
+            'build', 'dist', 'venv'
+        ]
+
+    def test_dedupes_across_layers(self, mock_nbi_config):
+        config = mock_nbi_config
+        config.env_config = {'additional_skipped_workspace_directories': ['build']}
+        config.user_config = {'additional_skipped_workspace_directories': ['build', 'venv']}
+        assert config.additional_skipped_workspace_directories == ['build', 'venv']
+
+    def test_ignores_non_string_entries(self, mock_nbi_config):
+        config = mock_nbi_config
+        config.env_config = {
+            'additional_skipped_workspace_directories': ['build', None, 42, '']
+        }
+        config.user_config = {}
+        assert config.additional_skipped_workspace_directories == ['build']
+
+    def test_ignores_non_list_payload(self, mock_nbi_config):
+        # A malformed config.json (string instead of list) must not crash.
+        config = mock_nbi_config
+        config.env_config = {'additional_skipped_workspace_directories': 'build,dist'}
+        config.user_config = {}
+        assert config.additional_skipped_workspace_directories == []
+
+
 class TestNBIConfigPolicyResolution:
     """The boolean policies and string overrides feed through NBIConfig getters
     so SDK consumers (claude.py, ai_service_manager) see resolved values."""

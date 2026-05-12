@@ -137,6 +137,26 @@ class NBIConfig:
     def mcp_server_settings(self):
         return self.get('mcp_server_settings', {})
 
+    @property
+    def additional_skipped_workspace_directories(self) -> list:
+        """Extra directory names to skip when enumerating workspace files
+        for the chat-sidebar @-mention picker. Layered like every other
+        NBI-config value: the env-prefix file (admin baseline) and the
+        user file (per-user extension) both contribute. The traitlet of
+        the same name and the NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES
+        env var add further layers; the final merge happens in
+        ``extension._setup_handlers``. Returns `[]` when neither layer
+        sets it, or whichever layer's value is a non-list.
+        """
+        env_list = self.env_config.get('additional_skipped_workspace_directories', [])
+        user_list = self.user_config.get('additional_skipped_workspace_directories', [])
+        merged = []
+        for layer in (env_list, user_list):
+            if isinstance(layer, list):
+                merged.extend(name for name in layer if isinstance(name, str) and name.strip())
+        # Dedupe while preserving first-seen order.
+        return list(dict.fromkeys(merged))
+
     def set_feature_policies(self, policies: dict, string_overrides: dict) -> None:
         """Adopt the resolved admin policies + string overrides."""
         self._feature_policies = dict(policies)

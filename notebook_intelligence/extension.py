@@ -2374,11 +2374,22 @@ class NotebookIntelligence(ExtensionApp):
         SkillsBaseHandler.allow_github_skill_import = _resolve_bool_with_env(
             "NBI_ALLOW_GITHUB_SKILL_IMPORT", self.allow_github_skill_import
         )
-        GetCapabilitiesHandler.additional_skipped_workspace_directories = (
-            _resolve_csv_appended(
-                "NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES",
-                self.additional_skipped_workspace_directories,
-            )
+        # Three-layer merge for skipped workspace directories: traitlet
+        # (admin baseline) → NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES env
+        # var (per-pod) → nbi_config.json (admin + user). All layers append
+        # rather than override (the policy is set-union semantics so each
+        # layer can only add hidden directories, never re-expose them).
+        # Manual config.json edits require a JupyterLab restart, matching
+        # the rest of NBI config — there's no Settings-dialog control.
+        merged_skipped_dirs = _resolve_csv_appended(
+            "NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES",
+            self.additional_skipped_workspace_directories,
+        )
+        config_skipped = (
+            ai_service_manager.nbi_config.additional_skipped_workspace_directories
+        )
+        GetCapabilitiesHandler.additional_skipped_workspace_directories = list(
+            dict.fromkeys(merged_skipped_dirs + config_skipped)
         )
         SkillsBaseHandler.skills_management_enabled = not is_force_off(
             feature_policies, "skills_management"

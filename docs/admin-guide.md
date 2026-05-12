@@ -337,25 +337,39 @@ The env var wins over the traitlet and is resolved at server startup. Recognized
 
 ### Tuning the chat-sidebar workspace file picker
 
-**Audience:** server admins. End users can't override this — ask your admin to add or remove entries.
+**Audience:** server admins (and end users who edit `~/.jupyter/nbi/config.json` directly). The setting is not exposed in the Settings dialog.
 
-The @-mention picker in the chat sidebar enumerates files from the JupyterLab working directory and skips a built-in set of directories (`__pycache__`, `node_modules`) plus any dotfiles/dot-directories. Because dot-prefixed names are filtered separately, entries starting with `.` in the list below are no-ops; list non-dot names only.
-
-To extend the directory skip set without editing the codebase:
-
-```python
-c.NotebookIntelligence.additional_skipped_workspace_directories = ["build", "dist", "target"]
-```
+The @-mention picker in the chat sidebar enumerates files from the JupyterLab working directory and skips a built-in set of directories (`__pycache__`, `node_modules`) plus any dotfiles/dot-directories. Because dot-prefixed names are filtered separately, entries starting with `.` are no-ops; list non-dot names only.
 
 Match is by directory name only (not path), case-sensitive. Use this when a project has standard build outputs the picker shouldn't surface.
 
-To vary the list per spawn profile, append entries via env at pod startup:
+Four layers can contribute, all **additive** (each layer can only add new skipped names, never re-expose names skipped by an earlier layer):
 
-```bash
-NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES=tmp,artifacts
-```
+1. **Traitlet** in `jupyter_server_config.py`:
 
-The env var **appends** to the traitlet value at server startup (in contrast to `NBI_ALLOW_GITHUB_SKILL_IMPORT` and the `NBI_*_POLICY` env vars, which override). Duplicates are collapsed; both lists are then merged with the built-in skip set on the frontend.
+   ```python
+   c.NotebookIntelligence.additional_skipped_workspace_directories = ["build", "dist", "target"]
+   ```
+
+2. **Env var** at pod startup (per spawn profile):
+
+   ```bash
+   NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES=tmp,artifacts
+   ```
+
+3. **Env-prefix NBI config** at `<env-prefix>/share/jupyter/nbi/config.json` (org-wide, baked into the image — useful when the deployment doesn't manage `jupyter_server_config.py` but does ship a curated config file):
+
+   ```json
+   { "additional_skipped_workspace_directories": ["coverage", "out"] }
+   ```
+
+4. **User NBI config** at `~/.jupyter/nbi/config.json` (per-user extension on top of the admin baseline):
+
+   ```json
+   { "additional_skipped_workspace_directories": [".terraform"] }
+   ```
+
+Duplicates are collapsed; the merged list is then added to the built-in skip set on the frontend. Edits to `config.json` require a JupyterLab restart to take effect, matching the rest of NBI config — there's no UI control (issue #232).
 
 ### Disabling the Skills tab
 
