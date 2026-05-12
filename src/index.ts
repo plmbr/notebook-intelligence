@@ -1904,6 +1904,12 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       let inlinePrompt: InlinePromptWidget | null = null;
       let removed = false;
       const removePopover = () => {
+        // Cleared outside the `removed` guard so the auto-insert path's
+        // second call still removes the class added between calls.
+        if (isCodeCell) {
+          codeInput?.classList.remove('generating');
+        }
+
         if (removed) {
           return;
         }
@@ -1921,10 +1927,6 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           Widget.detach(inlinePrompt);
         } else if (inlinePrompt?.node.parentElement) {
           inlinePrompt.node.remove();
-        }
-
-        if (isCodeCell) {
-          codeInput?.classList.remove('generating');
         }
       };
 
