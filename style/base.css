@@ -2580,6 +2580,53 @@ svg.access-token-warning {
   white-space: nowrap;
 }
 
+.nbi-terminal-drag-mode-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.nbi-terminal-drag-mode-button-toggle {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  cursor: pointer;
+}
+
+.nbi-terminal-drag-mode-button-toggle:hover {
+  background-color: var(--jp-layout-color2);
+}
+
+.nbi-terminal-drag-mode-button-toggle:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
+}
+
+.nbi-terminal-drag-mode-button-toggle[aria-pressed='true'] {
+  border-color: var(--jp-brand-color1);
+  color: var(--jp-brand-color1);
+}
+
+.nbi-terminal-drag-over {
+  position: relative;
+}
+
+.nbi-terminal-drag-over::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px dashed var(--jp-brand-color1);
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--jp-brand-color1) 12%, transparent);
+  z-index: 100;
+}
+
 /* Coding Agent launcher tile: Anthropic orange icon.
    Placed last to satisfy no-descending-specificity lint rule. */
 .jp-LauncherCard[data-category='Coding Agent'] .jp-LauncherCard-icon svg,

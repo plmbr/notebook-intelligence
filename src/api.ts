@@ -237,7 +237,8 @@ export type FeaturePolicyName =
   | 'store_github_access_token'
   | 'skills_management'
   | 'claude_mcp_management'
-  | 'claude_plugins_management';
+  | 'claude_plugins_management'
+  | 'terminal_drag_drop';
 
 export type IFeaturePolicies = Record<
   FeaturePolicyName,
@@ -408,7 +409,8 @@ export class NBIConfig {
       'store_github_access_token',
       'skills_management',
       'claude_mcp_management',
-      'claude_plugins_management'
+      'claude_plugins_management',
+      'terminal_drag_drop'
     ];
     // Admin-only management gates (no per-user toggle) default *open* when
     // missing — a new frontend hitting an older backend without these

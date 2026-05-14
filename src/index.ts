@@ -106,7 +106,10 @@ import * as path from 'path';
 import { createRoot, Root } from 'react-dom/client';
 import { SettingsPanel } from './components/settings-panel';
 import { ITerminalConnection } from '@jupyterlab/services/lib/terminal/terminal';
+import { ITerminalTracker } from '@jupyterlab/terminal';
+import { Token } from '@lumino/coreutils';
 import { NotebookGenerationToolbarExtension } from './notebook-generation-toolbar';
+import { attachTerminalDragDrop } from './terminal-drag';
 
 import { CommandIDs } from './command-ids';
 
@@ -791,7 +794,16 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     ICommandPalette,
     IMainMenu
   ],
-  optional: [ISettingRegistry, IStatusBar, ILauncher],
+  // @jupyterlab/terminal nests its own @lumino/coreutils copy, so its
+  // Token class is structurally identical but nominally distinct from
+  // ours. Cast through the top-level Token type to keep the plugin
+  // declaration well-typed for the other optionals.
+  optional: [
+    ISettingRegistry,
+    IStatusBar,
+    ILauncher,
+    ITerminalTracker as unknown as Token<unknown>
+  ],
   provides: INotebookIntelligence,
   activate: async (
     app: JupyterFrontEnd,
@@ -803,7 +815,8 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     mainMenu: IMainMenu,
     settingRegistry: ISettingRegistry | null,
     statusBar: IStatusBar | null,
-    launcher: ILauncher | null
+    launcher: ILauncher | null,
+    terminalTracker: ITerminalTracker | null
   ) => {
     console.log(
       'JupyterLab extension @notebook-intelligence/notebook-intelligence is activated!'
@@ -828,6 +841,29 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     };
 
     await NBIAPI.initialize();
+
+    if (terminalTracker) {
+      attachTerminalDragDrop({
+        tracker: terminalTracker,
+        // dragover fires at ~60Hz, so we read straight off the
+        // capabilities object (cheap property lookup) instead of going
+        // through the `featurePolicies` getter (which rebuilds an
+        // 11-key object every call). Re-evaluated per event so a future
+        // capabilities reload (policy flipped server-side) takes effect
+        // without tearing down listeners.
+        isEnabled: () => {
+          const policy =
+            NBIAPI.config.capabilities?.feature_policies?.terminal_drag_drop;
+          // Default-enabled when the key is absent: an older backend or
+          // a future capability schema bump shouldn't silently disable
+          // the feature.
+          if (!policy) {
+            return true;
+          }
+          return policy.enabled !== false;
+        }
+      });
+    }
 
     let closeOpenPopover: (() => void) | null = null;
     let mcpConfigEditor: MCPConfigEditor | null = null;

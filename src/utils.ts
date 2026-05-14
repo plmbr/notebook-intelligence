@@ -6,6 +6,8 @@ import { CodeEditor } from '@jupyterlab/codeeditor';
 import { encoding_for_model } from 'tiktoken';
 import { NotebookPanel } from '@jupyterlab/notebook';
 
+import { shellSingleQuote } from './shell-utils';
+
 const tiktoken_encoding = encoding_for_model('gpt-4o');
 
 export function removeAnsiChars(str: string): string {
@@ -294,14 +296,7 @@ export function applyCodeToSelectionInEditor(
   });
 }
 
-/**
- * POSIX-shell single-quote escape: every embedded single quote is closed,
- * emitted as an escaped literal, and the quote re-opened. The result is
- * safe to splice into a shell command without further sanitization.
- */
-export function shellSingleQuote(value: string): string {
-  return "'" + value.replace(/'/g, "'\\''") + "'";
-}
+export { shellSingleQuote };
 
 /**
  * Build a `claude --resume <id>` command wrapped in `cd <cwd>` so the

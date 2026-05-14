@@ -10,6 +10,7 @@ import datetime as dt
 import os
 import shutil
 import tempfile
+import time
 from typing import Union
 import uuid
 import threading
@@ -299,6 +300,11 @@ FEATURE_POLICY_SPEC = (
         "NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY",
         "claude_plugins_management_policy",
     ),
+    (
+        "terminal_drag_drop",
+        "NBI_TERMINAL_DRAG_DROP_POLICY",
+        "terminal_drag_drop_policy",
+    ),
 )
 FEATURE_POLICY_NAMES = tuple(name for name, _, _ in FEATURE_POLICY_SPEC)
 
@@ -342,11 +348,14 @@ def _build_feature_policies_response(policies: dict, nbi_config) -> dict:
         "claude_setting_source_user": "user" in sources,
         "claude_setting_source_project": "project" in sources,
         "store_github_access_token": bool(nbi_config.store_github_access_token),
-        # Admin-only gate; user has no toggle, so user_value is always True.
-        # The policy resolver still applies force-off / force-on correctly.
+        # Admin-only gates; user has no toggle, so user_value is always
+        # True. The policy resolver still applies force-off / force-on
+        # correctly so admins can flip them. The frontend keys off
+        # `locked && !enabled` to know when to hide the feature.
         "skills_management": True,
         "claude_mcp_management": True,
         "claude_plugins_management": True,
+        "terminal_drag_drop": True,
     }
 
     response = {}
@@ -1289,6 +1298,12 @@ class SkillBundleFileRenameHandler(SkillsBaseHandler):
 
 
 _upload_dir: str | None = None
+_DEFAULT_UPLOAD_MAX_MB = 50
+_DEFAULT_UPLOAD_RETENTION_HOURS = 24
+_SWEEP_INTERVAL_SECONDS = 60
+_sweep_lock = threading.Lock()
+_last_sweep_at: float = 0.0
+
 
 def _get_upload_dir() -> str:
     """Return a temp directory for uploaded files, creating it on first call."""
@@ -1298,12 +1313,53 @@ def _get_upload_dir() -> str:
         atexit.register(lambda d=_upload_dir: shutil.rmtree(d, ignore_errors=True))
     return _upload_dir
 
+
+def _sweep_upload_dir(retention_hours: int) -> None:
+    """Best-effort removal of upload subdirs past the retention window.
+
+    Runs lazily after each successful upload, rate-limited to one sweep per
+    ``_SWEEP_INTERVAL_SECONDS`` so a burst of parallel uploads doesn't pay
+    the full ``listdir + stat`` cost on every request.
+    ``retention_hours <= 0`` keeps the atexit-only purge path by skipping
+    the sweep entirely.
+    """
+    if retention_hours <= 0:
+        return
+    global _last_sweep_at
+    now = time.time()
+    with _sweep_lock:
+        if now - _last_sweep_at < _SWEEP_INTERVAL_SECONDS:
+            return
+        _last_sweep_at = now
+    root = _get_upload_dir()
+    cutoff = now - retention_hours * 3600
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return
+    for entry in entries:
+        candidate = path.join(root, entry)
+        try:
+            stat_result = os.stat(candidate)
+        except OSError:
+            # Includes FileNotFoundError when a concurrent sweep beats us.
+            continue
+        if not os.path.isdir(candidate):
+            continue
+        if stat_result.st_mtime >= cutoff:
+            continue
+        shutil.rmtree(candidate, ignore_errors=True)
+
+
 class FileUploadHandler(APIHandler):
     """Accepts a file upload and stores it in a temp directory.
 
     Returns the absolute server-side path so the frontend can reference it
     in chat context and Claude Code can read it natively.
     """
+
+    upload_max_mb: int = _DEFAULT_UPLOAD_MAX_MB
+    upload_retention_hours: int = _DEFAULT_UPLOAD_RETENTION_HOURS
 
     @tornado.web.authenticated
     def post(self):
@@ -1314,6 +1370,19 @@ class FileUploadHandler(APIHandler):
             return
 
         upload = fileinfo[0]
+        body = upload["body"]
+
+        # Reject oversize uploads before writing to disk so a giant payload
+        # can't briefly fill the staging dir. 0 disables the cap.
+        if self.upload_max_mb > 0:
+            max_bytes = self.upload_max_mb * 1024 * 1024
+            if len(body) > max_bytes:
+                self.set_status(413)
+                self.finish(json.dumps({
+                    "error": f"File exceeds {self.upload_max_mb} MB upload limit"
+                }))
+                return
+
         original_name = upload.get("filename", "upload")
         # Sanitise filename: keep only the basename to prevent path traversal.
         safe_name = path.basename(original_name)
@@ -1326,7 +1395,9 @@ class FileUploadHandler(APIHandler):
         dest_path = path.join(dest_dir, safe_name)
 
         with open(dest_path, "wb") as fh:
-            fh.write(upload["body"])
+            fh.write(body)
+
+        _sweep_upload_dir(self.upload_retention_hours)
 
         self.finish(json.dumps({
             "serverPath": dest_path,
@@ -2228,6 +2299,45 @@ class NotebookIntelligence(ExtensionApp):
         config=True,
     )
 
+    terminal_drag_drop_policy = TraitletEnum(
+        list(VALID_POLICIES),
+        default_value=POLICY_USER_CHOICE,
+        help="""
+        Org-wide policy for the terminal drag-drop file-attach feature.
+        "user-choice" (default) and "force-on" both enable the listener.
+        "force-off" suppresses the listener so files dragged onto a
+        terminal fall through to the browser's default behavior; useful
+        for hardened deployments that don't want files staged through
+        the upload endpoint. Overridden by the
+        NBI_TERMINAL_DRAG_DROP_POLICY env var.
+        """,
+        config=True,
+    )
+
+    upload_max_mb = Int(
+        default_value=_DEFAULT_UPLOAD_MAX_MB,
+        help="""
+        Per-file size cap (megabytes) for the chat-sidebar and terminal
+        drag-drop upload endpoint. Requests exceeding this limit get a
+        413. Set to 0 to disable the cap entirely. Overridden by the
+        NBI_UPLOAD_MAX_MB env var.
+        """,
+        config=True,
+    )
+
+    upload_retention_hours = Int(
+        default_value=_DEFAULT_UPLOAD_RETENTION_HOURS,
+        help="""
+        How long staged uploads survive before they're swept on the next
+        upload. Files still referenced by a long-running Claude session
+        past this window will be unreachable, so tune higher for long
+        sessions. Set to 0 to disable the lazy sweep and keep only the
+        atexit purge. Overridden by the NBI_UPLOAD_RETENTION_HOURS env
+        var.
+        """,
+        config=True,
+    )
+
     allow_github_plugin_import = Bool(
         default_value=True,
         help="""
@@ -2459,6 +2569,12 @@ class NotebookIntelligence(ExtensionApp):
             )
             * 1024
             * 1024
+        )
+        FileUploadHandler.upload_max_mb = _resolve_positive_int_with_env(
+            "NBI_UPLOAD_MAX_MB", self.upload_max_mb
+        )
+        FileUploadHandler.upload_retention_hours = _resolve_positive_int_with_env(
+            "NBI_UPLOAD_RETENTION_HOURS", self.upload_retention_hours
         )
         self._publish_policies(feature_policies, string_overrides)
         NotebookIntelligence.handlers = [

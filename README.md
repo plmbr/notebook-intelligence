@@ -168,6 +168,7 @@ Most settings panel toggles can be locked by org administrators. Two shapes:
 | `NBI_SKILLS_MANAGEMENT_POLICY`             | The Skills tab (force-off hides it and 403s the API; also disables the managed-skills reconciler)                            |
 | `NBI_CLAUDE_MCP_MANAGEMENT_POLICY`         | The Claude-mode MCP Servers tab (force-off hides it and 403s `/claude-mcp/*`; independent of the non-Claude MCP Servers tab) |
 | `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY`     | The Claude-mode Plugins tab (force-off hides it and 403s `/plugins/*`)                                                       |
+| `NBI_TERMINAL_DRAG_DROP_POLICY`            | Terminal drag-drop file attach feature                                                                                       |
 
 The first three also have matching traitlets on `NotebookIntelligence` (`explain_error_policy`, `output_followup_policy`, `output_toolbar_policy`); add the others as needed in the same shape:
 
@@ -192,6 +193,15 @@ Per-user preferences (default on for the cell-output features) live in `config.j
 | `ANTHROPIC_BASE_URL`                   | Claude → Base URL                                                            |
 
 Provider IDs: `github-copilot`, `openai-compatible`, `litellm-compatible`, `ollama`, `none`. The `*_MODEL_ID` value is whatever the chosen provider exposes (e.g. `gpt-4o`, `llama3:latest`). Claude model IDs are the literal IDs from the Anthropic API (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`); empty string = "Default (recommended)"; `NBI_CLAUDE_INLINE_COMPLETION_MODEL` also accepts `none` (no inline completion in Claude mode) or `inherit` (use the General-tab Auto-complete model).
+
+**Upload tunables** govern the shared upload endpoint used by both chat-sidebar file attachments and terminal drag-drop:
+
+| Env var                      | Default | Behavior                                                                                                                                                          |
+| ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NBI_UPLOAD_MAX_MB`          | `50`    | Per-file size cap in megabytes. Requests over the cap return HTTP 413. Set to `0` to disable the cap entirely.                                                    |
+| `NBI_UPLOAD_RETENTION_HOURS` | `24`    | How long staged uploads survive in the temp directory before the next upload sweeps them. Set to `0` to keep only the atexit purge (uploads survive the session). |
+
+The same values are also configurable via the `upload_max_mb` and `upload_retention_hours` traitlets on `NotebookIntelligence`.
 
 ### Remembering GitHub Copilot login
 
