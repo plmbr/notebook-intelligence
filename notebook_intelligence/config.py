@@ -230,6 +230,35 @@ class NBIConfig:
         """Get dictionary of active rule states (filename -> bool)."""
         return self.get('active_rules', {})
     
+    @property
+    def mysql_config(self) -> dict:
+        """Get MySQL configuration."""
+        return self.get('mysql_config', {
+            'enabled': False,
+            'host': 'localhost',
+            'port': 3306,
+            'user': '',
+            'password': '',
+            'database': 'notebook_intelligence'
+        })
+
+    @property
+    def history_config(self) -> dict:
+        """Get chat history storage configuration."""
+        cfg = self.get('history_config', {})
+        mode = cfg.get('mode', 'local')
+        local_max_messages = cfg.get('local_max_messages', 10)
+        try:
+            local_max_messages = int(local_max_messages)
+        except Exception:
+            local_max_messages = 10
+        if local_max_messages < 1:
+            local_max_messages = 1
+        return {
+            'mode': mode if mode in ['mysql', 'local', 'none'] else 'local',
+            'local_max_messages': local_max_messages
+        }
+    
     def set_rule_active(self, filename: str, active: bool):
         """Set the active state of a rule."""
         active_rules = self.active_rules.copy()

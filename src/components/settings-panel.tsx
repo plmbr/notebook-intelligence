@@ -312,6 +312,7 @@ function SettingsPanelComponentGeneral(props: any) {
   const isInClaudeCodeMode = nbiConfig.isInClaudeCodeMode;
 
   const handleSaveSettings = async () => {
+    const mysqlEnabled = historyMode === 'mysql';
     const config: any = {
       default_chat_mode: defaultChatMode,
       chat_model: {
@@ -324,7 +325,19 @@ function SettingsPanelComponentGeneral(props: any) {
         model: inlineCompletionModel,
         properties: inlineCompletionModelProperties
       },
-      inline_completion_debouncer_delay: inlineCompletionDebouncerDelay
+      inline_completion_debouncer_delay: inlineCompletionDebouncerDelay,
+      history_config: {
+        mode: historyMode,
+        local_max_messages: localMaxMessages
+      },
+      mysql_config: {
+        enabled: mysqlEnabled,
+        host: mysqlHost,
+        port: mysqlPort,
+        user: mysqlUser,
+        password: mysqlPassword,
+        database: mysqlDatabase
+      }
     };
 
     if (
@@ -334,7 +347,34 @@ function SettingsPanelComponentGeneral(props: any) {
       config.store_github_access_token = storeGitHubAccessToken;
     }
 
-    await NBIAPI.setConfig(config);
+    try {
+      await NBIAPI.setConfig(config);
+      const initialMode = initialHistoryModeRef.current;
+      if (initialMode === 'local' && historyMode === 'mysql') {
+        localStorage.removeItem('nbi_last_chat_id');
+      }
+      initialHistoryModeRef.current = historyMode;
+    } catch (error: any) {
+      const message =
+        (error && (error.message || error.toString())) ||
+        'Unknown config error';
+      window.alert(
+        `Failed to apply history settings.\n${message}\n\nHistory mode has been downgraded to 'none' if MySQL is unavailable.`
+      );
+      await NBIAPI.fetchCapabilities();
+      const refreshedHistory = NBIAPI.config.historyConfig ?? {
+        mode: 'none',
+        local_max_messages: 10
+      };
+      const refreshedMysql = NBIAPI.config.mysqlConfig ?? {};
+      setHistoryMode(refreshedHistory.mode ?? 'none');
+      setLocalMaxMessages(Number(refreshedHistory.local_max_messages ?? 10));
+      setMysqlHost(refreshedMysql.host ?? 'localhost');
+      setMysqlPort(Number(refreshedMysql.port ?? 3306));
+      setMysqlUser(refreshedMysql.user ?? '');
+      setMysqlPassword(refreshedMysql.password ?? '');
+      setMysqlDatabase(refreshedMysql.database ?? 'notebook_intelligence');
+    }
 
     props.onSave();
   };
@@ -383,6 +423,29 @@ function SettingsPanelComponentGeneral(props: any) {
       enable_output_toolbar: !featurePolicies.output_toolbar.enabled
     });
   };
+  const [historyMode, setHistoryMode] = useState(
+    nbiConfig.historyConfig?.mode ?? 'local'
+  );
+  const [localMaxMessages, setLocalMaxMessages] = useState(
+    Number(nbiConfig.historyConfig?.local_max_messages ?? 10)
+  );
+  const [mysqlHost, setMysqlHost] = useState(
+    nbiConfig.mysqlConfig?.host ?? 'localhost'
+  );
+  const [mysqlPort, setMysqlPort] = useState(
+    Number(nbiConfig.mysqlConfig?.port ?? 3306)
+  );
+  const [mysqlUser, setMysqlUser] = useState(nbiConfig.mysqlConfig?.user ?? '');
+  const [mysqlPassword, setMysqlPassword] = useState(
+    nbiConfig.mysqlConfig?.password ?? ''
+  );
+  const [mysqlDatabase, setMysqlDatabase] = useState(
+    nbiConfig.mysqlConfig?.database ?? 'notebook_intelligence'
+  );
+  const [mysqlApplyRequested, setMysqlApplyRequested] = useState(false);
+  const initialHistoryModeRef = useRef<string>(
+    nbiConfig.historyConfig?.mode ?? 'local'
+  );
 
   const toggleRefreshOpenFilesOnDiskChange = () => {
     NBIAPI.setConfig({
@@ -471,6 +534,12 @@ function SettingsPanelComponentGeneral(props: any) {
   }, []);
 
   useEffect(() => {
+    // UX guard:
+    // Validate MySQL only after explicit apply to avoid interrupting users
+    // while they are still filling connection fields.
+    if (historyMode === 'mysql' && !mysqlApplyRequested) {
+      return;
+    }
     handleSaveSettings();
   }, [
     defaultChatMode,
@@ -481,7 +550,15 @@ function SettingsPanelComponentGeneral(props: any) {
     inlineCompletionModel,
     inlineCompletionModelProperties,
     storeGitHubAccessToken,
-    inlineCompletionDebouncerDelay
+    inlineCompletionDebouncerDelay,
+    historyMode,
+    localMaxMessages,
+    mysqlHost,
+    mysqlPort,
+    mysqlUser,
+    mysqlPassword,
+    mysqlDatabase,
+    mysqlApplyRequested
   ]);
 
   return (
@@ -894,6 +971,138 @@ function SettingsPanelComponentGeneral(props: any) {
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="model-config-section">
+          <div className="model-config-section-header">Chat history storage</div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div>History mode</div>
+                <select
+                  className="jp-mod-styled"
+                  value={historyMode}
+                  onChange={event => {
+                    const nextMode = event.target.value;
+                    setHistoryMode(nextMode);
+                    if (nextMode === 'mysql') {
+                      setMysqlApplyRequested(false);
+                    }
+                  }}
+                >
+                  <option value="mysql">MySQL</option>
+                  <option value="local">Local temporary storage</option>
+                  <option value="none">None</option>
+                </select>
+                <div className="form-field-description" style={{ marginTop: '6px' }}>
+                  mysql: persisted in remote DB; local: in-process temporary memory (with limit); none: no backend chat history recording.
+                </div>
+                {historyMode === 'mysql' && (
+                  <div className="form-field-description" style={{ marginTop: '6px' }}>
+                    Fill MySQL connection fields, then click "Apply MySQL settings" to activate this mode.
+                  </div>
+                )}
+              </div>
+            </div>
+            {historyMode === 'local' && (
+              <div className="model-config-section-row">
+                <div className="model-config-section-column">
+                  <div>Local max messages</div>
+                  <input
+                    className="jp-mod-styled"
+                    type="number"
+                    value={localMaxMessages}
+                    min={1}
+                    onChange={event =>
+                      setLocalMaxMessages(Math.max(1, Number(event.target.value || 1)))
+                    }
+                  />
+                </div>
+                <div className="model-config-section-column"></div>
+              </div>
+            )}
+            {historyMode === 'mysql' && (
+              <>
+                <div className="model-config-section-row">
+                  <div className="model-config-section-column">
+                    <div>Host</div>
+                    <input
+                      className="jp-mod-styled"
+                      value={mysqlHost}
+                      onChange={event => {
+                        setMysqlHost(event.target.value);
+                      }}
+                      placeholder="localhost"
+                    />
+                  </div>
+                  <div className="model-config-section-column">
+                    <div>Port</div>
+                    <input
+                      className="jp-mod-styled"
+                      type="number"
+                      value={mysqlPort}
+                      onChange={event => {
+                        setMysqlPort(Number(event.target.value));
+                      }}
+                      placeholder="3306"
+                    />
+                  </div>
+                </div>
+                <div className="model-config-section-row">
+                  <div className="model-config-section-column">
+                    <div>User</div>
+                    <input
+                      className="jp-mod-styled"
+                      value={mysqlUser}
+                      onChange={event => {
+                        setMysqlUser(event.target.value);
+                      }}
+                      placeholder="root"
+                    />
+                  </div>
+                  <div className="model-config-section-column">
+                    <div>Password</div>
+                    <input
+                      className="jp-mod-styled"
+                      type="password"
+                      value={mysqlPassword}
+                      onChange={event => {
+                        setMysqlPassword(event.target.value);
+                      }}
+                      placeholder="password"
+                    />
+                  </div>
+                </div>
+                <div className="model-config-section-row">
+                  <div className="model-config-section-column">
+                    <div>Database</div>
+                    <input
+                      className="jp-mod-styled"
+                      value={mysqlDatabase}
+                      onChange={event => {
+                        setMysqlDatabase(event.target.value);
+                      }}
+                      placeholder="notebook_intelligence"
+                    />
+                  </div>
+                  <div className="model-config-section-column"></div>
+                </div>
+                <div className="model-config-section-row">
+                  <div className="model-config-section-column">
+                    <button
+                      className="jp-mod-styled"
+                      onClick={() => {
+                        setMysqlApplyRequested(true);
+                      }}
+                    >
+                      Apply MySQL settings
+                    </button>
+                  </div>
+                  <div className="model-config-section-column"></div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

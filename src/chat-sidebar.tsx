@@ -355,6 +355,32 @@ interface IChatMessage {
   chatModel?: { provider: string; model: string };
 }
 
+function chatCacheKey(chatId: string): string {
+  return `nbi_chat_cache_${chatId}`;
+}
+
+function serializeChatMessages(messages: IChatMessage[]): any[] {
+  return messages.map(msg => ({
+    ...msg,
+    date: msg.date?.toISOString?.() || new Date().toISOString(),
+    contents: msg.contents.map(content => ({
+      ...content,
+      created: content.created?.toISOString?.() || new Date().toISOString()
+    }))
+  }));
+}
+
+function deserializeChatMessages(serialized: any[]): IChatMessage[] {
+  return (serialized || []).map((msg: any) => ({
+    ...msg,
+    date: new Date(msg.date),
+    contents: (msg.contents || []).map((content: any) => ({
+      ...content,
+      created: new Date(content.created)
+    }))
+  }));
+}
+
 interface IWorkspaceFileOption {
   name: string;
   path: string;
@@ -560,7 +586,7 @@ function ChatResponse(props: any) {
     }
 
     let reasoningContent = '';
-    const reasoningStartTime = new Date(item.created);
+    let reasoningStartTime = new Date(item.created);
     const reasoningEndTime = new Date();
 
     let startPos = -1;
@@ -1207,9 +1233,185 @@ function SidebarComponent(props: any) {
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   // position on prompt history stack
   const [promptHistoryIndex, setPromptHistoryIndex] = useState(0);
-  const [chatId, setChatId] = useState(UUID.uuid4());
+  const [chatId, setChatId] = useState(() => {
+    const historyMode = NBIAPI.config.historyConfig?.mode ?? 'local';
+    if (historyMode === 'none') {
+      return UUID.uuid4();
+    }
+    const savedChatId = localStorage.getItem('nbi_last_chat_id');
+    return savedChatId || UUID.uuid4();
+  });
   const lastMessageId = useRef<string>('');
   const lastRequestTime = useRef<Date>(new Date());
+
+  const historyMode = NBIAPI.config.historyConfig?.mode ?? 'local';
+  const prevHistoryModeRef = useRef<string>(historyMode);
+
+  useEffect(() => {
+    const prevMode = prevHistoryModeRef.current;
+    const shouldResetTimeline =
+      (prevMode === 'none' && historyMode !== 'none') ||
+      (prevMode === 'local' && historyMode === 'mysql');
+    if (shouldResetTimeline) {
+      setChatId(UUID.uuid4());
+      setChatMessages([]);
+    }
+    prevHistoryModeRef.current = historyMode;
+  }, [historyMode]);
+
+  useEffect(() => {
+    if (historyMode === 'none') {
+      localStorage.removeItem('nbi_last_chat_id');
+      return;
+    }
+    localStorage.setItem('nbi_last_chat_id', chatId);
+  }, [chatId, historyMode]);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const history = await NBIAPI.fetchChatHistory(chatId);
+        if (history && history.length > 0) {
+          const formattedMessages: IChatMessage[] = [];
+
+          // History from backend is a list of individual messages
+          // We need to group them by assistant response if needed, 
+          // or just map them to IChatMessage
+          for (const msg of history) {
+            const date = new Date(msg.created_at);
+            const hasMessageContent =
+              !!msg.content ||
+              !!msg.reasoning_content ||
+              (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0);
+
+            // Ignore empty assistant/tool rows from legacy persistence to keep
+            // refresh state identical to pre-refresh streaming view.
+            if (!hasMessageContent && (msg.role === 'assistant' || msg.role === 'tool')) {
+              continue;
+            }
+
+            const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+            const serializedParts = toolCalls.find(
+              (call: any) => call?.type === 'ui_message_parts' && Array.isArray(call.parts)
+            );
+            const parameterCalls = toolCalls.filter(
+              (call: any) => call?.type === 'ui_tool_parameters' && call.arguments !== undefined
+            );
+
+            let contents: IChatMessageContent[] = [];
+            if (serializedParts && msg.role === 'assistant') {
+              contents = serializedParts.parts.map((part: any) => ({
+                id: UUID.uuid4(),
+                type: ResponseStreamDataType.Markdown,
+                content: part?.content || '',
+                reasoningContent: part?.reasoning_content || '',
+                reasoningFinished: !!part?.reasoning_content,
+                contentDetail: part?.detail,
+                created: date
+              }));
+            } else {
+              const toolCallDetail =
+                parameterCalls.length > 0
+                  ? {
+                      title: 'Parameters',
+                      content: `\`\`\`json\n${JSON.stringify(parameterCalls.map((call: any) => call.arguments), null, 2)}\n\`\`\``
+                    }
+                  : undefined;
+              contents = [
+                {
+                  id: UUID.uuid4(),
+                  type: ResponseStreamDataType.Markdown,
+                  content:
+                    msg.content ||
+                    (msg.role === 'tool' ? '(Tool execution output)' : ''),
+                  reasoningContent: msg.reasoning_content,
+                  reasoningFinished: !!msg.reasoning_content,
+                  contentDetail: toolCallDetail,
+                  created: date
+                }
+              ];
+            }
+
+            if (msg.role === 'user') {
+              formattedMessages.push({
+                id: UUID.uuid4(),
+                date,
+                from: 'user',
+                contents
+              });
+            } else if (msg.role === 'assistant' || msg.role === 'tool') {
+              formattedMessages.push({
+                id: UUID.uuid4(),
+                date,
+                from: 'copilot',
+                contents,
+                participant: NBIAPI.config.chatParticipants.find(p => p.id === msg.participant_id)
+              });
+            }
+          }
+          setChatMessages(formattedMessages);
+          if (historyMode === 'local') {
+            try {
+              localStorage.setItem(
+                chatCacheKey(chatId),
+                JSON.stringify(serializeChatMessages(formattedMessages))
+              );
+            } catch (e) {
+              console.warn('Failed to write chat cache', e);
+            }
+          }
+        } else {
+          if (historyMode === 'local') {
+            const cached = localStorage.getItem(chatCacheKey(chatId));
+            if (cached) {
+              try {
+                const parsed = JSON.parse(cached);
+                setChatMessages(deserializeChatMessages(parsed));
+              } catch (e) {
+                console.warn('Failed to parse chat cache', e);
+              }
+            } else {
+              setChatMessages([]);
+            }
+          } else {
+            setChatMessages([]);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch chat history:', error);
+        if (historyMode === 'local') {
+          const cached = localStorage.getItem(chatCacheKey(chatId));
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached);
+              setChatMessages(deserializeChatMessages(parsed));
+            } catch (e) {
+              console.warn('Failed to parse chat cache after history error', e);
+            }
+          }
+        } else {
+          setChatMessages([]);
+        }
+      }
+    };
+
+    fetchHistory();
+  }, [chatId, historyMode]);
+
+  useEffect(() => {
+    if (historyMode === 'local') {
+      try {
+        localStorage.setItem(
+          chatCacheKey(chatId),
+          JSON.stringify(serializeChatMessages(chatMessages))
+        );
+      } catch (e) {
+        console.warn('Failed to persist chat cache', e);
+      }
+    } else {
+      localStorage.removeItem(chatCacheKey(chatId));
+    }
+  }, [chatId, chatMessages, historyMode]);
   const [contextOn, setContextOn] = useState(false);
   const [activeDocumentInfo, setActiveDocumentInfo] =
     useState<IActiveDocumentInfo | null>(null);
@@ -4750,7 +4952,7 @@ function InlinePromptComponent(props: any) {
 
     submitCompletionRequest(
       {
-        messageId,
+        messageId: UUID.uuid4(),
         chatId: UUID.uuid4(),
         type: RunChatCompletionType.GenerateCode,
         content: prompt,
