@@ -1,54 +1,110 @@
-# Welcome to Jekyll!
-#
-# This config file is meant for settings that affect your whole blog, values
-# which you are expected to set up once and rarely edit after that. If you find
-# yourself editing this file very often, consider using Jekyll's data files
-# feature for the data you need to update frequently.
-#
-# For technical reasons, this file is *NOT* reloaded automatically when you use
-# 'bundle exec jekyll serve'. If you change this file, please restart the server process.
-#
-# If you need help with YAML syntax, here are some quick references for you:
-# https://learn-the-web.algonquindesign.ca/topics/markdown-yaml-cheat-sheet/#yaml
-# https://learnxinyminutes.com/docs/yaml/
-#
-# Site settings
-# These are used to personalize your new site. If you look in the HTML files,
-# you will see them accessed via {{ site.title }}, {{ site.email }}, and so on.
-# You can create any custom variable you would like, and they will be accessible
-# in the templates via {{ site.myvariable }}.
-
 title: Notebook Intelligence
-# email: your-email@example.com
-description: >- # this means to ignore newlines until "baseurl:"
-  AI coding assistant and extensible AI framework for JupyterLab
-domain: notebook-intelligence.github.io       # if you want to force HTTPS, specify the domain without the http at the start, e.g. example.com
-url: https://notebook-intelligence.github.io  # the base hostname and protocol for your site, e.g. http://example.com
+description: >-
+  A JupyterLab extension for Claude Code, GitHub Copilot, Ollama, and
+  OpenAI-compatible models — with MCP, Skills, Plugins, and admin policy.
+url: https://notebook-intelligence.github.io
 baseurl: /notebook-intelligence
+domain: notebook-intelligence.github.io
+
+# Personal social signals; mirrored by jekyll-seo-tag into Twitter cards.
 twitter_username: mbektash
-github_username:  mbektas
+github_username: mbektas
 
-# Build settings
-theme: minima
-# plugins:
-#   - jekyll-feed
+author:
+  name: Mehmet Bektaş
+  twitter: mbektash
 
-# Exclude from processing.
-# The following items will not be processed, by default.
-# Any item listed under the `exclude:` key here will be automatically added to
-# the internal "default list".
-#
-# Excluded items can be processed by explicitly listing the directories or
-# their entries' file path in the `include:` list.
-#
-# exclude:
-#   - .sass-cache/
-#   - .jekyll-cache/
-#   - gemfiles/
-#   - Gemfile
-#   - Gemfile.lock
-#   - node_modules/
-#   - vendor/bundle/
-#   - vendor/cache/
-#   - vendor/gems/
-#   - vendor/ruby/
+# Structured-data social block consumed by jekyll-seo-tag.
+social:
+  name: Notebook Intelligence
+  links:
+    - https://github.com/notebook-intelligence/notebook-intelligence
+    - https://twitter.com/mbektash
+
+# Default Open Graph image. Per-post overrides via front-matter `image:`.
+logo: /assets/og/og-default.png
+image: /assets/og/og-default.png
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-feed
+  - jekyll-redirect-from
+
+permalink: /blog/:slug/
+future: true
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: page
+
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: highlight
+    block:
+      line_numbers: false
+
+sass:
+  style: compressed
+  sass_dir: _sass
+
+# Files / directories left in the working tree by other branches. Excluded
+# from the Jekyll build so the gh-pages site stays focused.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+  - node_modules/
+  - .venv/
+  - lib/
+  - tests/
+  - notebook_intelligence/
+  - .playwright-mcp/
+  - .pytest_cache/
+  - .yarn/
+  - .ipynb_checkpoints/
+  - .eslintcache
+  - .stylelintcache
+  - tsconfig.tsbuildinfo
+  - "*.ipynb"
+  # Root-level screenshot artifacts checked out from other branches.
+  - "a11y-final-state.png"
+  - "chat-picker-popover.png"
+  - "chat-sayhi.png"
+  - "chat-sidebar.png"
+  - "chat-test.png"
+  - "clean-167-test.png"
+  - "current-state.png"
+  - "debug-popover.png"
+  - "fibonacci-result.png"
+  - "final.png"
+  - "fresh-jupyter-test.png"
+  - "generate-done.png"
+  - "generate-fired.png"
+  - "issue182-step1-in-subdir.png"
+  - "issue182-step2-filebrowser.png"
+  - "issue182-step3-new-session.png"
+  - "jl-initial.png"
+  - "jupyterlab-main.png"
+  - "launcher-after-arrows.png"
+  - "launcher-after-enter.png"
+  - "launcher-after-rebuild.png"
+  - "launcher-after-restart.png"
+  - "launcher-full.png"
+  - "launcher-picker-open.png"
+  - "launcher-with-claude-tile.png"
+  - "popover-fixed.png"
+  - "popover-open.png"
+  - "popover-typed.png"
+  - "pr170-toolbar-left.png"

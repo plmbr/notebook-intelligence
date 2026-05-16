@@ -1,0 +1,130 @@
+// Self-hosted Geist Variable + Geist Mono Variable. One file per family,
+// full weight range, font-display: swap so text shows in fallback while
+// the woff2 streams.
+
+@font-face {
+  font-family: "Geist";
+  src: url("/notebook-intelligence/assets/fonts/Geist-Variable.woff2")
+    format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/notebook-intelligence/assets/fonts/GeistMono-Variable.woff2")
+    format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+  font-style: normal;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
+  color: var(--ink-900);
+}
+
+h1 {
+  font-size: var(--fs-4xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+h2 {
+  font-size: var(--fs-3xl);
+  margin-top: var(--space-16);
+  margin-bottom: var(--space-4);
+}
+
+h3 {
+  font-size: var(--fs-xl);
+  margin-top: var(--space-10);
+  margin-bottom: var(--space-3);
+}
+
+h4 {
+  font-size: var(--fs-lg);
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-2);
+}
+
+p,
+ul,
+ol,
+dl,
+blockquote {
+  margin-bottom: var(--space-5);
+  color: var(--ink-700);
+  line-height: var(--lh-relaxed);
+}
+
+ul,
+ol {
+  padding-left: var(--space-6);
+}
+
+li + li {
+  margin-top: var(--space-2);
+}
+
+li > ul,
+li > ol {
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+
+strong,
+b {
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+em,
+i {
+  font-style: italic;
+}
+
+blockquote {
+  border-left: 3px solid var(--accent);
+  padding: var(--space-2) var(--space-5);
+  color: var(--ink-500);
+  font-style: normal;
+}
+
+blockquote > p:last-child {
+  margin-bottom: 0;
+}
+
+small,
+.text-sm {
+  font-size: var(--fs-sm);
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent-text);
+  margin-bottom: var(--space-3);
+}
+
+.lede {
+  font-size: var(--fs-lg);
+  color: var(--ink-700);
+  line-height: var(--lh-relaxed);
+  max-width: var(--container-narrow);
+}
+
+.text-muted {
+  color: var(--ink-500);
+}

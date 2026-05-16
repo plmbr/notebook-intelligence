@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://notebook-intelligence.github.io/notebook-intelligence/sitemap.xml

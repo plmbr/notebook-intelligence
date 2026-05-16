@@ -1,0 +1,115 @@
+// Rouge syntax-highlight palette. Single rule set; colors map onto CSS
+// custom properties so the dark theme just flips the variable values.
+
+:root {
+  --rg-base: var(--ink-900);
+  --rg-comment: #6b7280;
+  --rg-keyword: #b45309;
+  --rg-string: #047857;
+  --rg-number: #1d4ed8;
+  --rg-name: var(--ink-900);
+  --rg-builtin: #6d28d9;
+  --rg-operator: var(--ink-700);
+  --rg-error: #b91c1c;
+}
+
+:root[data-theme="dark"] {
+  --rg-base: #fafafa;
+  --rg-comment: #9ca3af;
+  --rg-keyword: #fbbf24;
+  --rg-string: #6ee7b7;
+  --rg-number: #93c5fd;
+  --rg-name: #fafafa;
+  --rg-builtin: #c4b5fd;
+  --rg-operator: #d4d4d4;
+  --rg-error: #fca5a5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --rg-base: #fafafa;
+    --rg-comment: #9ca3af;
+    --rg-keyword: #fbbf24;
+    --rg-string: #6ee7b7;
+    --rg-number: #93c5fd;
+    --rg-name: #fafafa;
+    --rg-builtin: #c4b5fd;
+    --rg-operator: #d4d4d4;
+    --rg-error: #fca5a5;
+  }
+}
+
+.highlight {
+  color: var(--rg-base);
+}
+
+.highlight .c,
+.highlight .c1,
+.highlight .cm,
+.highlight .cs,
+.highlight .cp,
+.highlight .ch,
+.highlight .cd {
+  color: var(--rg-comment);
+  font-style: italic;
+}
+.highlight .k,
+.highlight .kc,
+.highlight .kd,
+.highlight .kn,
+.highlight .kp,
+.highlight .kr,
+.highlight .kt {
+  color: var(--rg-keyword);
+}
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .sb,
+.highlight .sc,
+.highlight .sd,
+.highlight .se,
+.highlight .sh,
+.highlight .si,
+.highlight .sx,
+.highlight .sr,
+.highlight .ss {
+  color: var(--rg-string);
+}
+.highlight .m,
+.highlight .mi,
+.highlight .mf,
+.highlight .mh,
+.highlight .mo,
+.highlight .il {
+  color: var(--rg-number);
+}
+.highlight .n,
+.highlight .na,
+.highlight .nb,
+.highlight .nc,
+.highlight .no,
+.highlight .nd,
+.highlight .ne,
+.highlight .nf,
+.highlight .ni,
+.highlight .nl,
+.highlight .nn,
+.highlight .nv,
+.highlight .nx,
+.highlight .py,
+.highlight .nt {
+  color: var(--rg-name);
+}
+.highlight .bp {
+  color: var(--rg-builtin);
+}
+.highlight .o,
+.highlight .ow,
+.highlight .p {
+  color: var(--rg-operator);
+}
+.highlight .err {
+  color: var(--rg-error);
+  text-decoration: underline;
+}

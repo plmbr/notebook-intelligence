@@ -1,0 +1,155 @@
+// Design tokens. All themeable values are CSS custom properties so the
+// dark-mode variant is a single attribute flip on <html>, not a recompile.
+
+:root {
+  --bg: #ffffff;
+  --bg-elev: #fafafa;
+  --bg-subtle: #f5f5f5;
+  --bg-inverse: #0a0a0a;
+
+  --ink-900: #0a0a0a;
+  --ink-700: #404040;
+  --ink-500: #737373;
+  --ink-300: #a3a3a3;
+  --ink-200: #d4d4d4;
+  --ink-100: #e5e5e5;
+  --ink-inverse: #fafafa;
+
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+
+  --accent: #f37726;
+  --accent-hover: #e5651a;
+  --accent-soft: #fff1e8;
+  --accent-ink: #ffffff;
+  // Darker shade for accent text and focus outlines so they hit 4.5:1 / 3:1
+  // against light backgrounds; --accent itself stays brand-bright for fills.
+  --accent-text: #c2410c;
+
+  --link: #1d4ed8;
+  --link-hover: #1e40af;
+
+  --success: #15803d;
+  --warn: #b7791f;
+  --danger: #b91c1c;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -8px rgba(0, 0, 0, 0.12);
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 999px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --space-32: 8rem;
+
+  --fs-xs: 0.8rem;
+  --fs-sm: 0.875rem;
+  --fs-base: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.25rem;
+  --fs-2xl: 1.5rem;
+  --fs-3xl: 1.875rem;
+  --fs-4xl: 2.5rem;
+  --fs-5xl: 3.5rem;
+  --fs-hero: clamp(2.5rem, 4vw + 1rem, 4rem);
+
+  --lh-tight: 1.15;
+  --lh-snug: 1.3;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.65;
+
+  --container-max: 1140px;
+  --container-narrow: 760px;
+  --header-h: 64px;
+
+  --font-sans:
+    "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo,
+    monospace;
+
+  --easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-decel: cubic-bezier(0, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --bg-elev: #171717;
+  --bg-subtle: #1f1f1f;
+  --bg-inverse: #fafafa;
+
+  --ink-900: #fafafa;
+  --ink-700: #d4d4d4;
+  --ink-500: #a3a3a3;
+  --ink-300: #737373;
+  --ink-200: #404040;
+  --ink-100: #262626;
+  --ink-inverse: #0a0a0a;
+
+  --border: #262626;
+  --border-strong: #404040;
+
+  --accent: #ff8a3d;
+  --accent-hover: #ff9d5c;
+  --accent-soft: #2a1810;
+  --accent-ink: #0a0a0a;
+  --accent-text: #ff8a3d;
+
+  --link: #93c5fd;
+  --link-hover: #bfdbfe;
+
+  --success: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 32px -8px rgba(0, 0, 0, 0.5);
+}
+
+// Honor system preference when the user hasn't picked a theme manually.
+// The inline <head> script flips data-theme to "light" or "dark" before
+// first paint based on localStorage; the media-query fallback covers the
+// JS-disabled case.
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #0a0a0a;
+    --bg-elev: #171717;
+    --bg-subtle: #1f1f1f;
+    --bg-inverse: #fafafa;
+    --ink-900: #fafafa;
+    --ink-700: #d4d4d4;
+    --ink-500: #a3a3a3;
+    --ink-300: #737373;
+    --ink-200: #404040;
+    --ink-100: #262626;
+    --ink-inverse: #0a0a0a;
+    --border: #262626;
+    --border-strong: #404040;
+    --accent: #ff8a3d;
+    --accent-hover: #ff9d5c;
+    --accent-soft: #2a1810;
+    --accent-ink: #0a0a0a;
+    --accent-text: #ff8a3d;
+    --link: #93c5fd;
+    --link-hover: #bfdbfe;
+  }
+}

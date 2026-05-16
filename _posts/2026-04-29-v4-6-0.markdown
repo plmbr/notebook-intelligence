@@ -1,0 +1,72 @@
+---
+layout: post
+title: "NBI 4.6.0 — Skills management, restructured docs, Windows reliability"
+date: 2026-04-29 12:00:00 -0700
+permalink: /blog/v4-6-0/
+description: "Claude Skills management panel, a documentation restructure, and a stack of Windows Claude-mode reliability fixes."
+---
+
+NBI 4.6.0 ships a Claude Skills management panel, a documentation restructure that splits reference content out of the README, and a stack of Windows Claude-mode reliability fixes.
+
+## Claude Skills management
+
+Settings now exposes a **Skills** tab for managing the bundles Claude can invoke (the `SKILL.md` frontmatter, helper files, and allowed tools). Skills resolve from the same two locations the Claude CLI reads:
+
+- `~/.claude/skills/` — user scope.
+- `<project>/.claude/skills/` — project scope.
+
+You can author Skills inline, duplicate and rename them, and delete with undo. The **Import from GitHub** dialog accepts a `github.com/owner/repo/tree/<ref>/<path>` URL pointing at a Skill bundle and installs it via the public tarball API.
+
+For organization deployments, NBI can install and maintain a curated set from a YAML manifest:
+
+```yaml
+skills:
+  - url: https://github.com/your-org/data-skills/tree/main/skills/eda
+    scope: user
+  - url: https://github.com/your-org/data-skills/tree/main/skills/ml-recipes
+    scope: user
+```
+
+Point `NBI_SKILLS_MANIFEST` at the manifest's URL or filesystem path. NBI's reconciler installs every Skill at startup and re-syncs every 24h (`NBI_SKILLS_MANIFEST_INTERVAL` overrides). Managed Skills are read-only in the UI — users can't edit, rename, or delete them, and the reconciler restores any that disappear from disk.
+
+Full reference: [docs/skills.md](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/skills.md).
+
+## Restructured documentation
+
+The README has been rewritten with a table of contents and a concept glossary. Reference content moved out of the README and into focused docs:
+
+- [`SECURITY.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/SECURITY.md) — private disclosure, threat model, supply-chain posture.
+- [`PRIVACY.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/PRIVACY.md) — what NBI sends where.
+- [`docs/admin-guide.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/admin-guide.md) — every `NBI_*` env var and policy.
+- [`docs/rulesets.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/rulesets.md) — markdown-based prompt injection.
+- [`docs/skills.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/skills.md) — Skills authoring, importing, and the manifest reconciler.
+- [`docs/troubleshooting.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/troubleshooting.md) — common issues with copy-pasteable fixes.
+
+If you've been linking deep into the README from internal wikis, the new home for each section is documented in the [migration table at the top of the README](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/README.md).
+
+## Windows Claude mode reliability
+
+A cluster of fixes for Claude mode on Windows:
+
+- The Claude agent thread now uses the Proactor event loop on Windows, which fixes subprocess spawn failures and intermittent "Claude agent not connected" races at startup.
+- The Claude SDK retry path reconnects when the worker thread has died instead of waiting out the full response timeout.
+- Anthropic credentials are normalized (whitespace + scheme handling) before being passed to the SDK, so a stray newline in a `.env` file no longer breaks auth.
+
+## Security hardening
+
+Skill imports from GitHub reject tarball entries containing absolute paths or `../` traversal — a malicious or buggy bundle can no longer write outside its install directory.
+
+## Other fixes
+
+- `_send_claude_agent_request` guards against a disconnect race that left chat handlers waiting on a closed queue.
+- WebSocket message handlers are disconnected when the originating request finishes; previously they accumulated for the lifetime of the WebSocket.
+- `configChanged` handlers are disconnected when components unmount, fixing a slow leak when the chat sidebar was opened and closed repeatedly.
+- The Claude session picker scrolls correctly when the transcript count exceeds the visible area.
+
+## Install
+
+```bash
+pip install --upgrade notebook-intelligence
+```
+
+Then restart JupyterLab. Full changes in the [CHANGELOG](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/CHANGELOG.md#460--2026-04-29).

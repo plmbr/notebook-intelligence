@@ -1,0 +1,70 @@
+---
+layout: post
+title: "NBI 4.8.0 — Smarter workspace picker, atomic config saves, GitHub-import gate"
+date: 2026-05-12 06:00:00 -0700
+permalink: /blog/v4-8-0/
+description: "The chat-sidebar workspace picker is now .gitignore-aware, dot-file-aware, and parallel. Config saves are atomic. A new admin policy gates GitHub-based Skill imports."
+---
+
+NBI 4.8.0 focuses on the small surfaces that users hit most: the chat sidebar's `@`-mention workspace picker, the on-disk config file, and the Skills import path.
+
+## Workspace picker — faster, quieter, gitignore-aware
+
+When you type `@` in the chat sidebar, NBI now scans your workspace in parallel. On a 1,000-file project the scan is roughly an order of magnitude faster than the 4.7.x serial walk, with a single concurrent dispatch instead of nested awaits per directory.
+
+Three other improvements land alongside the perf work:
+
+- **Skip dot-prefixed files.** `.git/`, `.venv/`, `.idea/`, `.DS_Store` and similar entries no longer clutter the picker by default.
+- **Honor `.gitignore`.** Workspace files matched by the project's `.gitignore` are excluded. This is the right default for most repos and stops the picker from returning multi-megabyte build artifacts.
+- **Extensible filter system.** Filters are pluggable internally, so future filters (a per-user allowlist, a max-file-size cap, a JupyterLab settings-driven exclude list) slot in without churn.
+
+If you want a folder back that's currently ignored, set `additional_skipped_workspace_directories` in `~/.jupyter/nbi/config.json` or override at the deployment level via `NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES`.
+
+## Atomic config saves
+
+`NBIConfig.save()` is now atomic. Previously, a crash mid-write (or a hard kill of the JupyterLab process) could leave `~/.jupyter/nbi/config.json` truncated or partially-written, and the next launch would either error out or fall back to defaults with no warning.
+
+The new path:
+
+1. Write the new contents to a sibling temp file in the same directory.
+2. `fsync()` the temp file.
+3. `rename()` the temp file over the target — atomic on POSIX, single-syscall-ish on Windows.
+4. Preserve the original file's mode and symlinks.
+
+Net effect: the config file is either the full old contents or the full new contents at all times. No more silent corruption.
+
+## `allow_github_skill_import` admin policy
+
+A new traitlet and environment variable gate the **Import from GitHub** Skills dialog:
+
+- Traitlet: `NotebookIntelligence.allow_github_skill_import` (Bool, default `True`).
+- Env override: `NBI_ALLOW_GITHUB_SKILL_IMPORT=true|false`.
+
+When set to `false`, the dialog is removed from the Skills UI and the server rejects GitHub-import API calls. Org-managed manifest installs still work — this gate is for the user-driven path.
+
+The env-var parser is fail-loud: a typo like `NBI_ALLOW_GITHUB_SKILL_IMPORT=ture` raises at startup rather than silently falling through to the default.
+
+## Redirect hardening on Skill fetches
+
+The Skills GitHub-import path used to follow HTTP redirects without restriction. 4.8.0 narrows the policy:
+
+- **No HTTPS-to-HTTP downgrades.** If a `https://...` redirect points at `http://...`, the request fails.
+- **Scope-checked redirects.** Redirects to hosts outside the original request's scope (e.g. `github.com` → `evil.example.com`) are blocked.
+
+A malicious or hijacked Skill bundle source can no longer redirect NBI through an attacker-controlled host.
+
+## Cell toolbar position adjustment
+
+The NBI cell toolbar's position has been nudged to coexist better with JupyterLab's native cell toolbar — fewer overlaps on narrow notebooks. The NBI notebook toolbar button (sparkle icon) is also now correctly gated on whether Claude mode is active.
+
+## Skipping dot-files in `@`-mentions
+
+Beyond the workspace scan, the `@`-mention context picker also now skips dot-prefixed files at the top level. Previously they could appear in the picker if you typed `@.<character>` — useful in rare cases but mostly noise.
+
+## Install
+
+```bash
+pip install --upgrade notebook-intelligence
+```
+
+Then restart JupyterLab. Full set of changes in the [v4.8.0 release notes](https://github.com/notebook-intelligence/notebook-intelligence/releases/tag/v4.8.0).

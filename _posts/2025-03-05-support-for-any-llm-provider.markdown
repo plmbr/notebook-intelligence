@@ -1,8 +1,12 @@
 ---
 layout: post
-title:  "Notebook Intelligence now supports any LLM Provider and AI Model!"
-date:   2025-03-05 01:00:00 -0800
-categories: blog
+title: "Notebook Intelligence now supports any LLM Provider and AI Model"
+date: 2025-03-05 01:00:00 -0800
+archived: true
+permalink: /blog/archive/support-for-any-llm-provider/
+redirect_from:
+  - /blog/2025/03/05/support-for-any-llm-provider.html
+  - /blog/support-for-any-llm-provider/
 ---
 
 [Notebook Intelligence](https://github.com/notebook-intelligence/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)

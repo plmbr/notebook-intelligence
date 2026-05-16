@@ -1,0 +1,28 @@
+<header class="site-header" role="banner">
+  <div class="container site-header__inner">
+    <a class="site-header__brand" href="{{ '/' | relative_url }}" aria-label="Notebook Intelligence — home">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="1" y="1" width="20" height="20" rx="5" fill="currentColor" />
+        <path d="M6 7h2.2l4.6 6.4V7H15v8h-2.2L8.2 8.6V15H6V7z" fill="var(--bg)" />
+      </svg>
+      <span>Notebook Intelligence</span>
+    </a>
+
+    <nav class="site-header__nav" aria-label="Primary">
+      <a href="{{ '/features/' | relative_url }}"{% if page.url contains '/features/' %} aria-current="page"{% endif %}>Features</a>
+      <a href="{{ '/install/' | relative_url }}"{% if page.url == '/install/' %} aria-current="page"{% endif %}>Install</a>
+      <a href="{{ '/providers/' | relative_url }}"{% if page.url == '/providers/' %} aria-current="page"{% endif %}>Providers</a>
+      <a href="{{ '/admin/' | relative_url }}"{% if page.url == '/admin/' %} aria-current="page"{% endif %}>Admin</a>
+      <a href="{{ '/blog/' | relative_url }}"{% if page.url contains '/blog/' %} aria-current="page"{% endif %}>Blog</a>
+    </nav>
+
+    <div class="site-header__actions">
+      {% include theme-toggle.html %}
+      <a class="icon-btn" href="https://github.com/notebook-intelligence/notebook-intelligence" rel="noopener" aria-label="GitHub repository">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.02c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.09-.12-.29-.51-1.47.11-3.06 0 0 .97-.31 3.18 1.18A11 11 0 0112 6.8c.99.01 1.99.13 2.92.39 2.21-1.49 3.18-1.18 3.18-1.18.62 1.59.23 2.77.11 3.06.74.8 1.18 1.83 1.18 3.09 0 4.43-2.69 5.4-5.25 5.69.41.35.78 1.04.78 2.1v3.11c0 .31.21.67.79.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z" />
+        </svg>
+      </a>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,92 @@
+---
+layout: post
+title: "NBI 4.7.0 — Cell output actions, agent toolbar, Claude launcher tile"
+date: 2026-05-07 12:00:00 -0700
+permalink: /blog/v4-7-0/
+description: "Right-click any cell output for Explain / Ask / Troubleshoot. Image attachments in chat. Claude Code launcher tile. Streaming inline-chat responses. Extended admin policy coverage."
+---
+
+NBI 4.7.0 is a feature-dense release. The headline is **cell output actions**: right-click any output to send it to the chat as structured context. Image attachments, streaming inline chat, and a Claude Code launcher tile all land alongside.
+
+## Cell output actions
+
+Right-click a cell output — or hover for the new toolbar — to open the chat sidebar with the output already attached as context. Three actions ship:
+
+- **Explain** — "what is this output telling me?"
+- **Ask** — open a chat with the output attached, ready for whatever follow-up you want.
+- **Troubleshoot** — for stack traces, error messages, or unexpected results.
+
+Outputs forward as structured MIME bundles, including images for vision-capable models. The attachment is token-bounded so a large output doesn't overflow the context window.
+
+Per-user toggles live in `config.json` (`enable_explain_error`, `enable_output_followup`, `enable_output_toolbar`, all default on). Admins can lock the feature via `NBI_EXPLAIN_ERROR_POLICY`, `NBI_OUTPUT_FOLLOWUP_POLICY`, and `NBI_OUTPUT_TOOLBAR_POLICY`.
+
+## Image attachments in chat
+
+Paste or attach images alongside a prompt. When the active model is vision-capable (Claude with vision enabled, GPT-4o, Gemini, etc.), the image is forwarded as model input — useful for screenshots, plots, and architecture diagrams.
+
+## Streaming inline chat
+
+The inline chat popover (<kbd>Cmd</kbd>+<kbd>I</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd>) now streams tokens as they arrive instead of waiting for the full response. Long answers feel responsive instead of stalled.
+
+## Notebook-scoped generation
+
+A sparkle icon on the active notebook's toolbar opens a popover that scopes the generation to that notebook specifically. Useful when you have multiple notebooks open and want the agent to focus on the one in front.
+
+## Claude Code launcher tile
+
+A Claude Code tile in the JupyterLab launcher opens a session picker: resume an existing transcript or start a new one in the file browser's active subdirectory. Session IDs are copyable from the picker for sharing or for use with the `claude` CLI directly.
+
+## Repo-level `AGENTS.md`
+
+When a project root contains an `AGENTS.md` file, NBI appends its contents under the system prompt's "Additional Guidelines" section, alongside the existing ruleset injection. Useful for monorepos that already keep agent instructions there.
+
+## Claude WebSocket heartbeat
+
+Long-running Claude agent requests now stay alive through upstream proxy and load-balancer idle timeouts (JupyterHub's nginx defaults to 60s) by sending a status heartbeat every 20s while a request is in flight. Fixes Bedrock-style request failures where processing exceeded the proxy idle window.
+
+## Extended admin policy coverage
+
+Every Settings panel toggle is now lockable via an environment variable. New boolean policies:
+
+- `NBI_CLAUDE_MODE_POLICY`
+- `NBI_CLAUDE_CONTINUE_CONVERSATION_POLICY`
+- `NBI_CLAUDE_CODE_TOOLS_POLICY`
+- `NBI_CLAUDE_JUPYTER_UI_TOOLS_POLICY`
+- `NBI_CLAUDE_SETTING_SOURCE_USER_POLICY`
+- `NBI_CLAUDE_SETTING_SOURCE_PROJECT_POLICY`
+- `NBI_STORE_GITHUB_ACCESS_TOKEN_POLICY`
+
+New value-presence locks (set the env var to a value to pin it; the UI control becomes read-only):
+
+- `NBI_CHAT_MODEL_PROVIDER`, `NBI_CHAT_MODEL_ID`
+- `NBI_INLINE_COMPLETION_MODEL_PROVIDER`, `NBI_INLINE_COMPLETION_MODEL_ID`
+- `NBI_CLAUDE_CHAT_MODEL`, `NBI_CLAUDE_INLINE_COMPLETION_MODEL`
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`
+
+The `/claude-sessions` HTTP route also accepts `?scope=cwd` to filter to sessions whose recorded `cwd` matches the lab's working directory.
+
+Full env-var reference: [docs/admin-guide.md](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/admin-guide.md).
+
+## Internal
+
+- Claude agent connection now happens in the background so JupyterLab finishes loading without waiting on the SDK handshake.
+- CI now runs `pytest tests/` and `jlpm test` on every PR. Both build jobs declare `permissions: { contents: read }` so a compromised step can't push.
+
+## Notable fixes
+
+- **API hygiene** in `notebook_intelligence.api`: `raise NotImplemented` (which raised `TypeError`) is now `raise NotImplementedError`; five shared-default-argument cases were corrected; `Signal.disconnect` tolerates double-disconnect with a debug-level log; registrar methods raise a new `RegistrationError` instead of silently logging.
+- **Claude headers** (model + version) now sent on inline completion calls, matching the chat path.
+- **OpenAI-compatible provider** drops the unsupported `tool.strict` flag when targeting vLLM (#108).
+- **Symlink-aware session lookup** — resolves symlinks when locating Claude session transcripts, so `~/.claude/projects/` symlinked off another volume keeps working.
+- Claude worker thread no longer crashes on cancellation.
+- "Generating..." row no longer reflows the chat sidebar on narrow widths.
+- Skills popup in the chat sidebar dismisses on click-outside or when the input is cleared.
+- Spurious "Skills reloaded" notification at Claude-session launch is gone — the watcher now keys off a structural signature of bundle dirs plus `SKILL.md` mtimes.
+
+## Install
+
+```bash
+pip install --upgrade notebook-intelligence
+```
+
+Then restart JupyterLab. Full changes in the [CHANGELOG](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/CHANGELOG.md#470--2026-05-07).

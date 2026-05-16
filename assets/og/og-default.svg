@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#171717"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- subtle grid -->
+  <g opacity="0.04" stroke="#fafafa" stroke-width="1">
+    <line x1="0"   y1="0"   x2="0"   y2="630"/>
+    <line x1="300" y1="0"   x2="300" y2="630"/>
+    <line x1="600" y1="0"   x2="600" y2="630"/>
+    <line x1="900" y1="0"   x2="900" y2="630"/>
+    <line x1="1200" y1="0"  x2="1200" y2="630"/>
+    <line x1="0" y1="0"     x2="1200" y2="0"/>
+    <line x1="0" y1="157.5" x2="1200" y2="157.5"/>
+    <line x1="0" y1="315"   x2="1200" y2="315"/>
+    <line x1="0" y1="472.5" x2="1200" y2="472.5"/>
+    <line x1="0" y1="630"   x2="1200" y2="630"/>
+  </g>
+
+  <!-- accent bar -->
+  <rect x="100" y="100" width="40" height="6" rx="3" fill="#f37726"/>
+
+  <!-- brand wordmark -->
+  <g transform="translate(100, 120)">
+    <text font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500"
+          font-size="22" letter-spacing="2" fill="#a3a3a3">
+      <tspan x="0" y="36">NOTEBOOK INTELLIGENCE</tspan>
+    </text>
+  </g>
+
+  <!-- headline -->
+  <g transform="translate(100, 240)">
+    <text font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700"
+          font-size="92" fill="#fafafa" letter-spacing="-3">
+      <tspan x="0" y="80">Claude Code,</tspan>
+      <tspan x="0" y="180">in your notebook.</tspan>
+    </text>
+  </g>
+
+  <!-- footer line -->
+  <g transform="translate(100, 540)">
+    <text font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="400"
+          font-size="22" fill="#737373">
+      <tspan x="0" y="0">A JupyterLab extension for Claude Code, GitHub Copilot, Ollama,</tspan>
+      <tspan x="0" y="30">and OpenAI-compatible models.</tspan>
+    </text>
+  </g>
+</svg>

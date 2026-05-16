@@ -1,25 +1,22 @@
 ---
 permalink: /404.html
 layout: default
+title: Page not found
 ---
 
-<style type="text/css" media="screen">
-  .container {
-    margin: 10px auto;
-    max-width: 600px;
-    text-align: center;
-  }
-  h1 {
-    margin: 30px 0;
-    font-size: 4em;
-    line-height: 1;
-    letter-spacing: -1px;
-  }
-</style>
+<section class="section">
+  <div class="container-narrow" style="text-align: center;">
+    <p class="eyebrow">404</p>
+    <h1 style="font-size: var(--fs-5xl); letter-spacing: -0.03em;">This page wandered off.</h1>
+    <p class="lede" style="margin: var(--space-6) auto 0; max-width: 48ch;">
+      The URL you tried doesn't match anything on the site. Try one of these.
+    </p>
 
-<div class="container">
-  <h1>404</h1>
-
-  <p><strong>Page not found :(</strong></p>
-  <p>The requested page could not be found.</p>
-</div>
+    <div style="margin-top: var(--space-10); display: flex; gap: var(--space-3); justify-content: center; flex-wrap: wrap;">
+      <a class="btn btn--primary" href="{{ '/' | relative_url }}">Home</a>
+      <a class="btn btn--ghost" href="{{ '/install/' | relative_url }}">Install</a>
+      <a class="btn btn--ghost" href="{{ '/features/' | relative_url }}">Features</a>
+      <a class="btn btn--ghost" href="https://github.com/notebook-intelligence/notebook-intelligence/issues" rel="noopener">Report an issue</a>
+    </div>
+  </div>
+</section>

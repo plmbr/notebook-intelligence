@@ -1,0 +1,23 @@
+---
+layout: default
+---
+
+<article class="post" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="container-narrow">
+    {% if page.archived %}
+      <div class="stale-banner">
+        <strong>Archived post.</strong> Written {{ page.date | date: "%B %Y" }}. NBI has changed since this was written — see the <a href="{{ '/' | relative_url }}">current site</a> or the <a href="https://github.com/notebook-intelligence/notebook-intelligence/blob/main/CHANGELOG.md">changelog</a> for today's product.
+      </div>
+    {% endif %}
+
+    <header class="post__header">
+      <p class="post__date"><time datetime="{{ page.date | date_to_xmlschema }}" itemprop="datePublished">{{ page.date | date: "%B %-d, %Y" }}</time></p>
+      <h1 class="post__title" itemprop="headline">{{ page.title | escape }}</h1>
+      {% if page.subtitle %}<p class="page__lede">{{ page.subtitle | escape }}</p>{% endif %}
+    </header>
+
+    <div class="post__body" itemprop="articleBody">
+      {{ content }}
+    </div>
+  </div>
+</article>

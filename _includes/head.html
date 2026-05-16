@@ -1,0 +1,27 @@
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+
+{% seo %}
+
+<link rel="preconnect" href="https://github.com">
+<link rel="preload" href="{{ '/assets/fonts/Geist-Variable.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ '/assets/main.css' | relative_url }}">
+<link rel="alternate" type="application/atom+xml" title="{{ site.title | escape }} blog feed" href="{{ '/feed.xml' | relative_url }}">
+
+<link rel="icon" type="image/svg+xml" href="{{ '/assets/icons/favicon.svg' | relative_url }}">
+<link rel="alternate icon" type="image/png" href="{{ '/assets/icons/favicon.png' | relative_url }}">
+
+<script>
+  // Resolve the saved theme before first paint to prevent flash.
+  (function () {
+    try {
+      var saved = localStorage.getItem("nbi-theme");
+      if (saved === "light" || saved === "dark") {
+        document.documentElement.setAttribute("data-theme", saved);
+      }
+    } catch (e) { /* localStorage unavailable */ }
+  })();
+</script>

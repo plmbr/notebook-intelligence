@@ -1,8 +1,12 @@
 ---
 layout: post
-title:  "Building AI Agents for JupyterLab"
-date:   2025-02-09 01:00:00 -0800
-categories: blog
+title: "Building AI Agents for JupyterLab"
+date: 2025-02-09 01:00:00 -0800
+archived: true
+permalink: /blog/archive/building-ai-agents-for-jupyterlab/
+redirect_from:
+  - /blog/2025/02/09/building-ai-agents-for-jupyterlab.html
+  - /blog/building-ai-agents-for-jupyterlab/
 ---
 
 [Notebook Intelligence](https://github.com/notebook-intelligence/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
