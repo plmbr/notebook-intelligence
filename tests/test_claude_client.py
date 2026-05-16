@@ -79,6 +79,24 @@ class TestIsConnected:
             stop.set()
             thread.join(timeout=1)
 
+    def test_returns_false_when_status_is_failed_to_connect(self):
+        # `is_connected()` must respect the FailedToConnect status even
+        # when the thread reference happens to be alive. The
+        # publish-after-start race in `_start_worker_thread` can briefly
+        # resurrect a dead thread reference whose `is_alive()` reads True;
+        # the status check is the post-handshake truth.
+        client = _make_client()
+        stop = threading.Event()
+        thread = threading.Thread(target=stop.wait, daemon=True)
+        thread.start()
+        try:
+            client._client_thread = thread
+            client._status = ClaudeAgentClientStatus.FailedToConnect
+            assert client.is_connected() is False
+        finally:
+            stop.set()
+            thread.join(timeout=1)
+
 
 class TestClientThreadEventLoop:
     def test_windows_uses_proactor_loop_without_changing_global_policy(self, monkeypatch):
@@ -459,6 +477,49 @@ class TestConnectWaitsForReadiness:
             stop_worker.set()
             if client._client_thread is not None:
                 client._client_thread.join(timeout=1)
+
+    def test_failed_to_connect_status_is_set_before_event_signal(self):
+        # The worker must call `_set_status(FailedToConnect)` *before*
+        # `_connect_resolved.set()`. `is_connected()`'s status short-circuit
+        # relies on this ordering — if the writes were reversed, callers
+        # waking from `connect()`'s wait could observe the prior status
+        # while the worker thread is briefly still alive, mistakenly
+        # returning True until the status write caught up.
+        client = _make_client()
+        client._update_server_info_async = Mock()
+
+        async def spawn_failure():
+            raise RuntimeError("SDK spawn failed")
+
+        client._get_client = spawn_failure
+
+        call_order = []
+        original_set_status = client._set_status
+        original_event_set = client._connect_resolved.set
+
+        def recording_set_status(status):
+            if status == ClaudeAgentClientStatus.FailedToConnect:
+                call_order.append("status_failed")
+            original_set_status(status)
+
+        def recording_event_set():
+            call_order.append("event_set")
+            original_event_set()
+
+        client._set_status = recording_set_status
+        client._connect_resolved.set = recording_event_set
+
+        client.connect()
+
+        assert "status_failed" in call_order, (
+            f"Expected _set_status(FailedToConnect) to be called, got: {call_order}"
+        )
+        assert "event_set" in call_order, (
+            f"Expected _connect_resolved.set() to be called, got: {call_order}"
+        )
+        assert call_order.index("status_failed") < call_order.index("event_set"), (
+            f"Expected status_failed before event_set, got: {call_order}"
+        )
 
     def test_query_surfaces_server_log_error_when_spawn_fails(self, monkeypatch):
         """End-to-end of the #147 scenario raffaelemancuso hit after PR #148
