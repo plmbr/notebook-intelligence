@@ -60,8 +60,10 @@ import {
   VscThumbsupFilled,
   VscThumbsdownFilled,
   VscCloudUpload,
-  VscAttach
+  VscAttach,
+  VscRefresh
 } from './icons';
+import type { Contents } from '@jupyterlab/services';
 
 import {
   extractLLMGeneratedCode,
@@ -454,6 +456,12 @@ const SKIPPED_WORKSPACE_DIRECTORIES = new Set(['__pycache__', 'node_modules']);
 // recovering most of the easy speedup; further parallelism is bounded by
 // the tree's width and the slowest fetch in each batch.
 const WORKSPACE_SCAN_CONCURRENCY = 8;
+// Coalesce window for the Contents-API `fileChanged` storm that fires when
+// the user (or an agent) creates a directory, drops a folder of files, or
+// renames a tree. Without coalescing, one drag-drop of N items would
+// schedule N rescans; with a 300ms window every realistic bulk operation
+// settles into a single rescan.
+const WORKSPACE_FILE_REFRESH_DEBOUNCE_MS = 300;
 
 function countContentLines(content: string): number {
   if (content === '') {
@@ -1325,14 +1333,94 @@ function SidebarComponent(props: any) {
     }
   }, [props]);
 
+  // Latest references for the fileChanged subscription handler to read
+  // without re-binding the effect on every render.
+  const loadWorkspaceFilesRef = useRef(loadWorkspaceFiles);
+  useEffect(() => {
+    loadWorkspaceFilesRef.current = loadWorkspaceFiles;
+  }, [loadWorkspaceFiles]);
+  const showWorkspaceFilePickerRef = useRef(showWorkspaceFilePicker);
+  useEffect(() => {
+    showWorkspaceFilePickerRef.current = showWorkspaceFilePicker;
+  }, [showWorkspaceFilePicker]);
+  // Set when a refresh arrives mid-scan. The in-flight scan's drain loop
+  // honors one more pass at completion, bounding the storm to "at most one
+  // scan running + one queued" instead of cascading cancellations.
+  const pendingRescanRef = useRef(false);
+
+  const runWorkspaceFileScan = useCallback(async () => {
+    if (workspaceFilesLoadingRef.current) {
+      pendingRescanRef.current = true;
+      return;
+    }
+    do {
+      pendingRescanRef.current = false;
+      await loadWorkspaceFilesRef.current();
+    } while (pendingRescanRef.current && showWorkspaceFilePickerRef.current);
+  }, []);
+
+  const runWorkspaceFileScanRef = useRef(runWorkspaceFileScan);
+  useEffect(() => {
+    runWorkspaceFileScanRef.current = runWorkspaceFileScan;
+  }, [runWorkspaceFileScan]);
+
+  // Subscribe to Contents-API changes so a notebook or file created outside
+  // the picker (manually in the file browser, via terminal, or by a Claude
+  // tool that round-trips through the Contents API) shows up without
+  // requiring a full lab reload. The contents manager is a singleton for
+  // the app's lifetime; depending on `[]` avoids `props`-identity churn that
+  // would otherwise reconnect the signal on every parent render and reset
+  // the in-flight debounce timer.
+  const appRef = useRef(props.getApp());
+  useEffect(() => {
+    const contents = appRef.current.serviceManager.contents;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const onFileChanged = (_sender: unknown, change: Contents.IChangedArgs) => {
+      // 'save' fires on every edit-and-save; the picker doesn't care about
+      // content changes, only the file set.
+      if (change.type === 'save') {
+        return;
+      }
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => {
+        timer = null;
+        if (showWorkspaceFilePickerRef.current) {
+          runWorkspaceFileScanRef.current();
+        } else {
+          // Picker is closed — mark stale so the next open re-scans.
+          setWorkspaceFilesLoaded(false);
+        }
+      }, WORKSPACE_FILE_REFRESH_DEBOUNCE_MS);
+    };
+
+    contents.fileChanged.connect(onFileChanged);
+    return () => {
+      contents.fileChanged.disconnect(onFileChanged);
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
+
+  const refreshWorkspaceFiles = useCallback(() => {
+    runWorkspaceFileScanRef.current();
+  }, []);
+
   const handleWorkspaceFilePickerClick = async () => {
     setShowPopover(false);
     setShowModeTools(false);
     const nextState = !showWorkspaceFilePicker;
     setShowWorkspaceFilePicker(nextState);
+    // Sync the ref synchronously so a debounced refresh that fires during
+    // the awaited scan below honors the now-open picker state immediately,
+    // rather than waiting for the post-render useEffect to catch up.
+    showWorkspaceFilePickerRef.current = nextState;
 
     if (nextState && !workspaceFilesLoaded) {
-      await loadWorkspaceFiles();
+      await runWorkspaceFileScan();
     }
   };
 
@@ -3538,9 +3626,45 @@ function SidebarComponent(props: any) {
                 </div>
                 <div style={{ flexGrow: 1 }}></div>
                 <div
+                  className={
+                    'mode-tools-popover-button mode-tools-popover-refresh-button' +
+                    (workspaceFilesLoading ? ' is-loading' : '')
+                  }
+                  title="Refresh file list"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Refresh workspace file list"
+                  aria-busy={workspaceFilesLoading}
+                  onClick={() => {
+                    if (!workspaceFilesLoading) {
+                      refreshWorkspaceFiles();
+                    }
+                  }}
+                  onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+                    if (
+                      (event.key === 'Enter' || event.key === ' ') &&
+                      !workspaceFilesLoading
+                    ) {
+                      event.preventDefault();
+                      refreshWorkspaceFiles();
+                    }
+                  }}
+                >
+                  <VscRefresh />
+                </div>
+                <div
                   className="mode-tools-popover-button mode-tools-popover-close-button"
                   title="Close"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Close file picker"
                   onClick={() => setShowWorkspaceFilePicker(false)}
+                  onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setShowWorkspaceFilePicker(false);
+                    }
+                  }}
                 >
                   <VscClose />
                 </div>

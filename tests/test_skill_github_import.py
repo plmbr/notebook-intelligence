@@ -457,7 +457,7 @@ class TestArchiveSizeCap:
             # passes the check.
             payload = b"x" * 1024
             with patch(
-                "notebook_intelligence.skill_github_import._get_github_token",
+                "notebook_intelligence.skill_github_import.resolve_github_token",
                 return_value=None,
             ):
                 with patch(
@@ -477,7 +477,7 @@ class TestArchiveSizeCap:
         try:
             oversize = b"x" * (1024 + 100)
             with patch(
-                "notebook_intelligence.skill_github_import._get_github_token",
+                "notebook_intelligence.skill_github_import.resolve_github_token",
                 return_value=None,
             ):
                 with patch(
@@ -497,7 +497,7 @@ class TestArchiveSizeCap:
         try:
             oversize = b"x" * (3 * 1024 * 1024)
             with patch(
-                "notebook_intelligence.skill_github_import._get_github_token",
+                "notebook_intelligence.skill_github_import.resolve_github_token",
                 return_value=None,
             ):
                 with patch(

@@ -674,6 +674,11 @@ pre:has(.code-block-header) {
   margin-top: 2px;
 }
 
+.mode-tools-popover-button:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
+}
+
 .mode-tools-popover-close-button {
   width: 24px;
   padding: 0;
@@ -682,6 +687,17 @@ pre:has(.code-block-header) {
 .mode-tools-popover-close-button svg {
   padding: 0;
   margin: 0;
+}
+
+.mode-tools-popover-refresh-button {
+  width: 24px;
+  padding: 0;
+  margin-right: 4px;
+}
+
+.mode-tools-popover-refresh-button.is-loading {
+  cursor: progress;
+  opacity: 0.6;
 }
 
 .mode-tools-popover-tool-list {
