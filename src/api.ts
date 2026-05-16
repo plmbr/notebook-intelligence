@@ -356,6 +356,22 @@ export class NBIConfig {
     return this.capabilities.claude_cli_available === true;
   }
 
+  get isOpenCodeCliAvailable(): boolean {
+    return this.capabilities.opencode_cli_available === true;
+  }
+
+  get isPiCliAvailable(): boolean {
+    return this.capabilities.pi_cli_available === true;
+  }
+
+  get isGitHubCopilotCliAvailable(): boolean {
+    return this.capabilities.github_copilot_cli_available === true;
+  }
+
+  get isCodexCliAvailable(): boolean {
+    return this.capabilities.codex_cli_available === true;
+  }
+
   get chatFeedbackEnabled(): boolean {
     return this.capabilities.chat_feedback_enabled === true;
   }

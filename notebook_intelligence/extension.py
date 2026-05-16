@@ -52,7 +52,7 @@ from notebook_intelligence.claude_sessions import (
 )
 import notebook_intelligence.github_copilot as github_copilot
 from notebook_intelligence.built_in_toolsets import built_in_toolsets
-from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, resolve_claude_cli_path
+from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path
 from notebook_intelligence.context_factory import RuleContextFactory
 from notebook_intelligence.skillset import SKILL_NAME_REGEX
 
@@ -482,8 +482,14 @@ class GetCapabilitiesHandler(APIHandler):
                 nbi_config.claude_settings, self.string_overrides
             ),
             "claude_models": ai_service_manager.claude_models,
-            # Drives launcher-tile visibility (issue #183).
+            # Drive launcher-tile visibility (issues #183, #260). Each flag
+            # gates one tile under the "Coding Agent" category. Detection is
+            # PATH-based with NBI_*_CLI_PATH env overrides.
             "claude_cli_available": resolve_claude_cli_path() is not None,
+            "opencode_cli_available": resolve_opencode_cli_path() is not None,
+            "pi_cli_available": resolve_pi_cli_path() is not None,
+            "github_copilot_cli_available": resolve_copilot_cli_path() is not None,
+            "codex_cli_available": resolve_codex_cli_path() is not None,
             "default_chat_mode": nbi_config.default_chat_mode,
             "chat_feedback_enabled": self.enable_chat_feedback,
             # Single source of truth lives on each domain's base handler so

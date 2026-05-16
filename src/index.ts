@@ -43,12 +43,13 @@ import { FileBrowserModel, IDefaultFileBrowser } from '@jupyterlab/filebrowser';
 
 import { ContentsManager, KernelSpecManager } from '@jupyterlab/services';
 
-import { LabIcon } from '@jupyterlab/ui-components';
+import { LabIcon, terminalIcon } from '@jupyterlab/ui-components';
 
 import { Menu, Panel, Widget } from '@lumino/widgets';
 import { CommandRegistry } from '@lumino/commands';
 import { IStatusBar } from '@jupyterlab/statusbar';
 import { ILauncher } from '@jupyterlab/launcher';
+import { IDisposable } from '@lumino/disposable';
 import React from 'react';
 import { ReactWidget } from '@jupyterlab/apputils';
 import { LauncherPicker } from './components/launcher-picker';
@@ -1232,7 +1233,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
 
     // Waits for bash's first prompt before sending, avoiding the race condition
     // where the command is sent before the shell has started.
-    const launchClaudeInTerminal = async (
+    const launchCliInTerminal = async (
       command: string,
       cwd?: string
     ): Promise<void> => {
@@ -1288,7 +1289,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
                 const cmd = session.cwd
                   ? `cd ${session.cwd} && claude --resume ${session.session_id}`
                   : `claude --resume ${session.session_id}`;
-                launchClaudeInTerminal(cmd);
+                launchCliInTerminal(cmd);
               }
             });
           }
@@ -1310,22 +1311,116 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           // New Session: open the terminal at whatever subdirectory the file
           // browser is currently viewing, mirroring how Jupyter's own
           // terminal launcher behaves (issue #182).
-          launchClaudeInTerminal('claude', defaultBrowser?.model.path);
+          launchCliInTerminal('claude', defaultBrowser?.model.path);
         }
       }
     });
 
-    if (launcher) {
-      launcher.add({
-        command: CommandIDs.openClaudeCodeLauncher,
-        category: 'Coding Agent',
-        rank: -1
-      });
-    }
+    // Add or dispose a launcher entry based on a live availability check.
+    // The launcher renders every item in its model regardless of the
+    // backing command's `isVisible`, so gating tile visibility requires
+    // adding only when available and disposing when not. Re-evaluates on
+    // every NBIAPI.configChanged so a late capabilities load (or a
+    // future hot-reload of the CLI on PATH) takes effect without a
+    // browser refresh.
+    const syncLauncherEntry = (
+      commandId: string,
+      itemOptions: Omit<ILauncher.IItemOptions, 'command'>,
+      isAvailable: () => boolean
+    ) => {
+      if (!launcher) {
+        return;
+      }
+      let entry: IDisposable | null = null;
+      const sync = () => {
+        const available = isAvailable();
+        if (available && !entry) {
+          entry = launcher.add({ command: commandId, ...itemOptions });
+        } else if (!available && entry) {
+          entry.dispose();
+          entry = null;
+        }
+      };
+      sync();
+      NBIAPI.configChanged.connect(sync);
+    };
 
-    // Refresh the launcher tile's enabled/visible state when the user
-    // toggles Claude Code mode or installs the CLI. Without this, the
-    // tile keeps its initial-load decision until full reload.
+    syncLauncherEntry(
+      CommandIDs.openClaudeCodeLauncher,
+      { category: 'Coding Agent', rank: -1 },
+      () => NBIAPI.config.isClaudeCliAvailable
+    );
+
+    // Additional coding-agent CLIs (issue #260). First-phase scope: detect
+    // the binary on PATH (backend exposes `<agent>_cli_available`), show a
+    // tile when present, click opens a terminal in the file-browser's
+    // current directory and types the CLI command. No session picker.
+    const registerAgentCliLauncher = (config: {
+      commandId: string;
+      label: string;
+      caption: string;
+      icon: LabIcon;
+      cliCommand: string;
+      isAvailable: () => boolean;
+    }) => {
+      app.commands.addCommand(config.commandId, {
+        label: config.label,
+        caption: config.caption,
+        icon: config.icon,
+        isVisible: () => config.isAvailable(),
+        execute: () => {
+          launchCliInTerminal(config.cliCommand, defaultBrowser?.model.path);
+        }
+      });
+      syncLauncherEntry(
+        config.commandId,
+        { category: 'Coding Agent' },
+        config.isAvailable
+      );
+      NBIAPI.configChanged.connect(() => {
+        app.commands.notifyCommandChanged(config.commandId);
+      });
+    };
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openOpenCodeLauncher,
+      label: 'opencode',
+      caption: 'Start an opencode session in a Jupyter terminal',
+      icon: terminalIcon,
+      cliCommand: 'opencode',
+      isAvailable: () => NBIAPI.config.isOpenCodeCliAvailable
+    });
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openPiLauncher,
+      label: 'Pi',
+      caption: 'Start a Pi session in a Jupyter terminal',
+      icon: terminalIcon,
+      cliCommand: 'pi',
+      isAvailable: () => NBIAPI.config.isPiCliAvailable
+    });
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openGitHubCopilotCliLauncher,
+      label: 'GitHub Copilot CLI',
+      caption: 'Start a GitHub Copilot CLI session in a Jupyter terminal',
+      icon: githubCopilotIcon,
+      cliCommand: 'copilot',
+      isAvailable: () => NBIAPI.config.isGitHubCopilotCliAvailable
+    });
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openCodexLauncher,
+      label: 'Codex',
+      caption: 'Start an OpenAI Codex CLI session in a Jupyter terminal',
+      icon: terminalIcon,
+      cliCommand: 'codex',
+      isAvailable: () => NBIAPI.config.isCodexCliAvailable
+    });
+
+    // Refresh the Claude Code command's palette-visibility state when the
+    // user installs/uninstalls the CLI. The launcher tile is already gated
+    // via syncLauncherEntry; this is for the command palette only.
     NBIAPI.configChanged.connect(() => {
       app.commands.notifyCommandChanged(CommandIDs.openClaudeCodeLauncher);
     });
