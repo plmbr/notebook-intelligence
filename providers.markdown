@@ -7,10 +7,10 @@ permalink: /providers/
 
 ## At a glance
 
-{% capture check %}<span class="support support--yes" aria-label="Supported"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></span>{% endcapture %}
-{% capture nope %}<span class="support support--no" aria-label="Not supported">—</span>{% endcapture %}
+{% capture check %}<span class="support support--yes" role="img" aria-label="Supported"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></span>{% endcapture %}
+{% capture nope %}<span class="support support--no" role="img" aria-label="Not supported">&mdash;</span>{% endcapture %}
 
-<div class="support-table-wrap">
+<div class="support-table-wrap" tabindex="0" role="region" aria-label="Provider feature comparison">
   <table class="support-table">
     <thead>
       <tr>

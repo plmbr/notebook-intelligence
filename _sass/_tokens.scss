@@ -22,6 +22,9 @@
   --accent-hover: #e5651a;
   --accent-soft: #fff1e8;
   --accent-ink: #ffffff;
+  // Darker shade for accent text and focus outlines so they hit 4.5:1 / 3:1
+  // against light backgrounds; --accent itself stays brand-bright for fills.
+  --accent-text: #c2410c;
 
   --link: #1d4ed8;
   --link-hover: #1e40af;
@@ -108,6 +111,7 @@
   --accent-hover: #ff9d5c;
   --accent-soft: #2a1810;
   --accent-ink: #0a0a0a;
+  --accent-text: #ff8a3d;
 
   --link: #93c5fd;
   --link-hover: #bfdbfe;
@@ -144,6 +148,7 @@
     --accent-hover: #ff9d5c;
     --accent-soft: #2a1810;
     --accent-ink: #0a0a0a;
+    --accent-text: #ff8a3d;
     --link: #93c5fd;
     --link-hover: #bfdbfe;
   }

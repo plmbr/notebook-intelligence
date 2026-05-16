@@ -97,7 +97,7 @@
   letter-spacing: 0.1em;
   font-size: var(--fs-xs);
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-bottom: var(--space-4);
 }
 
@@ -253,7 +253,7 @@
   letter-spacing: 0.08em;
   font-size: var(--fs-xs);
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-bottom: var(--space-3);
 }
 
@@ -274,6 +274,9 @@
 }
 
 .stripe__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
   font-weight: 500;
   text-decoration: none;
   color: var(--ink-900);
@@ -282,7 +285,7 @@
 }
 
 .stripe__link:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .stripe__media {
@@ -585,7 +588,7 @@ tbody tr:hover {
 }
 
 .post-list__title a:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .post-list__excerpt {

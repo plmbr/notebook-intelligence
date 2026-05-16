@@ -79,6 +79,9 @@ main {
 }
 
 .site-header__nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
   color: var(--ink-700);
   text-decoration: none;
   font-size: var(--fs-sm);
@@ -148,6 +151,9 @@ main {
 }
 
 .site-footer__col a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
   color: var(--ink-700);
   text-decoration: none;
   font-size: var(--fs-sm);
