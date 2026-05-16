@@ -4,8 +4,9 @@
  * exposes a ``page`` fixture that already knows how to drive the lab UI.
  * See https://github.com/jupyterlab/jupyterlab/tree/main/galata
  */
-import { defineConfig } from '@jupyterlab/galata';
-import { devices } from '@playwright/test';
+// Galata re-exports Playwright's test/expect but ships no `defineConfig` of
+// its own; import the config helper from `@playwright/test` directly.
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   // Tests live next to this config so they can ``import { test, expect } from
@@ -26,12 +27,13 @@ export default defineConfig({
   },
 
   use: {
+    // Galata's `page` fixture goes directly to the lab shell; baseURL is the
+    // server root.
     baseURL: 'http://localhost:8888',
     // ``trace: on-first-retry`` strikes the right balance for CI — the first
     // pass is fast, but failures keep enough context to diagnose flakes.
     trace: 'on-first-retry',
-    video: 'retain-on-failure',
-    appPath: '/lab'
+    video: 'retain-on-failure'
   },
 
   // Lock to chromium — the README only documents installing chromium and the
