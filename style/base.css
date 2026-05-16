@@ -992,6 +992,14 @@ pre:has(.code-block-header) {
   border: 1px solid var(--jp-border-color1);
 }
 
+.send-button:disabled,
+.send-button:disabled:hover,
+.send-button:disabled:active {
+  cursor: default;
+  background-color: var(--jp-layout-color2);
+  border-color: var(--jp-border-color1);
+}
+
 .send-button:hover:enabled {
   background-color: var(--jp-layout-color1);
 }
