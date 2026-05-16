@@ -43,7 +43,7 @@ import { FileBrowserModel, IDefaultFileBrowser } from '@jupyterlab/filebrowser';
 
 import { ContentsManager, KernelSpecManager } from '@jupyterlab/services';
 
-import { LabIcon } from '@jupyterlab/ui-components';
+import { LabIcon, terminalIcon } from '@jupyterlab/ui-components';
 
 import { Menu, Panel, Widget } from '@lumino/widgets';
 import { CommandRegistry } from '@lumino/commands';
@@ -1232,7 +1232,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
 
     // Waits for bash's first prompt before sending, avoiding the race condition
     // where the command is sent before the shell has started.
-    const launchClaudeInTerminal = async (
+    const launchCliInTerminal = async (
       command: string,
       cwd?: string
     ): Promise<void> => {
@@ -1288,7 +1288,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
                 const cmd = session.cwd
                   ? `cd ${session.cwd} && claude --resume ${session.session_id}`
                   : `claude --resume ${session.session_id}`;
-                launchClaudeInTerminal(cmd);
+                launchCliInTerminal(cmd);
               }
             });
           }
@@ -1310,7 +1310,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           // New Session: open the terminal at whatever subdirectory the file
           // browser is currently viewing, mirroring how Jupyter's own
           // terminal launcher behaves (issue #182).
-          launchClaudeInTerminal('claude', defaultBrowser?.model.path);
+          launchCliInTerminal('claude', defaultBrowser?.model.path);
         }
       }
     });
@@ -1323,9 +1323,69 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       });
     }
 
-    // Refresh the launcher tile's enabled/visible state when the user
-    // toggles Claude Code mode or installs the CLI. Without this, the
-    // tile keeps its initial-load decision until full reload.
+    // Additional coding-agent CLIs (issue #260). First-phase scope: detect
+    // the binary on PATH (backend exposes `<agent>_cli_available`), show a
+    // tile when present, click opens a terminal in the file-browser's
+    // current directory and types the CLI command. No session picker.
+    const registerAgentCliLauncher = (config: {
+      commandId: string;
+      label: string;
+      caption: string;
+      icon: LabIcon;
+      cliCommand: string;
+      isAvailable: () => boolean;
+    }) => {
+      app.commands.addCommand(config.commandId, {
+        label: config.label,
+        caption: config.caption,
+        icon: config.icon,
+        isVisible: () => config.isAvailable(),
+        execute: () => {
+          launchCliInTerminal(config.cliCommand, defaultBrowser?.model.path);
+        }
+      });
+      if (launcher) {
+        launcher.add({
+          command: config.commandId,
+          category: 'Coding Agent'
+        });
+      }
+      NBIAPI.configChanged.connect(() => {
+        app.commands.notifyCommandChanged(config.commandId);
+      });
+    };
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openOpenCodeLauncher,
+      label: 'opencode',
+      caption: 'Start an opencode session in a Jupyter terminal',
+      icon: terminalIcon,
+      cliCommand: 'opencode',
+      isAvailable: () => NBIAPI.config.isOpenCodeCliAvailable
+    });
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openPiLauncher,
+      label: 'Pi',
+      caption: 'Start a Pi session in a Jupyter terminal',
+      icon: terminalIcon,
+      cliCommand: 'pi',
+      isAvailable: () => NBIAPI.config.isPiCliAvailable
+    });
+
+    registerAgentCliLauncher({
+      commandId: CommandIDs.openGitHubCopilotCliLauncher,
+      label: 'GitHub Copilot CLI',
+      caption: 'Start a GitHub Copilot CLI session in a Jupyter terminal',
+      icon: githubCopilotIcon,
+      cliCommand: 'copilot',
+      isAvailable: () => NBIAPI.config.isGitHubCopilotCliAvailable
+    });
+
+    // Refresh the Claude Code launcher tile's enabled/visible state when the
+    // user toggles Claude Code mode or installs the CLI. Without this, the
+    // tile keeps its initial-load decision until full reload. The other
+    // agent-CLI tiles are wired the same way inside registerAgentCliLauncher.
     NBIAPI.configChanged.connect(() => {
       app.commands.notifyCommandChanged(CommandIDs.openClaudeCodeLauncher);
     });

@@ -56,4 +56,9 @@ export namespace CommandIDs {
     'notebook-intelligence:run-command-in-terminal';
   export const openClaudeCodeLauncher =
     'notebook-intelligence:open-claude-code-launcher';
+  export const openOpenCodeLauncher =
+    'notebook-intelligence:open-opencode-launcher';
+  export const openPiLauncher = 'notebook-intelligence:open-pi-launcher';
+  export const openGitHubCopilotCliLauncher =
+    'notebook-intelligence:open-github-copilot-cli-launcher';
 }

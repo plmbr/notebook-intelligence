@@ -22,32 +22,51 @@ def get_jupyter_root_dir() -> str:
     return _jupyter_root_dir
 
 
-_UNSET = object()
-_cached_which_claude: object = _UNSET
+_cached_cli_paths: dict[str, Optional[str]] = {}
+
+
+def _resolve_cli_path(name: str, env_var: str) -> Optional[str]:
+    """Resolve an agent-CLI binary path with env override + PATH fallback.
+
+    The env var wins when set; otherwise this is a memoized shutil.which.
+    Capabilities is a hot endpoint and PATH doesn't change at runtime, so
+    every lookup goes through this single cache. Tests should call
+    ``invalidate_cli_cache`` between cases that toggle the env or PATH.
+    """
+    explicit = os.getenv(env_var)
+    if explicit:
+        return explicit
+    if name not in _cached_cli_paths:
+        _cached_cli_paths[name] = shutil.which(name)
+    return _cached_cli_paths[name]
 
 
 def resolve_claude_cli_path() -> Optional[str]:
-    """Resolve the Claude Code CLI binary path.
-
-    NBI_CLAUDE_CLI_PATH wins when set; otherwise fall back to the first
-    `claude` on PATH. Returns None when nothing is found, so callers can
-    decide between raising and proceeding without the CLI.
-
-    The PATH lookup is memoized — capabilities is hot and PATH doesn't
-    change at runtime. Use ``invalidate_claude_cli_cache`` from tests.
-    """
-    explicit = os.getenv("NBI_CLAUDE_CLI_PATH")
-    if explicit:
-        return explicit
-    global _cached_which_claude
-    if _cached_which_claude is _UNSET:
-        _cached_which_claude = shutil.which("claude")
-    return _cached_which_claude  # type: ignore[return-value]
+    """Claude Code CLI. NBI_CLAUDE_CLI_PATH overrides; else `claude` on PATH."""
+    return _resolve_cli_path("claude", "NBI_CLAUDE_CLI_PATH")
 
 
-def invalidate_claude_cli_cache() -> None:
-    global _cached_which_claude
-    _cached_which_claude = _UNSET
+def resolve_opencode_cli_path() -> Optional[str]:
+    """opencode CLI. NBI_OPENCODE_CLI_PATH overrides; else `opencode` on PATH."""
+    return _resolve_cli_path("opencode", "NBI_OPENCODE_CLI_PATH")
+
+
+def resolve_pi_cli_path() -> Optional[str]:
+    """Pi CLI. NBI_PI_CLI_PATH overrides; else `pi` on PATH."""
+    return _resolve_cli_path("pi", "NBI_PI_CLI_PATH")
+
+
+def resolve_copilot_cli_path() -> Optional[str]:
+    """GitHub Copilot CLI. NBI_GITHUB_COPILOT_CLI_PATH overrides; else `copilot` on PATH."""
+    return _resolve_cli_path("copilot", "NBI_GITHUB_COPILOT_CLI_PATH")
+
+
+def invalidate_cli_cache(name: Optional[str] = None) -> None:
+    """Clear the memoized CLI-path cache. Pass a name to invalidate just one."""
+    if name is None:
+        _cached_cli_paths.clear()
+    else:
+        _cached_cli_paths.pop(name, None)
 
 
 def resolve_github_token() -> Optional[str]:
