@@ -1,6 +1,6 @@
 # Claude Skills
 
-When [Claude mode](../README.md#claude-mode) is enabled, NBI exposes a **Skills** tab in the settings panel for viewing, creating, editing, and deleting the skills that Claude can invoke.
+NBI exposes a top-level **Skills** tab in the settings panel for viewing, creating, editing, and deleting the skills that Claude can invoke. The tab is visible in any mode; when [Claude mode](../README.md#claude-mode) is off, a hint banner notes that skills only take effect inside Claude sessions.
 
 Skills are Claude Agent SDK artifacts stored on disk:
 
@@ -78,4 +78,10 @@ Different JupyterHub profiles or spawner configurations can point at different m
 
 ### Disabling user-initiated GitHub imports
 
-There is currently no flag that disables the **Import from GitHub** button. If your deployment cannot allow users to pull arbitrary public repos, gate egress to `github.com` and `api.github.com` at the network layer and rely on `NBI_SKILLS_MANIFEST` with a private internal manifest URL. Tracked as a future feature.
+Set `allow_github_skill_import = False` on `NotebookIntelligence` (or `NBI_ALLOW_GITHUB_SKILL_IMPORT=false` per pod) to hide the **Import from GitHub** button and reject `POST /skills/import` and `/skills/import/preview` with HTTP 403. The managed-skills reconciler keeps running, so admin-curated skills delivered via `NBI_SKILLS_MANIFEST` continue to install. The env-var override accepts `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off` (case-insensitive); unrecognized values raise at startup so a typo can't silently flip the policy.
+
+For network-layer reinforcement, also gate egress to `github.com` and `api.github.com` and rely on `NBI_SKILLS_MANIFEST` with a private internal manifest URL.
+
+### Disabling the entire Skills tab
+
+For a stricter posture, set `skills_management_policy = "force-off"` (or `NBI_SKILLS_MANAGEMENT_POLICY=force-off`). This hides the Skills tab, returns 403 from every `/notebook-intelligence/skills/*` route, and suppresses the managed-skills reconciler entirely (no manifest fetch, no scheduled reconcile). Existing skills on disk are not touched, but new manifest pulls are blocked. See the [admin guide](admin-guide.md#disabling-the-skills-tab) for the full contract and blast radius.

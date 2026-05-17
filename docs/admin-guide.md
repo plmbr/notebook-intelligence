@@ -94,13 +94,25 @@ The full surface, in one table.
 | `NBI_SKILLS_MANIFEST_INTERVAL`                 | int  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                |
 | `managed_skills_token`                         | str  | `""`                        | traitlet                           | Bearer token for managed-skills GitHub fetches.                                                                                                                                                     |
 | `NBI_MANAGED_SKILLS_TOKEN`                     | str  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                |
+| `allow_github_plugin_import`                   | Bool | `True`                      | traitlet                           | When `False`, hides the "From GitHub" affordance in the Plugins panel and rejects `claude plugin marketplace add` requests whose source resolves as a GitHub URL or `owner/repo` shorthand. Local-path and arbitrary-URL sources remain available. |
+| `NBI_ALLOW_GITHUB_PLUGIN_IMPORT`               | bool | unset                       | env (overrides traitlet)           | Per-pod override for `allow_github_plugin_import`. Accepts `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off` (case-insensitive).                                                                          |
+| `skill_max_archive_mb`                         | Int  | `100`                       | traitlet                           | Per-archive on-wire size cap (megabytes) for skill bundles fetched from GitHub. Applies to both user imports and managed-skills tarballs. `0` disables the cap.                                     |
+| `NBI_SKILL_MAX_ARCHIVE_MB`                     | int  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                |
+| `upload_max_mb`                                | Int  | `50`                        | traitlet                           | Per-file size cap (megabytes) for the shared upload endpoint used by chat-sidebar attachments and terminal drag-drop. Requests over the cap return HTTP 413. `0` disables the cap.                  |
+| `NBI_UPLOAD_MAX_MB`                            | int  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                |
+| `upload_retention_hours`                       | Int  | `24`                        | traitlet                           | How long staged uploads survive in the temp directory before the next upload sweeps them. `0` keeps only the atexit purge (uploads survive the session).                                            |
+| `NBI_UPLOAD_RETENTION_HOURS`                   | int  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                |
 | `NBI_GH_ACCESS_TOKEN_PASSWORD`                 | str  | `nbi-access-token-password` | env                                | Password used to encrypt the stored Copilot token in `user-data.json`. **Change in multi-tenant deployments.**                                                                                      |
 | `NBI_RULES_AUTO_RELOAD`                        | bool | `true`                      | env                                | When `false`, ruleset edits require a JupyterLab restart to take effect.                                                                                                                            |
 | `NBI_CLAUDE_CLI_PATH`                          | str  | unset                       | env                                | Absolute path to the Claude Code CLI binary. When unset, NBI looks up `claude` on `PATH`.                                                                                                           |
+| `NBI_OPENCODE_CLI_PATH`                        | str  | unset                       | env                                | Absolute path to the opencode CLI. When unset, NBI looks up `opencode` on `PATH`. Gates the opencode launcher tile.                                                                                 |
+| `NBI_PI_CLI_PATH`                              | str  | unset                       | env                                | Absolute path to the Pi CLI. When unset, NBI looks up `pi` on `PATH`. Gates the Pi launcher tile.                                                                                                   |
+| `NBI_GITHUB_COPILOT_CLI_PATH`                  | str  | unset                       | env                                | Absolute path to the GitHub Copilot CLI. When unset, NBI looks up `copilot` on `PATH`. Gates the GitHub Copilot launcher tile.                                                                      |
+| `NBI_CODEX_CLI_PATH`                           | str  | unset                       | env                                | Absolute path to the OpenAI Codex CLI. When unset, NBI looks up `codex` on `PATH`. Gates the Codex launcher tile.                                                                                   |
 | `NBI_GHE_SUBDOMAIN`                            | str  | `""`                        | env                                | GitHub Enterprise subdomain for GitHub Copilot users on a GHE tenant. Empty selects github.com.                                                                                                     |
 | `NBI_LOG_LEVEL`                                | str  | `INFO`                      | env                                | Python logging level for the `notebook_intelligence` logger.                                                                                                                                        |
-| `GITHUB_TOKEN`, `GH_TOKEN`                     | str  | unset                       | env                                | Used (in that order) by user-initiated skill imports for GitHub auth. Falls back to `gh` CLI auth.                                                                                                  |
-| `NBI_*_POLICY`                                 | str  | `user-choice`               | env                                | Lock individual Settings panel toggles. See [README → Admin policies](../README.md#admin-policies) for the full list of `*_POLICY` env vars and matching traitlets.                                 |
+| `GITHUB_TOKEN`, `GH_TOKEN`                     | str  | unset                       | env                                | Used (in that order) by user-initiated skill imports and GitHub-sourced plugin marketplace adds for GitHub auth. Falls back to `gh` CLI auth.                                                       |
+| `NBI_*_POLICY`                                 | str  | `user-choice`               | env                                | Lock individual Settings panel toggles. See [README → Admin policies](../README.md#admin-policies) for the full list of `*_POLICY` env vars and matching traitlets, including `NBI_SKILLS_MANAGEMENT_POLICY`, `NBI_CLAUDE_MCP_MANAGEMENT_POLICY`, `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY`, and `NBI_TERMINAL_DRAG_DROP_POLICY`. |
 
 Configure traitlets in `jupyter_server_config.py`:
 
@@ -128,7 +140,7 @@ For regulated tenants:
 
 1. Disable the most powerful tools — at minimum `nbi-command-execute` and `nbi-file-edit`. See [Restricting features](#restricting-features-for-managed-deployments).
 2. Restrict the providers the user can pick. Force a single self-hosted endpoint with `disabled_providers` plus the org's base config.
-3. Disable user-initiated skill imports (currently network-layer only — see [`skills.md`](skills.md#disabling-user-initiated-github-imports)).
+3. Disable user-initiated skill imports with `allow_github_skill_import = False` (env `NBI_ALLOW_GITHUB_SKILL_IMPORT=false`), and plugin marketplace adds from GitHub with `allow_github_plugin_import = False` (env `NBI_ALLOW_GITHUB_PLUGIN_IMPORT=false`). Reinforce at the network layer where stronger isolation is required. See [`skills.md`](skills.md#disabling-user-initiated-github-imports) and the [Plugins tab section](#disabling-the-plugins-tab) below.
 4. Run with a non-root container user, with no host-network access and no host-path mounts beyond the user's PVC.
 
 ---
@@ -446,6 +458,25 @@ The chain only fires for github.com sources today. **GitHub Enterprise instances
 
 For air-gap deployments, marketplace-add inherits the JupyterLab process env, so the same `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` / `NODE_EXTRA_CA_CERTS` settings documented in [Custom CA certs and corporate proxies](#custom-ca-certs-and-corporate-proxies) apply. Pre-installed plugins (under `~/.claude/plugins/`) keep loading without any network access.
 
+### Disabling terminal drag-drop file attach
+
+```python
+c.NotebookIntelligence.terminal_drag_drop_policy = "force-off"
+```
+
+Or via env: `NBI_TERMINAL_DRAG_DROP_POLICY=force-off`.
+
+Force-off hides the per-terminal drag-drop toolbar toggle and rejects upload-staging POSTs from a terminal context. Drag-drop is **enabled by default**; flip it off in regulated tenants where the staging file write or the resulting `@`-mention path is undesirable.
+
+Terminal drag-drop and chat-sidebar file attach both write to the shared upload-staging directory under the JupyterLab process's `tempfile.gettempdir()`. Two tunables govern that endpoint:
+
+| Env var                      | Default | Behavior                                                                                                                                                              |
+| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NBI_UPLOAD_MAX_MB`          | `50`    | Per-file size cap (megabytes). Over the cap returns HTTP 413. `0` disables.                                                                                           |
+| `NBI_UPLOAD_RETENTION_HOURS` | `24`    | How long staged uploads survive before the next upload sweeps them. `0` keeps only the atexit purge (files survive the session).                                      |
+
+> **Trust model.** Staged files live in the user's `tempfile.gettempdir()` and inherit the directory's POSIX permissions. The same `nbi-file-read` denylist that scopes general file reads does **not** apply to upload-staged files because they sit outside the Jupyter root. For sensitive-data tenants, set `NBI_UPLOAD_RETENTION_HOURS=0` to skip retention beyond the session and pair with `terminal_drag_drop_policy = force-off` to keep the surface to chat-sidebar attachments only.
+
 ---
 
 ## Multi-tenancy and per-team scoping
@@ -523,9 +554,15 @@ All routes live under `/notebook-intelligence/`. All require Jupyter authenticat
 | `/notebook-intelligence/skills/<scope>/<name>/rename`       | POST            | Rename a skill (denied for managed skills).                                       |
 | `/notebook-intelligence/skills/<scope>/<name>/files`        | GET/POST/DELETE | Skill bundle file ops.                                                            |
 | `/notebook-intelligence/skills/<scope>/<name>/files/rename` | POST            | Rename a file inside a skill bundle.                                              |
-| `/notebook-intelligence/upload-file`                        | POST            | Upload a file to attach as chat context.                                          |
+| `/notebook-intelligence/upload-file`                        | POST            | Upload a file to attach as chat context (size and retention governed by `upload_max_mb` / `upload_retention_hours`). |
 | `/notebook-intelligence/claude-sessions`                    | GET             | List Claude Code sessions for the working directory.                              |
 | `/notebook-intelligence/claude-sessions/resume`             | POST            | Resume a Claude session.                                                          |
+| `/notebook-intelligence/claude-mcp`                         | GET/POST        | List or add Claude-mode MCP servers. Gated by `claude_mcp_management_policy`.     |
+| `/notebook-intelligence/claude-mcp/<scope>/<name>`          | GET/DELETE      | Get or remove a Claude-mode MCP server by scope (user/project/local) and name.    |
+| `/notebook-intelligence/plugins`                            | GET/POST        | List or install Claude plugins. Gated by `claude_plugins_management_policy`.      |
+| `/notebook-intelligence/plugins/<scope>/<name>`             | POST/DELETE     | Enable or disable (POST with `{"action": "enable"\|"disable"}`) or uninstall (DELETE) a plugin. |
+| `/notebook-intelligence/plugins/marketplace`                | GET/POST        | List or add plugin marketplaces. GitHub-sourced adds are gated by `allow_github_plugin_import`. |
+| `/notebook-intelligence/plugins/marketplace/<name>`         | DELETE          | Remove a plugin marketplace.                                                      |
 
 The extension respects `c.ServerApp.base_url`. Behind JupyterHub at `/user/<name>/` everything still works because JupyterLab proxies routes through the per-user base URL automatically.
 
@@ -546,6 +583,10 @@ The extension respects `c.ServerApp.base_url`. Behind JupyterHub at `/user/<name
 | `NBI_MANAGED_SKILLS_TOKEN` 401/403             | Reconcile fails; loud log; does not fall back to the `GITHUB_TOKEN` chain. | JupyterLab terminal.                                      |
 | Ruleset frontmatter is invalid YAML            | Rule is skipped; others load.                                              | JupyterLab terminal — `rule_manager` warning.             |
 | Encrypted token decrypt fails                  | The chat sidebar prompts the user to sign in again.                        | JupyterLab terminal.                                      |
+| `claude plugin install` fails (network, auth)  | Plugin row stays unchanged; install button surfaces the CLI's stderr.      | JupyterLab terminal (`plugin_manager` warning).           |
+| `claude plugin marketplace add` from GHE       | Falls through to anonymous git auth and may fail without a clear message.  | JupyterLab terminal; see GHE caveat in [GitHub auth for marketplace add](#github-auth-for-marketplace-add). |
+| Copilot model-list endpoint fails              | Chat-model dropdown silently falls back to the hardcoded list.             | JupyterLab terminal (`github_copilot` warning).           |
+| Upload exceeds `NBI_UPLOAD_MAX_MB`             | Terminal drag-drop and chat-sidebar attach both return HTTP 413.           | JupyterLab terminal; check `upload_max_mb` traitlet.      |
 
 ---
 
@@ -555,6 +596,9 @@ NBI is tested against the JupyterLab and `jupyter_server` versions declared in [
 
 | NBI version | JupyterLab | jupyter_server | Python    |
 | ----------- | ---------- | -------------- | --------- |
+| 4.8.x       | 4.x        | 2.x            | 3.10+     |
+| 4.7.x       | 4.x        | 2.x            | 3.10+     |
+| 4.6.x       | 4.x        | 2.x            | 3.10–3.12 |
 | 4.5.x       | 4.x        | 2.x            | 3.10–3.12 |
 | 4.4.x       | 4.x        | 2.x            | 3.10–3.12 |
 | 4.3.x       | 4.x        | 2.x            | 3.10–3.12 |
