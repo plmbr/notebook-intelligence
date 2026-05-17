@@ -63,7 +63,7 @@ export function SettingsPanelComponentPlugins(_props: any): JSX.Element {
   }, []);
 
   const handleUninstall = async (p: IPluginInfo) => {
-    const name = String(p.name ?? '');
+    const name = String(p.name ?? p.id ?? '');
     const scope = (p.scope as PluginScope) ?? 'user';
     if (!name) {
       return;
@@ -92,7 +92,7 @@ export function SettingsPanelComponentPlugins(_props: any): JSX.Element {
   };
 
   const handleToggleEnabled = async (p: IPluginInfo) => {
-    const name = String(p.name ?? '');
+    const name = String(p.name ?? p.id ?? '');
     const scope = (p.scope as PluginScope) ?? 'user';
     if (!name) {
       return;
@@ -265,7 +265,7 @@ function PluginScopeSection(props: {
       ) : (
         props.plugins.map(p => {
           const scope = (p.scope as PluginScope) ?? props.scope;
-          const name = String(p.name ?? '');
+          const name = String(p.name ?? p.id ?? '');
           const rowKey = `${scope}:${name}`;
           return (
             <PluginRow
@@ -298,7 +298,7 @@ function PluginRow(props: {
     <div className="nbi-skill-row">
       <div className="nbi-skill-row-main">
         <div className="nbi-skill-row-name">
-          {String(plugin.id ?? '(unnamed)')}
+          {String(plugin.name ?? plugin.id ?? '(unnamed)')}
           {!enabled && <span> — disabled</span>}
         </div>
         {description && (
