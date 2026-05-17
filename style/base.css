@@ -2827,10 +2827,9 @@ svg.access-token-warning {
   z-index: 100;
 }
 
-/* Coding Agent launcher tile: Anthropic orange icon.
+/* Coding Agent launcher tiles.
    Placed last to satisfy no-descending-specificity lint rule. */
-.jp-LauncherCard[data-category='Coding Agent'] .jp-LauncherCard-icon svg,
-.jp-Launcher-sectionHeader svg[data-icon='notebook-intelligence:claude-icon'] {
+.jp-LauncherCard[data-category='Coding Agent'] .jp-LauncherCard-icon svg {
   color: #d97757;
 }
 
