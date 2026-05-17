@@ -64,7 +64,7 @@ import {
   VscThumbsupFilled,
   VscThumbsdownFilled,
   VscCloudUpload,
-  VscAttach,
+  VscFile,
   VscRefresh
 } from './icons';
 import type { Contents } from '@jupyterlab/services';
@@ -1117,7 +1117,7 @@ function SidebarComponent(props: any) {
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const autocompleteRef = useRef<HTMLDivElement>(null);
   const sidebarRootRef = useRef<HTMLDivElement>(null);
-  const atButtonRef = useRef<HTMLAnchorElement>(null);
+  const atButtonRef = useRef<HTMLButtonElement>(null);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   // position on prompt history stack
   const [promptHistoryIndex, setPromptHistoryIndex] = useState(0);
@@ -3563,6 +3563,8 @@ function SidebarComponent(props: any) {
         <div
           className="user-input-footer-button"
           onClick={() => handleSettingsButtonClick()}
+          title="Open Notebook Intelligence settings"
+          aria-label="Open Notebook Intelligence settings"
         >
           <VscSettingsGear />
         </div>
@@ -3796,37 +3798,41 @@ function SidebarComponent(props: any) {
           )}
           <div className="user-input-footer">
             {chatMode === 'ask' && (
-              <div>
-                <a
-                  href="javascript:void(0)"
-                  ref={atButtonRef}
-                  onClick={() => {
-                    setShowPopover(prev => !prev);
-                    promptInputRef.current?.focus();
-                  }}
-                  title="Select chat participant"
-                >
-                  @
-                </a>
-              </div>
+              <button
+                type="button"
+                ref={atButtonRef}
+                className="user-input-footer-button user-input-footer-slash-button"
+                onClick={() => {
+                  setShowPopover(prev => !prev);
+                  promptInputRef.current?.focus();
+                }}
+                title="Slash commands"
+                aria-label="Open slash commands"
+              >
+                /
+              </button>
             )}
-            <div
-              className={`user-input-footer-button tools-button ${selectedContextFiles.length > 0 ? 'tools-button-active' : ''}`}
+            <button
+              type="button"
+              className={`user-input-footer-button ${selectedContextFiles.length > 0 ? 'tools-button tools-button-active' : ''}`}
               onClick={() => handleWorkspaceFilePickerClick()}
-              title="Attach workspace files as context"
+              title="Add workspace file as context"
+              aria-label="Add workspace file as context"
             >
-              <VscAdd />
+              <VscFile />
               {selectedContextFiles.length > 0 && (
                 <>{selectedContextFiles.length}</>
               )}
-            </div>
-            <div
+            </button>
+            <button
+              type="button"
               className="user-input-footer-button"
               onClick={() => fileInputRef.current?.click()}
-              title="Upload files from your computer"
+              title="Upload file from computer"
+              aria-label="Upload file from computer"
             >
-              <VscAttach />
-            </div>
+              <VscCloudUpload />
+            </button>
             <input
               ref={fileInputRef}
               type="file"

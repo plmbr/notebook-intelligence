@@ -242,7 +242,7 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
 }
 
 .chat-mode-widgets-container {
@@ -269,6 +269,30 @@
   padding: 2px;
   cursor: pointer;
   color: var(--jp-ui-font-color2);
+  transition: color var(--jp-transition-duration, 100ms) ease-in-out;
+}
+
+.user-input-footer-button:hover {
+  color: var(--jp-ui-font-color1);
+}
+
+/* Reset native chrome on the footer buttons that now render as <button>
+   so they line up visually with the older <div onClick> variants. */
+button.user-input-footer-button {
+  background: none;
+  border: none;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The slash-button (mentions and commands) renders text rather than an
+   svg, so size and center the glyph instead of relying on the svg rule. */
+.user-input-footer-slash-button {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .user-input-footer-button.tools-button {
