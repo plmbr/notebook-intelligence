@@ -1742,6 +1742,25 @@ svg.access-token-warning {
   font-size: var(--jp-ui-font-size0);
 }
 
+.nbi-skill-row-disabled {
+  border-style: dashed;
+}
+
+.nbi-skill-row-disabled .nbi-skill-row-name {
+  font-style: italic;
+}
+
+.nbi-skill-row-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background-color: var(--jp-layout-color3);
+  color: var(--jp-ui-font-color1);
+  font-weight: 500;
+  font-size: var(--jp-ui-font-size0);
+  text-transform: none;
+}
+
 /* Inline row actions (reveal on hover/focus-within) */
 .nbi-skill-row-actions {
   flex: 0 0 auto;
@@ -1750,6 +1769,13 @@ svg.access-token-warning {
   gap: 2px;
   opacity: 0;
   transition: opacity 0.1s ease-in-out;
+}
+
+/* When a row is disabled-for-workspace, the user needs an immediate way to
+   re-enable it. Override the hover-only reveal so the toggle button is
+   always visible. */
+.nbi-skill-row-disabled .nbi-skill-row-actions {
+  opacity: 1;
 }
 
 .nbi-skill-row:hover .nbi-skill-row-actions,

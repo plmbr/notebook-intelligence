@@ -101,6 +101,7 @@ export interface IClaudeMCPServer {
   env: Record<string, string>;
   url: string;
   headers: Record<string, string>;
+  disabledForWorkspace: boolean;
 }
 
 export interface IClaudeMCPAddInput {
@@ -132,7 +133,8 @@ function claudeMCPServerFromWire(wire: any): IClaudeMCPServer {
         ? Object.fromEntries(
             Object.entries(wire.headers).map(([k, v]) => [String(k), String(v)])
           )
-        : {}
+        : {},
+    disabledForWorkspace: Boolean(wire?.disabled_for_workspace)
   };
 }
 
@@ -915,6 +917,21 @@ export class NBIAPI {
     await requestAPI<any>(`claude-mcp/${scope}/${encodeURIComponent(name)}`, {
       method: 'DELETE'
     });
+  }
+
+  static async setClaudeMCPServerDisabled(
+    name: string,
+    scope: ClaudeMCPScope,
+    disabled: boolean
+  ): Promise<IClaudeMCPServer> {
+    const data = await requestAPI<any>(
+      `claude-mcp/${scope}/${encodeURIComponent(name)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ disabled_for_workspace: disabled })
+      }
+    );
+    return claudeMCPServerFromWire(data.server);
   }
 
   static async listPlugins(): Promise<IPluginInfo[]> {

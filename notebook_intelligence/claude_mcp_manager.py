@@ -18,6 +18,7 @@ that are slow and unstructured (no ``--json``).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ from notebook_intelligence._claude_cli import (
     run_claude_cli,
     validate_scope,
 )
+from notebook_intelligence.config import _atomic_write_json
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +51,11 @@ class ClaudeMCPServer:
     env: dict[str, str] = field(default_factory=dict)  # stdio
     url: str = ""  # sse | http
     headers: dict[str, str] = field(default_factory=dict)  # sse | http
+    # Workspace-level disable, sourced from
+    # `~/.claude.json` → projects.<cwd>.disabledMcpServers[]. Independent of
+    # scope: the list is just server names, so the same flag applies to a
+    # `user`-scope server even though it's a workspace-level opt-out.
+    disabled_for_workspace: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +67,7 @@ class ClaudeMCPServer:
             "env": dict(self.env),
             "url": self.url,
             "headers": dict(self.headers),
+            "disabled_for_workspace": self.disabled_for_workspace,
         }
 
 
@@ -138,15 +146,29 @@ class ClaudeMCPManager:
 
         # Local scope is keyed by absolute working-dir path under `projects`.
         projects = user_doc.get("projects") or {}
-        local_block = (projects.get(str(self._working_dir)) or {}).get("mcpServers")
-        servers.extend(_gather_from_dict(local_block, "local"))
+        project_block = projects.get(str(self._working_dir)) or {}
+        servers.extend(_gather_from_dict(project_block.get("mcpServers"), "local"))
 
         # Project scope: ``<cwd>/.mcp.json`` with top-level ``mcpServers``.
         project_doc = _read_json(self._working_dir / ".mcp.json") or {}
         servers.extend(_gather_from_dict(project_doc.get("mcpServers"), "project"))
 
+        disabled_names = self._read_disabled_names(project_block)
+        if disabled_names:
+            servers = [
+                dataclasses.replace(s, disabled_for_workspace=s.name in disabled_names)
+                for s in servers
+            ]
+
         servers.sort(key=lambda s: (s.name, s.scope))
         return servers
+
+    @staticmethod
+    def _read_disabled_names(project_block: dict) -> set[str]:
+        raw = project_block.get("disabledMcpServers") if isinstance(project_block, dict) else None
+        if not isinstance(raw, list):
+            return set()
+        return {str(item) for item in raw if isinstance(item, str)}
 
     def get_server(self, name: str, scope: ClaudeMCPScope) -> Optional[ClaudeMCPServer]:
         for srv in self.list_servers():
@@ -238,6 +260,76 @@ class ClaudeMCPManager:
                 headers=dict(headers or {}),
             )
         return srv
+
+    async def set_server_disabled(self, name: str, disabled: bool) -> ClaudeMCPServer:
+        """Toggle the workspace-level disable flag for ``name``.
+
+        Edits ``~/.claude.json`` in place. The flag is workspace-wide (a single
+        list of names under the current working directory's ``projects``
+        entry), so scope is not part of the key; passing the same name from a
+        user/local/project row produces the same write.
+        """
+        if not name:
+            raise ValueError("Missing server name")
+        async with self._write_lock:
+            self._mutate_disabled_list(name, disabled)
+        matches = [s for s in self.list_servers() if s.name == name]
+        if matches:
+            return matches[0]
+        # No definition of `name` is visible from the current cwd. The write
+        # still succeeded (a future definition would inherit the disabled
+        # flag), so synthesize a minimal record reflecting the new state.
+        return ClaudeMCPServer(
+            name=name,
+            scope="user",
+            transport="stdio",
+            disabled_for_workspace=disabled,
+        )
+
+    def _mutate_disabled_list(self, name: str, disabled: bool) -> None:
+        """Atomically update ``projects.<cwd>.disabledMcpServers`` in
+        ``~/.claude.json``. Preserves all other keys verbatim."""
+        path = self._user_config_path
+        doc: dict
+        if path.exists():
+            try:
+                with path.open("r", encoding="utf-8") as fp:
+                    doc = json.load(fp)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"Could not parse {path}; refusing to overwrite: {exc}"
+                ) from exc
+            if not isinstance(doc, dict):
+                raise ValueError(
+                    f"{path} root must be a JSON object; got {type(doc).__name__}"
+                )
+        else:
+            doc = {}
+
+        projects = doc.setdefault("projects", {})
+        if not isinstance(projects, dict):
+            raise ValueError(f"{path}: `projects` must be an object")
+        cwd_key = str(self._working_dir)
+        project_block = projects.setdefault(cwd_key, {})
+        if not isinstance(project_block, dict):
+            raise ValueError(f"{path}: `projects.{cwd_key}` must be an object")
+        current = project_block.get("disabledMcpServers")
+        if isinstance(current, list):
+            disabled_list = [str(x) for x in current if isinstance(x, str)]
+        else:
+            disabled_list = []
+        present = name in disabled_list
+        if disabled and not present:
+            disabled_list.append(name)
+        elif not disabled and present:
+            disabled_list = [x for x in disabled_list if x != name]
+        project_block["disabledMcpServers"] = disabled_list
+
+        # Reuse the symlink/mode/parent-dir-fsync atomic-write helper from
+        # config.py so all on-disk config edits share the same durability
+        # contract.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(str(path), doc)
 
     async def remove_server(self, name: str, scope: ClaudeMCPScope) -> None:
         validate_scope(scope)

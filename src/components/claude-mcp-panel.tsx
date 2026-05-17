@@ -33,6 +33,9 @@ export function SettingsPanelComponentClaudeMCP(_props: any): JSX.Element {
   const [pendingRemoval, setPendingRemoval] = useState<IClaudeMCPServer | null>(
     null
   );
+  const [pendingToggle, setPendingToggle] = useState<IClaudeMCPServer | null>(
+    null
+  );
 
   const refresh = async () => {
     setLoading(true);
@@ -68,6 +71,22 @@ export function SettingsPanelComponentClaudeMCP(_props: any): JSX.Element {
       setError(`Failed to remove: ${e?.message ?? e}`);
     } finally {
       setPendingRemoval(null);
+    }
+  };
+
+  const handleToggleDisabled = async (srv: IClaudeMCPServer) => {
+    setPendingToggle(srv);
+    try {
+      await NBIAPI.setClaudeMCPServerDisabled(
+        srv.name,
+        srv.scope,
+        !srv.disabledForWorkspace
+      );
+      await refresh();
+    } catch (e: any) {
+      setError(`Failed to update workspace state: ${e?.message ?? e}`);
+    } finally {
+      setPendingToggle(null);
     }
   };
 
@@ -131,7 +150,9 @@ export function SettingsPanelComponentClaudeMCP(_props: any): JSX.Element {
           servers={grouped[scope]}
           loading={loading}
           pendingRemoval={pendingRemoval}
+          pendingToggle={pendingToggle}
           onRemove={handleRemove}
+          onToggleDisabled={handleToggleDisabled}
         />
       ))}
 
@@ -150,7 +171,9 @@ function ClaudeMCPScopeSection(props: {
   servers: IClaudeMCPServer[];
   loading: boolean;
   pendingRemoval: IClaudeMCPServer | null;
+  pendingToggle: IClaudeMCPServer | null;
   onRemove: (srv: IClaudeMCPServer) => void;
+  onToggleDisabled: (srv: IClaudeMCPServer) => void;
 }) {
   return (
     <div className="nbi-skills-section">
@@ -173,7 +196,12 @@ function ClaudeMCPScopeSection(props: {
               props.pendingRemoval?.name === srv.name &&
               props.pendingRemoval?.scope === srv.scope
             }
+            toggling={
+              props.pendingToggle?.name === srv.name &&
+              props.pendingToggle?.scope === srv.scope
+            }
             onRemove={() => props.onRemove(srv)}
+            onToggleDisabled={() => props.onToggleDisabled(srv)}
           />
         ))
       )}
@@ -184,23 +212,51 @@ function ClaudeMCPScopeSection(props: {
 function ClaudeMCPRow(props: {
   srv: IClaudeMCPServer;
   removing: boolean;
+  toggling: boolean;
   onRemove: () => void;
+  onToggleDisabled: () => void;
 }) {
   const { srv } = props;
   const summary =
     srv.transport === 'stdio'
       ? [srv.command, ...srv.args].filter(Boolean).join(' ')
       : srv.url;
+  const disabled = srv.disabledForWorkspace;
+  const toggleLabel = disabled
+    ? props.toggling
+      ? 'Enabling…'
+      : 'Enable for workspace'
+    : props.toggling
+      ? 'Disabling…'
+      : 'Disable for workspace';
+  const toggleTitle = disabled
+    ? 'Re-enable this server for the current Jupyter workspace'
+    : 'Hide this server from Claude in the current Jupyter workspace (other workspaces unaffected)';
   return (
-    <div className="nbi-skill-row">
+    <div
+      className={`nbi-skill-row${disabled ? ' nbi-skill-row-disabled' : ''}`}
+    >
       <div className="nbi-skill-row-main">
-        <div className="nbi-skill-row-name">{srv.name}</div>
+        <div className="nbi-skill-row-name">
+          {srv.name}
+          {disabled && (
+            <span className="nbi-skill-row-badge">Disabled for workspace</span>
+          )}
+        </div>
         <div className="nbi-skill-row-description">
           <code>{srv.transport}</code>
-          {summary && <span> — {summary}</span>}
+          {summary && <span>: {summary}</span>}
         </div>
       </div>
       <div className="nbi-skill-row-actions" onClick={e => e.stopPropagation()}>
+        <button
+          className="jp-Dialog-button jp-mod-reject jp-mod-styled"
+          onClick={props.onToggleDisabled}
+          disabled={props.toggling}
+          title={toggleTitle}
+        >
+          <div className="jp-Dialog-buttonLabel">{toggleLabel}</div>
+        </button>
         <button
           className="jp-Dialog-button jp-mod-reject jp-mod-styled"
           onClick={props.onRemove}
