@@ -42,6 +42,7 @@ from notebook_intelligence.feature_flags import (
     is_locked,
     resolve_feature_flag,
 )
+from notebook_intelligence._claude_cli import validate_scope
 from notebook_intelligence.claude import ClaudeCodeChatParticipant, fetch_claude_models
 from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
 from notebook_intelligence.plugin_manager import PluginManager
