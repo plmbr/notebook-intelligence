@@ -1347,7 +1347,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     app.commands.addCommand(CommandIDs.openClaudeCodeLauncher, {
       label: 'Claude Code',
       caption: 'Resume or start a Claude Code session',
-      icon: claudeIcon,
+      icon: sparkleIcon,
       // The launcher tile opens a Jupyter terminal that runs the
       // `claude` CLI directly — it doesn't depend on NBI being in
       // Claude Code chat mode (which gates the chat-sidebar SDK
