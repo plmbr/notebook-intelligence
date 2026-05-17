@@ -1,6 +1,6 @@
 // Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Dialog, showDialog } from '@jupyterlab/apputils';
 import {
   ClaudeMCPScope,
@@ -10,6 +10,11 @@ import {
   NBIAPI
 } from '../api';
 import { FormDialog } from './form-dialog';
+import {
+  configToInput,
+  parseKVLines,
+  parseMcpJsonEntry
+} from './claude-mcp-paste';
 
 const SCOPES: ClaudeMCPScope[] = ['user', 'project', 'local'];
 const TRANSPORTS: ClaudeMCPTransport[] = ['stdio', 'sse', 'http'];
@@ -210,66 +215,102 @@ function ClaudeMCPRow(props: {
   );
 }
 
+type AddDialogMode = 'form' | 'json';
+
+const JSON_PLACEHOLDER = `"server-key": {
+  "command": "uvx",
+  "args": ["server-package@latest"]
+}`;
+
+const FORM_TAB_ID = 'nbi-mcp-add-tab-form';
+const JSON_TAB_ID = 'nbi-mcp-add-tab-json';
+const FORM_PANEL_ID = 'nbi-mcp-add-panel-form';
+const JSON_PANEL_ID = 'nbi-mcp-add-panel-json';
+
 function ClaudeMCPAddDialog(props: {
   onCancel: () => void;
   onSubmit: (input: IClaudeMCPAddInput) => Promise<void>;
 }) {
   const [scope, setScope] = useState<ClaudeMCPScope>('user');
+  const [mode, setMode] = useState<AddDialogMode>('form');
   const [transport, setTransport] = useState<ClaudeMCPTransport>('stdio');
   const [name, setName] = useState('');
   const [commandOrUrl, setCommandOrUrl] = useState('');
   const [argsText, setArgsText] = useState('');
   const [envText, setEnvText] = useState('');
   const [headersText, setHeadersText] = useState('');
+  const [jsonText, setJsonText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const canSubmit = name.trim() && commandOrUrl.trim() && !submitting;
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLTextAreaElement>(null);
+  const formTabRef = useRef<HTMLButtonElement>(null);
+  const jsonTabRef = useRef<HTMLButtonElement>(null);
+  // Skip the first effect run so we don't steal focus from the Scope select
+  // when the dialog mounts; only re-focus when the user actively switches.
+  const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    if (mode === 'json') {
+      jsonInputRef.current?.focus();
+    } else {
+      nameInputRef.current?.focus();
+    }
+  }, [mode]);
+
+  const canSubmit =
+    mode === 'json'
+      ? jsonText.trim().length > 0 && !submitting
+      : name.trim() && commandOrUrl.trim() && !submitting;
 
   const handleSubmit = async () => {
     if (!canSubmit) {
       return;
     }
-    const argsList = argsText
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean);
-    const parseKVLines = (
-      text: string,
-      separator: string
-    ): Record<string, string> => {
-      const out: Record<string, string> = {};
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-        const idx = trimmed.indexOf(separator);
-        if (idx > 0) {
-          out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
-        }
-      }
-      return out;
-    };
-    const envMap = parseKVLines(envText, '=');
-    const headersMap = parseKVLines(headersText, ':');
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await props.onSubmit({
-        name: name.trim(),
-        scope,
-        transport,
-        commandOrUrl: commandOrUrl.trim(),
-        args: transport === 'stdio' ? argsList : undefined,
-        env: transport === 'stdio' ? envMap : undefined,
-        headers: transport === 'stdio' ? undefined : headersMap
-      });
+      let input: IClaudeMCPAddInput;
+      if (mode === 'json') {
+        const { name: parsedName, config } = parseMcpJsonEntry(jsonText);
+        input = configToInput(parsedName, config, scope);
+      } else {
+        const argsList = argsText
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean);
+        input = {
+          name: name.trim(),
+          scope,
+          transport,
+          commandOrUrl: commandOrUrl.trim(),
+          args: transport === 'stdio' ? argsList : undefined,
+          env: transport === 'stdio' ? parseKVLines(envText, '=') : undefined,
+          headers:
+            transport === 'stdio' ? undefined : parseKVLines(headersText, ':')
+        };
+      }
+      await props.onSubmit(input);
     } catch (e: any) {
       setSubmitError(e?.message ?? String(e));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return;
+    }
+    event.preventDefault();
+    const next: AddDialogMode = mode === 'form' ? 'json' : 'form';
+    setMode(next);
+    (next === 'form' ? formTabRef : jsonTabRef).current?.focus();
   };
 
   return (
@@ -284,16 +325,6 @@ function ClaudeMCPAddDialog(props: {
       onSubmit={handleSubmit}
     >
       <div className="nbi-form-field">
-        <label>Name</label>
-        <input
-          type="text"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="my-server"
-          autoFocus
-        />
-      </div>
-      <div className="nbi-form-field">
         <label>Scope</label>
         <select
           value={scope}
@@ -307,60 +338,136 @@ function ClaudeMCPAddDialog(props: {
         </select>
       </div>
       <div className="nbi-form-field">
-        <label>Transport</label>
-        <select
-          value={transport}
-          onChange={e => setTransport(e.target.value as ClaudeMCPTransport)}
+        <label id="nbi-mcp-add-input-mode-label">Input mode</label>
+        <div
+          className="nbi-segmented-control"
+          role="tablist"
+          aria-labelledby="nbi-mcp-add-input-mode-label"
+          onKeyDown={onTabsKeyDown}
         >
-          {TRANSPORTS.map(t => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          <button
+            type="button"
+            role="tab"
+            id={FORM_TAB_ID}
+            ref={formTabRef}
+            aria-selected={mode === 'form'}
+            aria-controls={FORM_PANEL_ID}
+            tabIndex={mode === 'form' ? 0 : -1}
+            className={`nbi-segmented-control-option${mode === 'form' ? ' is-active' : ''}`}
+            onClick={() => setMode('form')}
+          >
+            Form
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id={JSON_TAB_ID}
+            ref={jsonTabRef}
+            aria-selected={mode === 'json'}
+            aria-controls={JSON_PANEL_ID}
+            tabIndex={mode === 'json' ? 0 : -1}
+            className={`nbi-segmented-control-option${mode === 'json' ? ' is-active' : ''}`}
+            onClick={() => setMode('json')}
+          >
+            JSON
+          </button>
+        </div>
       </div>
-      <div className="nbi-form-field">
-        <label>{transport === 'stdio' ? 'Command' : 'URL'}</label>
-        <input
-          type="text"
-          value={commandOrUrl}
-          onChange={e => setCommandOrUrl(e.target.value)}
-          placeholder={
-            transport === 'stdio' ? 'npx' : 'https://example.com/mcp'
-          }
-        />
-      </div>
-      {transport === 'stdio' && (
-        <div className="nbi-form-field">
-          <label>Args (one per line)</label>
+      {mode === 'json' ? (
+        <div
+          className="nbi-form-field"
+          role="tabpanel"
+          id={JSON_PANEL_ID}
+          aria-labelledby={JSON_TAB_ID}
+        >
+          <label htmlFor="nbi-mcp-add-json">JSON</label>
           <textarea
-            rows={3}
-            value={argsText}
-            onChange={e => setArgsText(e.target.value)}
-            placeholder={'-y\n@scope/package@latest'}
+            id="nbi-mcp-add-json"
+            ref={jsonInputRef}
+            rows={10}
+            value={jsonText}
+            onChange={e => setJsonText(e.target.value)}
+            placeholder={JSON_PLACEHOLDER}
+            spellCheck={false}
+            autoFocus
           />
         </div>
-      )}
-      {transport === 'stdio' && (
-        <div className="nbi-form-field">
-          <label>Environment (KEY=value, one per line)</label>
-          <textarea
-            rows={3}
-            value={envText}
-            onChange={e => setEnvText(e.target.value)}
-            placeholder="API_KEY=…"
-          />
-        </div>
-      )}
-      {transport !== 'stdio' && (
-        <div className="nbi-form-field">
-          <label>Headers (Name: value, one per line)</label>
-          <textarea
-            rows={3}
-            value={headersText}
-            onChange={e => setHeadersText(e.target.value)}
-            placeholder="Authorization: Bearer …"
-          />
+      ) : (
+        <div
+          role="tabpanel"
+          id={FORM_PANEL_ID}
+          aria-labelledby={FORM_TAB_ID}
+          className="nbi-mcp-add-form-panel"
+        >
+          <div className="nbi-form-field">
+            <label htmlFor="nbi-mcp-add-name">Name</label>
+            <input
+              id="nbi-mcp-add-name"
+              ref={nameInputRef}
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="my-server"
+              autoFocus
+            />
+          </div>
+          <div className="nbi-form-field">
+            <label>Transport</label>
+            <select
+              value={transport}
+              onChange={e => setTransport(e.target.value as ClaudeMCPTransport)}
+            >
+              {TRANSPORTS.map(t => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="nbi-form-field">
+            <label>{transport === 'stdio' ? 'Command' : 'URL'}</label>
+            <input
+              type="text"
+              value={commandOrUrl}
+              onChange={e => setCommandOrUrl(e.target.value)}
+              placeholder={
+                transport === 'stdio' ? 'npx' : 'https://example.com/mcp'
+              }
+            />
+          </div>
+          {transport === 'stdio' && (
+            <div className="nbi-form-field">
+              <label>Args (one per line)</label>
+              <textarea
+                rows={3}
+                value={argsText}
+                onChange={e => setArgsText(e.target.value)}
+                placeholder={'-y\n@scope/package@latest'}
+              />
+            </div>
+          )}
+          {transport === 'stdio' && (
+            <div className="nbi-form-field">
+              <label>Environment (KEY=value, one per line)</label>
+              <textarea
+                rows={3}
+                value={envText}
+                onChange={e => setEnvText(e.target.value)}
+                placeholder="API_KEY=…"
+              />
+            </div>
+          )}
+          {transport !== 'stdio' && (
+            <div className="nbi-form-field">
+              <label>Headers (Name: value, one per line)</label>
+              <textarea
+                rows={3}
+                value={headersText}
+                onChange={e => setHeadersText(e.target.value)}
+                placeholder="Authorization: Bearer …"
+              />
+            </div>
+          )}
         </div>
       )}
     </FormDialog>

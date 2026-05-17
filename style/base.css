@@ -2064,6 +2064,42 @@ svg.access-token-warning {
   box-shadow: 0 0 0 1px var(--jp-brand-color1);
 }
 
+.nbi-segmented-control {
+  display: inline-flex;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 3px;
+  overflow: hidden;
+  align-self: flex-start;
+}
+
+.nbi-segmented-control-option {
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  border: none;
+  padding: 6px 14px;
+  font-size: var(--jp-ui-font-size1);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.nbi-segmented-control-option + .nbi-segmented-control-option {
+  border-left: 1px solid var(--jp-border-color1);
+}
+
+.nbi-segmented-control-option:hover {
+  background: var(--jp-layout-color2);
+}
+
+.nbi-segmented-control-option.is-active {
+  background: var(--jp-brand-color1);
+  color: var(--jp-ui-inverse-font-color1, #fff);
+}
+
+.nbi-segmented-control-option:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: -2px;
+}
+
 .nbi-form-field-error {
   font-size: var(--jp-ui-font-size0);
   color: var(--jp-error-color1, #d32f2f);
