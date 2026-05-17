@@ -92,6 +92,12 @@ export interface IPluginMarketplaceInfo {
   [key: string]: unknown;
 }
 
+export interface IPluginMarketplacePluginInfo extends IPluginInfo {
+  source?: unknown;
+  category?: string;
+  tags?: string[];
+}
+
 export interface IClaudeMCPServer {
   name: string;
   scope: ClaudeMCPScope;
@@ -956,6 +962,17 @@ export class NBIAPI {
     const data = await requestAPI<any>('plugins/marketplace');
     return Array.isArray(data?.marketplaces)
       ? (data.marketplaces as IPluginMarketplaceInfo[])
+      : [];
+  }
+
+  static async listPluginMarketplacePlugins(
+    marketplace: string
+  ): Promise<IPluginMarketplacePluginInfo[]> {
+    const data = await requestAPI<any>(
+      `plugins/marketplace/${encodeURIComponent(marketplace)}/plugins`
+    );
+    return Array.isArray(data?.plugins)
+      ? (data.plugins as IPluginMarketplacePluginInfo[])
       : [];
   }
 

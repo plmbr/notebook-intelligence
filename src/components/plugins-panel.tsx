@@ -5,6 +5,7 @@ import { Dialog, showDialog } from '@jupyterlab/apputils';
 import {
   IPluginInfo,
   IPluginMarketplaceInfo,
+  IPluginMarketplacePluginInfo,
   NBIAPI,
   PluginScope
 } from '../api';
@@ -16,6 +17,21 @@ const SCOPE_HINT: Record<PluginScope, string> = {
   project: 'shared via the project repo',
   local: 'this project, this user only'
 };
+
+function marketplaceName(marketplace: IPluginMarketplaceInfo): string {
+  return String(marketplace.name ?? '').trim();
+}
+
+function pluginEntryName(plugin: IPluginMarketplacePluginInfo): string {
+  return String(plugin.name ?? '').trim();
+}
+
+function pluginEntryLabel(plugin: IPluginMarketplacePluginInfo): string {
+  const name = pluginEntryName(plugin);
+  const description =
+    typeof plugin.description === 'string' ? plugin.description : '';
+  return description ? `${name} - ${description}` : name;
+}
 
 export function SettingsPanelComponentPlugins(_props: any): JSX.Element {
   const [plugins, setPlugins] = useState<IPluginInfo[]>([]);
@@ -367,12 +383,75 @@ function PluginInstallDialog(props: {
   onCancel: () => void;
   onSubmit: (input: { plugin: string; scope: PluginScope }) => Promise<void>;
 }) {
-  const [pluginRef, setPluginRef] = useState('');
+  const marketplaceNames = props.marketplaces
+    .map(marketplaceName)
+    .filter(Boolean);
+  const marketplaceKey = marketplaceNames.join('\n');
+  const [marketplace, setMarketplace] = useState(marketplaceNames[0] ?? '');
+  const [marketplacePlugins, setMarketplacePlugins] = useState<
+    IPluginMarketplacePluginInfo[]
+  >([]);
+  const [selectedPlugin, setSelectedPlugin] = useState('');
   const [scope, setScope] = useState<PluginScope>('user');
+  const [loadingPlugins, setLoadingPlugins] = useState(false);
+  const [pluginListError, setPluginListError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const canSubmit = pluginRef.trim() && !submitting;
+  useEffect(() => {
+    if (marketplace && marketplaceNames.includes(marketplace)) {
+      return;
+    }
+    setMarketplace(marketplaceNames[0] ?? '');
+  }, [marketplace, marketplaceKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!marketplace) {
+      setMarketplacePlugins([]);
+      setSelectedPlugin('');
+      setPluginListError(null);
+      return;
+    }
+
+    setLoadingPlugins(true);
+    setPluginListError(null);
+    NBIAPI.listPluginMarketplacePlugins(marketplace)
+      .then(plugins => {
+        if (cancelled) {
+          return;
+        }
+        const namedPlugins = plugins.filter(plugin => pluginEntryName(plugin));
+        setMarketplacePlugins(namedPlugins);
+        const firstPluginName =
+          namedPlugins.length > 0 ? pluginEntryName(namedPlugins[0]) : '';
+        setSelectedPlugin(current =>
+          namedPlugins.some(plugin => pluginEntryName(plugin) === current)
+            ? current
+            : firstPluginName
+        );
+      })
+      .catch((e: any) => {
+        if (cancelled) {
+          return;
+        }
+        setMarketplacePlugins([]);
+        setSelectedPlugin('');
+        setPluginListError(`Failed to load plugins: ${e?.message ?? e}`);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPlugins(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [marketplace]);
+
+  const canSubmit =
+    marketplace && selectedPlugin && !loadingPlugins && !submitting;
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -381,7 +460,10 @@ function PluginInstallDialog(props: {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await props.onSubmit({ plugin: pluginRef.trim(), scope });
+      await props.onSubmit({
+        plugin: `${selectedPlugin}@${marketplace}`,
+        scope
+      });
     } catch (e: any) {
       setSubmitError(e?.message ?? String(e));
     } finally {
@@ -400,21 +482,62 @@ function PluginInstallDialog(props: {
       onCancel={props.onCancel}
       onSubmit={handleSubmit}
     >
-      <div className="nbi-form-field">
-        <label>Plugin</label>
-        <input
-          type="text"
-          value={pluginRef}
-          onChange={e => setPluginRef(e.target.value)}
-          placeholder="plugin-name or plugin@marketplace"
-          autoFocus
-        />
-      </div>
-      {props.marketplaces.length === 0 && (
+      {marketplaceNames.length === 0 ? (
         <div className="nbi-form-hint">
-          No marketplaces are configured. Add one before installing, or specify{' '}
-          <code>plugin@marketplace</code> with a known source.
+          No marketplaces are configured. Add one before installing a plugin.
         </div>
+      ) : (
+        <>
+          <div className="nbi-form-field">
+            <label>Marketplace</label>
+            <select
+              value={marketplace}
+              onChange={e => setMarketplace(e.target.value)}
+              disabled={submitting}
+              autoFocus
+            >
+              {marketplaceNames.map(name => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="nbi-form-field">
+            <label>Plugin</label>
+            <select
+              value={selectedPlugin}
+              onChange={e => setSelectedPlugin(e.target.value)}
+              disabled={
+                submitting || loadingPlugins || marketplacePlugins.length === 0
+              }
+            >
+              {marketplacePlugins.map(plugin => {
+                const name = pluginEntryName(plugin);
+                return (
+                  <option key={name} value={name}>
+                    {pluginEntryLabel(plugin)}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          {loadingPlugins && (
+            <div className="nbi-form-hint">Loading marketplace plugins...</div>
+          )}
+          {!loadingPlugins &&
+            !pluginListError &&
+            marketplacePlugins.length === 0 && (
+              <div className="nbi-form-hint">
+                No plugins were found in this marketplace.
+              </div>
+            )}
+          {pluginListError && (
+            <div className="nbi-skills-error" role="alert">
+              {pluginListError}
+            </div>
+          )}
+        </>
       )}
       <div className="nbi-form-field">
         <label>Scope</label>
