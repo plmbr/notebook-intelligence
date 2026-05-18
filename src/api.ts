@@ -76,6 +76,7 @@ export type PluginScope = 'user' | 'project' | 'local';
 // it cares about. Defining only the fields we observe today as optional
 // keeps newer Claude releases from getting truncated.
 export interface IPluginInfo {
+  id?: string;
   name?: string;
   scope?: PluginScope | string;
   enabled?: boolean;

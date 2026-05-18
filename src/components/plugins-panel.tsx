@@ -22,16 +22,18 @@ function marketplaceName(marketplace: IPluginMarketplaceInfo): string {
   return String(marketplace.name ?? '').trim();
 }
 
-function pluginEntryName(plugin: IPluginMarketplacePluginInfo): string {
-  return String(plugin.name ?? '').trim();
+function pluginName(plugin: IPluginInfo): string {
+  return String(plugin.name ?? plugin.id ?? '').trim();
 }
 
 function pluginEntryLabel(plugin: IPluginMarketplacePluginInfo): string {
-  const name = pluginEntryName(plugin);
+  const name = pluginName(plugin);
   const description =
     typeof plugin.description === 'string' ? plugin.description : '';
   return description ? `${name} - ${description}` : name;
 }
+
+type PluginInstallMode = 'marketplace' | 'manual';
 
 export function SettingsPanelComponentPlugins(_props: any): JSX.Element {
   const [plugins, setPlugins] = useState<IPluginInfo[]>([]);
@@ -79,7 +81,7 @@ export function SettingsPanelComponentPlugins(_props: any): JSX.Element {
   }, []);
 
   const handleUninstall = async (p: IPluginInfo) => {
-    const name = String(p.name ?? '');
+    const name = pluginName(p);
     const scope = (p.scope as PluginScope) ?? 'user';
     if (!name) {
       return;
@@ -108,7 +110,7 @@ export function SettingsPanelComponentPlugins(_props: any): JSX.Element {
   };
 
   const handleToggleEnabled = async (p: IPluginInfo) => {
-    const name = String(p.name ?? '');
+    const name = pluginName(p);
     const scope = (p.scope as PluginScope) ?? 'user';
     if (!name) {
       return;
@@ -281,7 +283,7 @@ function PluginScopeSection(props: {
       ) : (
         props.plugins.map(p => {
           const scope = (p.scope as PluginScope) ?? props.scope;
-          const name = String(p.name ?? '');
+          const name = pluginName(p);
           const rowKey = `${scope}:${name}`;
           return (
             <PluginRow
@@ -314,7 +316,7 @@ function PluginRow(props: {
     <div className="nbi-skill-row">
       <div className="nbi-skill-row-main">
         <div className="nbi-skill-row-name">
-          {String(plugin.name ?? '(unnamed)')}
+          {pluginName(plugin) || '(unnamed)'}
           {!enabled && <span> — disabled</span>}
         </div>
         {description && (
@@ -387,11 +389,15 @@ function PluginInstallDialog(props: {
     .map(marketplaceName)
     .filter(Boolean);
   const marketplaceKey = marketplaceNames.join('\n');
+  const [installMode, setInstallMode] = useState<PluginInstallMode>(
+    marketplaceNames.length > 0 ? 'marketplace' : 'manual'
+  );
   const [marketplace, setMarketplace] = useState(marketplaceNames[0] ?? '');
   const [marketplacePlugins, setMarketplacePlugins] = useState<
     IPluginMarketplacePluginInfo[]
   >([]);
   const [selectedPlugin, setSelectedPlugin] = useState('');
+  const [manualPlugin, setManualPlugin] = useState('');
   const [scope, setScope] = useState<PluginScope>('user');
   const [loadingPlugins, setLoadingPlugins] = useState(false);
   const [pluginListError, setPluginListError] = useState<string | null>(null);
@@ -407,6 +413,11 @@ function PluginInstallDialog(props: {
 
   useEffect(() => {
     let cancelled = false;
+    if (installMode !== 'marketplace') {
+      setLoadingPlugins(false);
+      setPluginListError(null);
+      return;
+    }
     if (!marketplace) {
       setMarketplacePlugins([]);
       setSelectedPlugin('');
@@ -421,12 +432,12 @@ function PluginInstallDialog(props: {
         if (cancelled) {
           return;
         }
-        const namedPlugins = plugins.filter(plugin => pluginEntryName(plugin));
+        const namedPlugins = plugins.filter(plugin => pluginName(plugin));
         setMarketplacePlugins(namedPlugins);
         const firstPluginName =
-          namedPlugins.length > 0 ? pluginEntryName(namedPlugins[0]) : '';
+          namedPlugins.length > 0 ? pluginName(namedPlugins[0]) : '';
         setSelectedPlugin(current =>
-          namedPlugins.some(plugin => pluginEntryName(plugin) === current)
+          namedPlugins.some(plugin => pluginName(plugin) === current)
             ? current
             : firstPluginName
         );
@@ -448,10 +459,14 @@ function PluginInstallDialog(props: {
     return () => {
       cancelled = true;
     };
-  }, [marketplace]);
+  }, [installMode, marketplace]);
 
+  const trimmedManualPlugin = manualPlugin.trim();
   const canSubmit =
-    marketplace && selectedPlugin && !loadingPlugins && !submitting;
+    !submitting &&
+    (installMode === 'manual'
+      ? Boolean(trimmedManualPlugin)
+      : Boolean(marketplace && selectedPlugin && !loadingPlugins));
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -461,7 +476,10 @@ function PluginInstallDialog(props: {
     setSubmitting(true);
     try {
       await props.onSubmit({
-        plugin: `${selectedPlugin}@${marketplace}`,
+        plugin:
+          installMode === 'manual'
+            ? trimmedManualPlugin
+            : `${selectedPlugin}@${marketplace}`,
         scope
       });
     } catch (e: any) {
@@ -482,10 +500,36 @@ function PluginInstallDialog(props: {
       onCancel={props.onCancel}
       onSubmit={handleSubmit}
     >
-      {marketplaceNames.length === 0 ? (
-        <div className="nbi-form-hint">
-          No marketplaces are configured. Add one before installing a plugin.
-        </div>
+      <div className="nbi-form-field">
+        <label>Install from</label>
+        <select
+          value={installMode}
+          onChange={e => setInstallMode(e.target.value as PluginInstallMode)}
+          disabled={submitting}
+          autoFocus
+        >
+          <option value="marketplace" disabled={marketplaceNames.length === 0}>
+            Marketplace picker
+          </option>
+          <option value="manual">Specify manually</option>
+        </select>
+      </div>
+      {installMode === 'manual' ? (
+        <>
+          <div className="nbi-form-field">
+            <label>Plugin</label>
+            <input
+              type="text"
+              value={manualPlugin}
+              onChange={e => setManualPlugin(e.target.value)}
+              placeholder="plugin@marketplace"
+              disabled={submitting}
+            />
+          </div>
+          <div className="nbi-form-hint">
+            Enter a plugin name or the plugin@marketplace shorthand.
+          </div>
+        </>
       ) : (
         <>
           <div className="nbi-form-field">
@@ -494,7 +538,6 @@ function PluginInstallDialog(props: {
               value={marketplace}
               onChange={e => setMarketplace(e.target.value)}
               disabled={submitting}
-              autoFocus
             >
               {marketplaceNames.map(name => (
                 <option key={name} value={name}>
@@ -513,7 +556,7 @@ function PluginInstallDialog(props: {
               }
             >
               {marketplacePlugins.map(plugin => {
-                const name = pluginEntryName(plugin);
+                const name = pluginName(plugin);
                 return (
                   <option key={name} value={name}>
                     {pluginEntryLabel(plugin)}
