@@ -13,6 +13,7 @@ import {
   cellOutputAsText,
   applyCodeToSelectionInEditor,
   buildResumeCommand,
+  safeAnchorUri,
   shellSingleQuote,
   writeTextToClipboard
 } from '../../src/utils';
@@ -490,5 +491,106 @@ describe('buildResumeCommand', () => {
 
   it('falls back to a bare resume when cwd is empty', () => {
     expect(buildResumeCommand('', 'abc-123')).toBe('claude --resume abc-123');
+  });
+});
+
+describe('safeAnchorUri', () => {
+  it('accepts https URLs', () => {
+    expect(safeAnchorUri('https://example.com/page')).toBe(
+      'https://example.com/page'
+    );
+  });
+
+  it('accepts http URLs', () => {
+    expect(safeAnchorUri('http://example.com/')).toBe('http://example.com/');
+  });
+
+  it('accepts mailto links', () => {
+    expect(safeAnchorUri('mailto:bob@example.com')).toBe(
+      'mailto:bob@example.com'
+    );
+  });
+
+  it('is case-insensitive on the scheme', () => {
+    expect(safeAnchorUri('HTTPS://Example.COM/Path')).toBe(
+      'HTTPS://Example.COM/Path'
+    );
+  });
+
+  it('rejects javascript: URLs', () => {
+    expect(safeAnchorUri('javascript:alert(1)')).toBeNull();
+  });
+
+  it('rejects data: URLs', () => {
+    expect(
+      safeAnchorUri('data:text/html,<script>alert(1)</script>')
+    ).toBeNull();
+  });
+
+  it('rejects vbscript: URLs', () => {
+    expect(safeAnchorUri('vbscript:msgbox(1)')).toBeNull();
+  });
+
+  it('rejects file: URLs', () => {
+    expect(safeAnchorUri('file:///etc/passwd')).toBeNull();
+  });
+
+  it('rejects blob: URLs', () => {
+    expect(safeAnchorUri('blob:https://example.com/abc')).toBeNull();
+  });
+
+  it('rejects URIs with C0 control characters that browsers may strip', () => {
+    expect(safeAnchorUri('java\tscript:alert(1)')).toBeNull();
+    expect(safeAnchorUri('javascript\n:alert(1)')).toBeNull();
+    expect(safeAnchorUri('java\x00script:alert(1)')).toBeNull();
+  });
+
+  it('rejects URIs containing unicode format / zero-width / bidi marks', () => {
+    expect(safeAnchorUri('https://example.com/\u0085')).toBeNull(); // NEL
+    expect(safeAnchorUri('https://example.com/\u00a0')).toBeNull(); // NBSP
+    expect(safeAnchorUri('https://example.com/\u2028')).toBeNull(); // LS
+    expect(safeAnchorUri('https://example.com/\u2029')).toBeNull(); // PS
+    expect(safeAnchorUri('https://example.com/\ufeff')).toBeNull(); // BOM
+    expect(safeAnchorUri('https://example.com/\u200b')).toBeNull(); // ZWSP
+    expect(safeAnchorUri('https://example.com/\u200e')).toBeNull(); // LRM
+    expect(safeAnchorUri('https://example.com/\u202e')).toBeNull(); // RLO
+    expect(safeAnchorUri('https://example.com/\u2066')).toBeNull(); // LRI
+    expect(safeAnchorUri('https://example.com/\u0080')).toBeNull(); // C1
+  });
+
+  it('rejects empty / whitespace / non-string input', () => {
+    expect(safeAnchorUri('')).toBeNull();
+    expect(safeAnchorUri('   ')).toBeNull();
+    expect(safeAnchorUri(undefined)).toBeNull();
+    expect(safeAnchorUri(null)).toBeNull();
+  });
+
+  it('rejects relative paths without an allowed scheme', () => {
+    expect(safeAnchorUri('/api/contents/secret.json')).toBeNull();
+    expect(safeAnchorUri('../etc/passwd')).toBeNull();
+    expect(safeAnchorUri('#section')).toBeNull();
+    expect(safeAnchorUri('foo.txt')).toBeNull();
+  });
+
+  it('trims surrounding whitespace before validating', () => {
+    expect(safeAnchorUri('   https://example.com/   ')).toBe(
+      'https://example.com/'
+    );
+  });
+
+  it('rejects CRLF injection inside an otherwise valid URI', () => {
+    expect(safeAnchorUri('https://example.com/\r\nfoo')).toBeNull();
+    expect(safeAnchorUri('https://example.com/\nfoo')).toBeNull();
+  });
+
+  it('rejects URIs above the 8 KiB length cap', () => {
+    const longPath = 'x'.repeat(8200);
+    expect(safeAnchorUri(`https://example.com/${longPath}`)).toBeNull();
+  });
+
+  it('accepts a URI near but under the length cap', () => {
+    const longPath = 'x'.repeat(8000);
+    const uri = `https://example.com/${longPath}`;
+    expect(safeAnchorUri(uri)).toBe(uri);
   });
 });

@@ -2,6 +2,7 @@
 
 import os
 import base64
+import re
 import shutil
 import subprocess
 from typing import Optional, Set
@@ -184,6 +185,68 @@ def is_builtin_tool_enabled_in_env(tool: str) -> bool:
 def is_provider_enabled_in_env(provider_id: str) -> bool:
     enabled_providers = os.environ.get('NBI_ENABLED_PROVIDERS', '')
     return provider_id in enabled_providers.split(',')
+
+
+# Schemes safe to emit into the chat anchor stream. Anchors are populated
+# from arbitrary LLM / tool output, and React does not block javascript:,
+# data:, vbscript:, etc. in href attributes; rel=noopener also does not
+# prevent javascript: execution against the parent origin. Keep this
+# allowlist tight; the frontend re-checks before assigning href as
+# defense in depth.
+#
+# Deliberate non-carve-out: `data:` is not allowed even for `image/*`.
+# `<a href="data:image/svg+xml,...">` navigates the top frame to an
+# attacker SVG that runs script same-origin, which is the exact XSS sink
+# this allowlist exists to close.
+_SAFE_ANCHOR_SCHEMES: frozenset = frozenset({"http", "https", "mailto"})
+_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
+# Hard cap on URI length to short-circuit pathological inputs. Modern
+# browsers truncate URLs well below this; servers commonly cap at 8 KB.
+# An anchor URI longer than that is almost certainly hostile or
+# malformed, and scanning it codepoint-by-codepoint twice (Python + TS)
+# is wasted work.
+_MAX_ANCHOR_URI_LEN = 8192
+# C0+DEL (0x00 to 0x1F, 0x7F) are stripped from the scheme by some browser URL
+# parsers ahead of evaluation, so "java\tscript:..." would unmask. C1 (0x80
+# to 0x9F) and the Unicode format marks below cannot un-mask a forbidden
+# scheme in modern browsers, but they can visually impersonate the URI when
+# the title is rendered, so reject them too.
+_DISALLOWED_URI_CODEPOINTS = frozenset(
+    list(range(0x00, 0x20))                # C0
+    + [0x7F]                              # DEL
+    + list(range(0x80, 0xA0))             # C1
+    + [0x0085, 0x00A0, 0x2028, 0x2029, 0xFEFF]
+    + list(range(0x200B, 0x2010))          # ZWSP/ZWNJ/ZWJ + LRM/RLM
+    + list(range(0x202A, 0x202F))          # LRE/RLE/PDF/LRO/RLO
+    + list(range(0x2066, 0x2070))          # LRI/RLI/FSI/PDI + deprecated
+)
+
+
+def safe_anchor_uri(uri: str) -> str:
+    """Return ``uri`` when its scheme is in the chat anchor allowlist.
+
+    Returns an empty string for anything else. Callers should treat the
+    empty return as "do not render as an anchor."
+    """
+    if not isinstance(uri, str):
+        return ""
+    if len(uri) > _MAX_ANCHOR_URI_LEN:
+        return ""
+    # Scan the original input — str.strip() treats NEL, NBSP, LS, PS, and
+    # other unicode whitespace as trimmable, so checking after stripping
+    # would let those codepoints slip past as a trailing edge.
+    for ch in uri:
+        if ord(ch) in _DISALLOWED_URI_CODEPOINTS:
+            return ""
+    stripped = uri.strip()
+    if not stripped:
+        return ""
+    match = _SCHEME_RE.match(stripped)
+    if not match:
+        return ""
+    if match.group(1).lower() not in _SAFE_ANCHOR_SCHEMES:
+        return ""
+    return stripped
 
 
 # Launcher-tile IDs as used by the `disabled_coding_agent_launchers` traitlet

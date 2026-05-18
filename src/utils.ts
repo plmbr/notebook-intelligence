@@ -298,6 +298,83 @@ export function applyCodeToSelectionInEditor(
 
 export { shellSingleQuote };
 
+const SAFE_ANCHOR_SCHEMES = new Set(['http', 'https', 'mailto']);
+const SCHEME_RE = /^([A-Za-z][A-Za-z0-9+.-]*):/;
+// Hard cap on URI length to short-circuit pathological inputs. Mirrors
+// the Python side; modern browsers truncate URLs well below this and an
+// anchor URI any longer is almost certainly hostile or malformed.
+const MAX_ANCHOR_URI_LEN = 8192;
+
+function isDisallowedUriCodepoint(code: number): boolean {
+  // C0 + DEL are stripped from the scheme by some browser URL parsers
+  // ahead of evaluation, so a tab/newline inside "javascript" would unmask.
+  // C1 (0x80-0x9F) plus the Unicode format/BiDi/zero-width marks listed
+  // below do not un-mask a forbidden scheme in modern browsers, but they
+  // can visually impersonate the URI in the title, so reject them too.
+  // Ranges intentionally mirror the Python ``_DISALLOWED_URI_CODEPOINTS``
+  // set so a URI rejected on one side is rejected on the other.
+  if (code <= 0x1f || code === 0x7f) {
+    return true;
+  }
+  if (code >= 0x80 && code <= 0x9f) {
+    return true;
+  }
+  if (code === 0x0085 || code === 0x00a0) {
+    return true;
+  }
+  if (code === 0x2028 || code === 0x2029 || code === 0xfeff) {
+    return true;
+  }
+  if (code >= 0x200b && code <= 0x200f) {
+    return true;
+  }
+  if (code >= 0x202a && code <= 0x202e) {
+    return true;
+  }
+  if (code >= 0x2066 && code <= 0x206f) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Return `uri` if its scheme is in the chat-anchor allowlist, else null.
+ * Mirrors the server-side `safe_anchor_uri` check so that anchor parts
+ * coming from arbitrary LLM/tool output cannot render `javascript:`,
+ * `data:`, `vbscript:`, `blob:`, or other dangerous schemes through React's
+ * `href` attribute. The server applies the same filter at emit time; this
+ * is defense in depth for stream replays, persisted history, and any path
+ * that injects anchor parts directly into the React tree.
+ */
+export function safeAnchorUri(uri: string | undefined | null): string | null {
+  if (typeof uri !== 'string') {
+    return null;
+  }
+  if (uri.length > MAX_ANCHOR_URI_LEN) {
+    return null;
+  }
+  // Scan the original input. String.prototype.trim() drops NBSP, NEL, LS,
+  // PS, BOM, and other Unicode whitespace, so a check after trim would let
+  // those codepoints slip past as a trailing edge.
+  for (let i = 0; i < uri.length; i++) {
+    if (isDisallowedUriCodepoint(uri.charCodeAt(i))) {
+      return null;
+    }
+  }
+  const stripped = uri.trim();
+  if (stripped.length === 0) {
+    return null;
+  }
+  const match = SCHEME_RE.exec(stripped);
+  if (!match) {
+    return null;
+  }
+  if (!SAFE_ANCHOR_SCHEMES.has(match[1].toLowerCase())) {
+    return null;
+  }
+  return stripped;
+}
+
 /**
  * Build a `claude --resume <id>` command wrapped in `cd <cwd>` so the
  * resulting one-liner works from any terminal. `claude --resume` is
