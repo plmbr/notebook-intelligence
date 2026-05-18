@@ -25,8 +25,13 @@ CHAT_ID = "test-chat"
 
 def _make_handler():
     app = Mock(spec=Application)
+    # JupyterHandler.set_default_headers reads application.settings and
+    # the ui_* maps during __init__; provide enough for the mock to
+    # satisfy that path without a real tornado application.
+    app.settings = {"jinja2_env": None, "headers": {}}
     app.ui_methods = {}
     app.ui_modules = {}
+    app.transforms = []
     request = Mock(spec=HTTPServerRequest)
     request.connection = Mock()
     with patch("notebook_intelligence.extension.ThreadSafeWebSocketConnector"):

@@ -18,7 +18,9 @@ import logging
 import tiktoken
 
 from jupyter_server.extension.application import ExtensionApp
-from jupyter_server.base.handlers import APIHandler
+from jupyter_server.auth.decorator import ws_authenticated
+from jupyter_server.base.handlers import APIHandler, JupyterHandler
+from jupyter_server.base.websocket import WebSocketMixin
 from jupyter_server.utils import url_path_join
 import tornado
 from tornado import websocket
@@ -1878,12 +1880,22 @@ class MessageCallbackHandlers:
     response_emitter: WebsocketCopilotResponseEmitter
     cancel_token: CancelTokenImpl
 
-class WebsocketCopilotHandler(websocket.WebSocketHandler):
+class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, JupyterHandler):
     # Cap WS message size at 4 MiB. Largest legitimate payload is a chat
     # request with ~10 attached output-context items (each capped at 1 MiB
     # by `coerce_payload`) + chat history; 4 MiB covers that without
     # leaving the default 10 MiB headroom for memory amplification.
     max_message_size = 4 * 1024 * 1024
+
+    # Inheritance matches Jupyter's first-party WS handlers (e.g.
+    # KernelWebsocketHandler): ``WebSocketMixin`` adds ping/pong
+    # keepalive plus a ``prepare`` that routes through Jupyter's
+    # identity provider without redirecting to a login page (a 302 on
+    # a WS upgrade is meaningless to the browser). ``JupyterHandler``
+    # supplies ``check_origin`` (allow_origin-aware) and
+    # ``check_xsrf_cookie``. ``ws_authenticated`` decorates ``open`` to
+    # raise 403 on unauthenticated upgrade rather than the redirect
+    # behavior of ``tornado.web.authenticated``.
 
     def __init__(self, application, request, context_factory=None, **kwargs):
         super().__init__(application, request, **kwargs)
@@ -1895,8 +1907,18 @@ class WebsocketCopilotHandler(websocket.WebSocketHandler):
         ai_service_manager.websocket_connector = ws_connector
         github_copilot.websocket_connector = ws_connector
 
+    @ws_authenticated
     def open(self):
-        pass
+        # Audit log of accepted upgrades so a security incident can be
+        # correlated with the negotiated user identity and origin. The
+        # user is the value Jupyter's identity provider resolved on the
+        # upgrade request; the origin is the browser's claimed origin
+        # which check_origin already validated against allow_origin.
+        log.info(
+            "Copilot WS upgrade accepted user=%r origin=%r",
+            getattr(self.current_user, "username", self.current_user),
+            self.request.headers.get("Origin"),
+        )
 
     def on_message(self, message):
         msg = json.loads(message)

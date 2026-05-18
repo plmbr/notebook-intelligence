@@ -10,10 +10,18 @@ from notebook_intelligence.ruleset import RuleContext
 
 class TestWebsocketHandlerIntegration:
     def _create_mock_application(self):
-        """Create a properly mocked Tornado Application."""
+        """Create a properly mocked Tornado Application.
+
+        ``WebsocketCopilotHandler`` now inherits from ``JupyterHandler`` so
+        ``set_default_headers`` reaches into ``application.settings`` /
+        ``ui_methods`` / ``ui_modules``. Provide each attribute so the
+        construction in tests doesn't blow up on the mock.
+        """
         app = Mock(spec=Application)
+        app.settings = {"jinja2_env": None, "headers": {}}
         app.ui_methods = {}
         app.ui_modules = {}
+        app.transforms = []
         return app
     
     def _create_mock_request(self):

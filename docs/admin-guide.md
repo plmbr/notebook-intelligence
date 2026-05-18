@@ -578,7 +578,7 @@ To pipe feedback into your internal observability stack (Kafka, OTel collector),
 
 ## HTTP API surface
 
-All routes live under `/notebook-intelligence/`. All require Jupyter authentication (XSRF token plus Jupyter login token) — the labextension obtains these automatically. There is no admin-only route; access control runs through Jupyter Server itself.
+All routes live under `/notebook-intelligence/`. All require Jupyter authentication (XSRF token plus Jupyter login token) including the `/copilot` WebSocket upgrade, which now inherits Jupyter's `WebSocketMixin` + `JupyterHandler` so the same `allow_origin` and identity-provider checks that apply to REST handlers also apply to the chat WS endpoint. The labextension obtains these automatically. There is no admin-only route; access control runs through Jupyter Server itself.
 
 | Route                                                       | Method          | Purpose                                                                                                              |
 | ----------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------- |
