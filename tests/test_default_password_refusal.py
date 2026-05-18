@@ -93,16 +93,46 @@ class TestDefaultPasswordWarning:
         assert "readable by group or other" in msg
         assert target_dir in msg
 
-    def test_read_path_also_emits_warning(self, gh, caplog, tmp_path, monkeypatch):
+    def test_read_path_also_emits_warning_and_returns_plaintext(
+        self, gh, caplog, tmp_path, monkeypatch
+    ):
         # The read-side warn covers an exposed-state audit: an admin
         # who rotated to a per-user password but left an old
         # user-data.json on disk still hears the warning until the
         # process restarts AND the read path is exercised.
+        #
+        # The contract is "warn AND return the plaintext"; without the
+        # second half a regression that aborts the read on warn would
+        # silently log the user out. Write a token, then assert both.
+        import base64
+        import json
+
+        from notebook_intelligence.util import encrypt_with_password
+
+        ciphertext = encrypt_with_password(gh.access_token_password, b"ghu_token")
+        b64 = base64.b64encode(ciphertext).decode("utf-8")
+        with open(gh.user_data_file, "w") as f:
+            json.dump({"github_access_token": b64}, f)
+
         with caplog.at_level(logging.WARNING, logger="notebook_intelligence.github_copilot"):
-            gh.read_stored_github_access_token()
+            plaintext = gh.read_stored_github_access_token()
+        assert plaintext == "ghu_token"
         assert any(
             "NBI_GH_ACCESS_TOKEN_PASSWORD" in r.message for r in caplog.records
         )
+
+    @POSIX_ONLY
+    def test_warning_text_omits_dir_path_in_non_shared_branch(self, gh, caplog):
+        # The escalated warning includes the directory; the non-shared
+        # branch should NOT, otherwise log analysis can't distinguish
+        # the two postures by message content alone.
+        target_dir = os.path.dirname(gh.user_data_file)
+        os.chmod(target_dir, 0o700)
+        with caplog.at_level(logging.WARNING, logger="notebook_intelligence.github_copilot"):
+            gh._warn_default_password_once()
+        msg = " ".join(r.message for r in caplog.records)
+        assert "NBI_GH_ACCESS_TOKEN_PASSWORD" in msg
+        assert target_dir not in msg
 
 
 @POSIX_ONLY

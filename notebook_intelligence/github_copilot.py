@@ -163,8 +163,8 @@ def _warn_default_password_once() -> None:
         log.warning(
             "Storing the GitHub Copilot token under the default "
             "NBI_GH_ACCESS_TOKEN_PASSWORD on a directory that is "
-            "readable by group or other (%s). Set "
-            "NBI_GH_ACCESS_TOKEN_PASSWORD, NBI_POD_IDENTITY, or "
+            "readable by group or other (%s). Set a per-user "
+            "NBI_GH_ACCESS_TOKEN_PASSWORD, or set "
             "NBI_ALLOW_DEFAULT_TOKEN_PASSWORD=1 to acknowledge the "
             "risk explicitly.",
             os.path.dirname(user_data_file),
