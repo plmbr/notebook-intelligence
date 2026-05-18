@@ -99,6 +99,48 @@
   color: var(--jp-ui-font-color2);
 }
 
+/* Animated trailing dots ("Uploading...") so the indicator visibly
+   moves while a request is in flight. ::after appends three dots and
+   steps through their reveal in 1.2 seconds. Honors prefers-reduced-
+   motion: vestibular-sensitive users see the literal three dots
+   without animation. */
+.loading-ellipsis::after {
+  content: '\2026';
+  display: inline-block;
+  width: 1.5em;
+  text-align: left;
+  animation: nbi-loading-ellipsis-cycle 1.2s steps(4, end) infinite;
+}
+
+@keyframes nbi-loading-ellipsis-cycle {
+  0% {
+    content: '';
+  }
+
+  25% {
+    content: '.';
+  }
+
+  50% {
+    content: '..';
+  }
+
+  75% {
+    content: '...';
+  }
+
+  100% {
+    content: '';
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-ellipsis::after {
+    animation: none;
+    content: '...';
+  }
+}
+
 .chat-message-notice {
   background-color: transparent;
   font-size: 12px;

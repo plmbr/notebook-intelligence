@@ -3799,7 +3799,12 @@ function SidebarComponent(props: any) {
                 );
               })}
               {isUploadingFiles && (
-                <div className="user-input-context uploading-indicator">
+                <div
+                  className="user-input-context uploading-indicator"
+                  role="status"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
                   <div className="loading-ellipsis">Uploading</div>
                 </div>
               )}
