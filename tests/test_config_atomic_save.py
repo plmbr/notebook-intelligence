@@ -102,3 +102,38 @@ class TestAtomicWriteJson:
 
         # Mode bits preserved across the atomic swap.
         assert (target.stat().st_mode & 0o777) == 0o640
+
+    def test_explicit_mode_overrides_existing(self, tmp_path):
+        # The secrets case (e.g. ~/.jupyter/nbi/user-data.json): even if
+        # the existing file was somehow widened to 0o644 by a prior
+        # umask-default write, an explicit mode=0o600 must tighten it.
+        import os as _os
+        target = tmp_path / "user-data.json"
+        target.write_text(json.dumps({"old": True}))
+        _os.chmod(target, 0o644)
+
+        _atomic_write_json(str(target), {"new": True}, mode=0o600)
+
+        assert (target.stat().st_mode & 0o777) == 0o600
+
+    def test_explicit_mode_on_first_create(self, tmp_path):
+        # No existing file. Explicit mode still applies, so the secret
+        # file starts at 0o600 from the very first write.
+        target = tmp_path / "user-data.json"
+        assert not target.exists()
+
+        _atomic_write_json(str(target), {"secret": "x"}, mode=0o600)
+
+        assert (target.stat().st_mode & 0o777) == 0o600
+
+    def test_default_mode_preserves_existing(self, tmp_path):
+        # Regression: passing no mode keeps the pre-fix behavior so
+        # existing callers don't see their file mode tightened.
+        import os as _os
+        target = tmp_path / "config.json"
+        target.write_text(json.dumps({"old": True}))
+        _os.chmod(target, 0o644)
+
+        _atomic_write_json(str(target), {"new": True})  # no mode arg
+
+        assert (target.stat().st_mode & 0o777) == 0o644

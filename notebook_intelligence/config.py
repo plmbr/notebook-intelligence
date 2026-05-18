@@ -232,7 +232,7 @@ class NBIConfig:
         self.set('active_rules', active_rules)
 
 
-def _atomic_write_json(target: str, payload: dict) -> None:
+def _atomic_write_json(target: str, payload: dict, *, mode: Optional[int] = None) -> None:
     """Crash-safe replacement for ``open(target, 'w') + json.dump``.
 
     Plain truncating writes leave the destination empty (or partial)
@@ -245,10 +245,16 @@ def _atomic_write_json(target: str, payload: dict) -> None:
     to a shared config file expects ``save()`` to update the link's
     target, not replace the link itself. Resolve via ``realpath`` first.
 
-    Mode-preserving: ``mkstemp`` returns a 0o600 file; if the existing
-    config has different permissions (e.g. 0o644 for a shared install),
-    re-apply them after the swap so the user's chmod isn't silently
-    undone.
+    Mode handling:
+      - ``mode`` argument set: the file is written with exactly that mode,
+        regardless of any existing mode. Callers that handle secrets (the
+        encrypted GitHub token at ``~/.jupyter/nbi/user-data.json``) pass
+        ``0o600`` so the file is never world-readable, even if a prior
+        umask-default write or a manual chmod widened the perms.
+      - ``mode=None`` (default): ``mkstemp`` returns a 0o600 file; if the
+        existing target has different permissions (e.g. 0o644 for a
+        shared install), re-apply them after the swap so the user's
+        chmod isn't silently undone.
 
     Durability: ``fsync`` the tempfile, then ``fsync`` the target's
     parent directory on POSIX so the rename itself survives a crash.
@@ -270,9 +276,14 @@ def _atomic_write_json(target: str, payload: dict) -> None:
             json.dump(payload, fh, indent=2)
             fh.flush()
             os.fsync(fh.fileno())
-        if existing_mode is not None:
+        # Decide what mode the post-rename file should carry:
+        #   - explicit mode overrides everything (secrets case)
+        #   - else preserve existing target mode (shared-install case)
+        #   - else leave mkstemp's 0o600
+        effective_mode = mode if mode is not None else existing_mode
+        if effective_mode is not None:
             try:
-                os.chmod(tmp_path, existing_mode)
+                os.chmod(tmp_path, effective_mode)
             except OSError:
                 # Some filesystems (FAT, certain network mounts) reject chmod;
                 # the swap itself is still safe, just lose the mode bits.
