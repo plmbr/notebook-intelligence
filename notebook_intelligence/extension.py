@@ -1257,6 +1257,28 @@ class SkillsReconcileHandler(SkillsBaseHandler):
         self.finish(json.dumps(result.to_dict()))
 
 
+class SkillsReconcilerStopHandler(APIHandler):
+    """Incident-response kill switch for the managed-skills reconciler.
+
+    Not gated by ``SkillsBaseHandler.policy_enabled_attr`` because the
+    intended use is "stop the background loop regardless of current policy
+    state" — e.g. when a compromised manifest URL or leaked managed token
+    needs to be neutralized before the pod can be restarted.
+    """
+
+    @tornado.web.authenticated
+    async def post(self):
+        reconciler = ai_service_manager.get_skill_reconciler()
+        if reconciler is None:
+            # Already not running. Idempotent: don't 404 / 409 the caller
+            # since the desired end state matches.
+            self.finish(json.dumps({"stopped": True, "was_running": False}))
+            return
+        was_running = reconciler.is_running()
+        reconciler.stop()
+        self.finish(json.dumps({"stopped": True, "was_running": was_running}))
+
+
 class SkillRenameHandler(SkillsBaseHandler):
     @tornado.web.authenticated
     def post(self, scope, name):
@@ -2575,6 +2597,9 @@ class NotebookIntelligence(ExtensionApp):
         route_pattern_skills_import_preview = url_path_join(base_url, "notebook-intelligence", "skills", "import", "preview")
         route_pattern_skills_import = url_path_join(base_url, "notebook-intelligence", "skills", "import")
         route_pattern_skills_reconcile = url_path_join(base_url, "notebook-intelligence", "skills", "reconcile")
+        route_pattern_skills_reconciler_stop = url_path_join(
+            base_url, "notebook-intelligence", "skills", "reconciler", "stop"
+        )
         route_pattern_skill_detail = url_path_join(base_url, "notebook-intelligence", "skills", r"(user|project)", skill_name)
         route_pattern_skill_rename = url_path_join(base_url, "notebook-intelligence", "skills", r"(user|project)", skill_name, "rename")
         route_pattern_skill_bundle_file = url_path_join(base_url, "notebook-intelligence", "skills", r"(user|project)", skill_name, "files")
@@ -2673,6 +2698,10 @@ class NotebookIntelligence(ExtensionApp):
             (route_pattern_skills_import_preview, SkillsImportPreviewHandler),
             (route_pattern_skills_import, SkillsImportHandler),
             (route_pattern_skills_reconcile, SkillsReconcileHandler),
+            # Deliberately not gated by SkillsBaseHandler — the kill switch
+            # must remain reachable while skills_management_policy=force-off
+            # is the active state. See the handler docstring.
+            (route_pattern_skills_reconciler_stop, SkillsReconcilerStopHandler),
             (route_pattern_skill_bundle_file_rename, SkillBundleFileRenameHandler),
             (route_pattern_skill_bundle_file, SkillBundleFileHandler),
             (route_pattern_skill_rename, SkillRenameHandler),

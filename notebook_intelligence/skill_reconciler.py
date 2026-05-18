@@ -10,6 +10,7 @@ See `skill_manifest.py` for the manifest schema.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass, field
@@ -129,11 +130,31 @@ class SkillReconciler:
             thread.join(timeout=timeout)
         self._thread = None
 
+    def is_running(self) -> bool:
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
     # -- internals ----------------------------------------------------------
+
+    @staticmethod
+    def _policy_force_off() -> bool:
+        """Re-read NBI_SKILLS_MANAGEMENT_POLICY at runtime so the reconciler
+        can honor an env-var flip without a server restart. Used as the
+        per-cycle kill switch so admins who can update pod env in place have
+        a working stop signal beyond the explicit HTTP endpoint."""
+        return os.environ.get("NBI_SKILLS_MANAGEMENT_POLICY", "").strip().lower() == "force-off"
 
     def _run_loop(self) -> None:
         # First pass runs immediately, then we sleep between reconciles.
         while not self._stop.is_set():
+            if self._policy_force_off():
+                log.info(
+                    "NBI_SKILLS_MANAGEMENT_POLICY is force-off; stopping the "
+                    "managed-skills reconciler. Existing skills on disk are "
+                    "not touched."
+                )
+                self._stop.set()
+                return
             try:
                 self.reconcile()
             except Exception:  # noqa: BLE001 — thread must survive any error

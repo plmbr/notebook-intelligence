@@ -16,6 +16,7 @@ from notebook_intelligence.extension import (
     SkillsImportPreviewHandler,
     SkillsListHandler,
     SkillsReconcileHandler,
+    SkillsReconcilerStopHandler,
 )
 from notebook_intelligence.skill_reconciler import ReconcileResult
 from notebook_intelligence.skill_manager import SkillManager
@@ -591,6 +592,53 @@ class TestSkillsReconcileHandler:
             "unchanged": 3,
             "errors": ["boom"],
         }
+
+
+class TestSkillsReconcilerStopHandler:
+    """Incident-response kill switch endpoint. Stops the background
+    reconciler at runtime without a server restart. Not gated by the
+    skills_management policy (the intended use is to stop the loop
+    regardless of current policy state)."""
+
+    def test_returns_was_running_false_when_reconciler_absent(self, skill_manager):
+        ext_module.ai_service_manager.get_skill_reconciler.return_value = None
+        handler = _make_handler(SkillsReconcilerStopHandler)
+        asyncio.run(SkillsReconcilerStopHandler.post(handler))
+        body = _parse_response(handler)
+        assert body == {"stopped": True, "was_running": False}
+        handler.set_status.assert_not_called()
+
+    def test_stops_running_reconciler(self, skill_manager):
+        reconciler = MagicMock()
+        reconciler.is_running.return_value = True
+        ext_module.ai_service_manager.get_skill_reconciler.return_value = reconciler
+        handler = _make_handler(SkillsReconcilerStopHandler)
+        asyncio.run(SkillsReconcilerStopHandler.post(handler))
+        reconciler.stop.assert_called_once()
+        body = _parse_response(handler)
+        assert body == {"stopped": True, "was_running": True}
+
+    def test_idempotent_when_already_stopped(self, skill_manager):
+        # Second POST after a stop should report was_running=False without
+        # erroring, so admins can blindly retry the kill switch from a
+        # script.
+        reconciler = MagicMock()
+        reconciler.is_running.return_value = False
+        ext_module.ai_service_manager.get_skill_reconciler.return_value = reconciler
+        handler = _make_handler(SkillsReconcilerStopHandler)
+        asyncio.run(SkillsReconcilerStopHandler.post(handler))
+        reconciler.stop.assert_called_once()
+        body = _parse_response(handler)
+        assert body == {"stopped": True, "was_running": False}
+
+    def test_not_subject_to_skills_management_policy_gate(self, skill_manager):
+        # Pin the deliberate inversion: when an admin force-offs the Skills
+        # policy, the rest of /skills/* returns 403, but the stop endpoint
+        # must still work — otherwise the kill switch is unreachable in
+        # the exact state it exists to support. Verified by inspecting the
+        # MRO; a future refactor that adds SkillsBaseHandler to the bases
+        # would re-introduce the deadlock.
+        assert SkillsBaseHandler not in SkillsReconcilerStopHandler.__mro__
 
 
 # Per-family policy-gate coverage lives in `tests/test_policy_gate.py`,

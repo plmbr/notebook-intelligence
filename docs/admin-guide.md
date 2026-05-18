@@ -395,9 +395,28 @@ Force-off does three things at once:
 
 - Hides the **Skills** tab in the Settings panel.
 - Returns HTTP 403 from every `/notebook-intelligence/skills/*` route, so a stale frontend or a direct API caller can't read or write skills.
-- Suppresses the [managed-skills reconciler](#managed-claude-skills-token) — the manifest is treated as empty, no `SkillReconciler` is constructed, and no scheduled reconcile runs. Org-curated skills still on disk are not touched, but new manifests aren't pulled. **Takes effect on JupyterLab server restart.** Live config-reload won't stop a reconciler that's already running.
+- Suppresses the [managed-skills reconciler](#managed-claude-skills-token) — the manifest is treated as empty, no `SkillReconciler` is constructed, and no scheduled reconcile runs. Org-curated skills still on disk are not touched, but new manifests aren't pulled. **Takes effect on JupyterLab server restart.** For incident-response without a restart, see the kill switch below.
 
-Use this when an org wants to disable user-authored Claude skills entirely.
+#### Stopping a running reconciler without a server restart
+
+If the manifest URL or the managed-skills token is compromised and you need to stop the in-flight reconciler immediately, two non-restart paths are now available:
+
+1. **HTTP kill switch:** `POST /notebook-intelligence/skills/reconciler/stop`. Authenticated (Jupyter session token). Stops the background reconciler and returns `{"stopped": true, "was_running": <bool>}`. Idempotent; safe to script across pods.
+
+   ```bash
+   curl -X POST -H "Authorization: token $JUPYTER_TOKEN" \
+        https://hub.example.com/user/<name>/notebook-intelligence/skills/reconciler/stop
+   ```
+
+2. **Env-var flip:** the reconciler re-reads `NBI_SKILLS_MANAGEMENT_POLICY` at the start of each cycle and self-stops if it reads `force-off`. If your platform supports in-place pod env updates (rare), this fires the kill switch on the next reconcile boundary (default 24h). For most deployments the HTTP route is the faster option.
+
+Either mechanism only stops the background thread; existing skill bundles on disk remain. Use `claude` or filesystem tooling to remove them if needed.
+
+> **No live restart.** Once stopped, the reconciler stays stopped for the life of the JupyterLab process. There is no `/start` companion endpoint; bouncing the server is the only path to re-enable reconciliation in the same pod. This is intentional: a kill switch that another script can flip back on isn't a kill switch.
+>
+> **Per-user trust.** The endpoint is authenticated with the user's Jupyter session token, not an admin claim. In hub deployments where the JupyterLab pod owner is not the policy admin (typical for JupyterHub), a tenant can stop their own pod's reconciler. The reconciler is per-pod, so this only affects that user's managed-skills delivery. For deployments that need to prevent self-stop, leave `skills_management_policy` at `user-choice` and rely on the manifest-fetch token's scope as the auth boundary instead.
+
+Use this section's full-disable when an org wants to disable user-authored Claude skills entirely.
 
 > **Blast radius.** Force-off only kills the _management UI_ — skill bundles already on disk under `~/.claude/skills/` or a project's `.claude/skills/` keep being discovered by Claude Code itself because Claude's skill loader doesn't consult NBI's policy. To stop existing skills from loading, remove them on disk before flipping the policy.
 
@@ -550,6 +569,7 @@ All routes live under `/notebook-intelligence/`. All require Jupyter authenticat
 | `/notebook-intelligence/skills/import/preview`              | POST            | Preview a GitHub-hosted skill before installing.                                                                     |
 | `/notebook-intelligence/skills/import`                      | POST            | Install a GitHub-hosted skill (user-initiated).                                                                      |
 | `/notebook-intelligence/skills/reconcile`                   | POST            | Run the managed-skills reconciler. Returns 409 if `NBI_SKILLS_MANIFEST` is unset.                                    |
+| `/notebook-intelligence/skills/reconciler/stop`             | POST            | Incident-response kill switch. Stops the background reconciler without a server restart. Idempotent.                 |
 | `/notebook-intelligence/skills/<scope>/<name>`              | GET/PUT/DELETE  | Skill detail; managed skills are read-only.                                                                          |
 | `/notebook-intelligence/skills/<scope>/<name>/rename`       | POST            | Rename a skill (denied for managed skills).                                                                          |
 | `/notebook-intelligence/skills/<scope>/<name>/files`        | GET/POST/DELETE | Skill bundle file ops.                                                                                               |

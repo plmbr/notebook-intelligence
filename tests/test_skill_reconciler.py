@@ -392,3 +392,121 @@ class TestBackgroundThread:
         reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
         reconciler.stop()
         reconciler.stop()
+
+    def test_is_running_reflects_thread_state(self, manager, tmp_path):
+        manifest = _write_manifest(tmp_path, "")
+        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        assert reconciler.is_running() is False
+        reconciler.start()
+        try:
+            # The thread starts in the constructor's stop-check window; allow
+            # a brief beat for it to actually enter _run_loop.
+            deadline = time.monotonic() + 1.0
+            while not reconciler.is_running() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert reconciler.is_running() is True
+        finally:
+            reconciler.stop()
+        assert reconciler.is_running() is False
+
+
+class TestPolicyForceOffStop:
+    """The reconciler self-stops when NBI_SKILLS_MANAGEMENT_POLICY flips to
+    force-off at runtime, so an admin who can update pod env in place has a
+    working kill switch without restarting the server (companion to the
+    HTTP stop endpoint).
+    """
+
+    def test_force_off_at_start_stops_immediately(self, manager, tmp_path, monkeypatch):
+        manifest = _write_manifest(tmp_path, "")
+        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        call_count = {"n": 0}
+        orig_reconcile = reconciler.reconcile
+
+        def tracking_reconcile():
+            call_count["n"] += 1
+            return orig_reconcile()
+
+        reconciler.reconcile = tracking_reconcile  # type: ignore[assignment]
+        monkeypatch.setenv("NBI_SKILLS_MANAGEMENT_POLICY", "force-off")
+        reconciler._interval_seconds = 0.05
+        reconciler.start()
+        try:
+            deadline = time.monotonic() + 2.0
+            while reconciler.is_running() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            reconciler.stop()
+        # The loop checks the env BEFORE the reconcile call, so no pass
+        # should have run.
+        assert call_count["n"] == 0
+        assert reconciler.is_running() is False
+
+    def test_force_off_mid_loop_stops_before_next_pass(self, manager, tmp_path, monkeypatch):
+        manifest = _write_manifest(tmp_path, "")
+        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        call_count = {"n": 0}
+        orig_reconcile = reconciler.reconcile
+
+        def tracking_reconcile():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # Flip the policy after the first pass; the next iteration
+                # of the loop should see force-off and stop.
+                monkeypatch.setenv("NBI_SKILLS_MANAGEMENT_POLICY", "force-off")
+            return orig_reconcile()
+
+        reconciler.reconcile = tracking_reconcile  # type: ignore[assignment]
+        reconciler._interval_seconds = 0.05
+        reconciler.start()
+        try:
+            deadline = time.monotonic() + 2.0
+            while reconciler.is_running() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            reconciler.stop()
+        # Exactly one reconcile pass should have run before the kill switch
+        # took effect on the next iteration.
+        assert call_count["n"] == 1
+        assert reconciler.is_running() is False
+
+    def test_user_choice_keeps_running(self, manager, tmp_path, monkeypatch):
+        manifest = _write_manifest(tmp_path, "")
+        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        call_count = {"n": 0}
+        orig_reconcile = reconciler.reconcile
+
+        def tracking_reconcile():
+            call_count["n"] += 1
+            return orig_reconcile()
+
+        reconciler.reconcile = tracking_reconcile  # type: ignore[assignment]
+        # Explicitly user-choice (default state, but pin it in case test
+        # ordering inherits force-off from a sibling test).
+        monkeypatch.setenv("NBI_SKILLS_MANAGEMENT_POLICY", "user-choice")
+        reconciler._interval_seconds = 0.05
+        reconciler.start()
+        try:
+            deadline = time.monotonic() + 2.0
+            while call_count["n"] < 2 and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            reconciler.stop()
+        # The loop ran at least twice and was not killed by env state.
+        assert call_count["n"] >= 2
+
+    def test_policy_check_is_case_insensitive_and_trimmed(self, monkeypatch):
+        # Pin the exact env-parsing contract so a future refactor that
+        # tightens the match doesn't silently make admin-style "Force-Off"
+        # values stop firing the kill switch.
+        for env_value, expected in [
+            ("force-off", True),
+            ("Force-Off", True),
+            ("  force-off ", True),
+            ("FORCE-OFF", True),
+            ("user-choice", False),
+            ("", False),
+            ("force_off", False),  # underscore is a typo, not a match
+        ]:
+            monkeypatch.setenv("NBI_SKILLS_MANAGEMENT_POLICY", env_value)
+            assert SkillReconciler._policy_force_off() is expected, env_value
