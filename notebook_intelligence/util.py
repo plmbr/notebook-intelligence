@@ -330,8 +330,54 @@ _SECRET_ENV_NAME_PATTERNS: tuple[str, ...] = (
     "PRIVATE_KEY",
     "CREDENTIAL",
     "AUTH",
+    "OAUTH",
+    "BEARER",
+    "COOKIE",
+    "JWT",
+    "DSN",
+    "ACCESS_KEY",  # catches AWS_ACCESS_KEY_ID without the broad bare "KEY"
 )
 _SECRET_VALUE_MIN_LEN = 8
+
+
+def _replace_values(text: str, values, *, min_len: int = _SECRET_VALUE_MIN_LEN) -> str:
+    """Replace each value's literal occurrences in `text` with `<redacted>`.
+
+    Shared primitive used by both `redact_env_secrets` (process-env scan)
+    and ``_claude_cli._scrub_env_overrides`` (call-site env overrides).
+    Skips values shorter than ``min_len`` so a short benign value can't
+    trigger spurious redaction of unrelated output. Empty `text` and
+    empty `values` are no-ops.
+    """
+    if not text or not values:
+        return text
+    out = text
+    for value in values:
+        if value and len(value) >= min_len:
+            out = out.replace(value, "<redacted>")
+    return out
+
+# Well-known credential prefixes. If a command output contains a string
+# starting with one of these, redact through the next whitespace boundary
+# even if the value isn't in env. Catches base64 / URL-encoded / derived
+# forms where the literal env value never appears (e.g. `curl -u user:$TOK`
+# emits `Authorization: Basic <b64(user:tok)>` -- the env-value scan misses
+# it). Tokens picked from public provider docs; conservative entropy floor.
+_SECRET_VALUE_PREFIXES: tuple[str, ...] = (
+    "ghp_",   # GitHub personal access token
+    "gho_",   # GitHub OAuth token
+    "ghs_",   # GitHub server-to-server
+    "ghu_",   # GitHub user-to-server
+    "github_pat_",
+    "sk-ant-",  # Anthropic
+    "sk-",      # OpenAI / generic
+    "xoxb-",    # Slack bot
+    "xoxp-",    # Slack user
+    "xoxa-",    # Slack workspace
+    "AKIA",     # AWS access key id
+    "ASIA",     # AWS temporary access key id
+)
+_PREFIX_VALUE_MIN_LEN = 20  # short enough to catch real tokens, long enough to avoid `sk-` false positives
 
 
 def _looks_like_secret_env_name(name: str) -> bool:
@@ -339,7 +385,12 @@ def _looks_like_secret_env_name(name: str) -> bool:
     return any(pat in upper for pat in _SECRET_ENV_NAME_PATTERNS)
 
 
-def redact_process_secrets(text: str) -> str:
+_TOKEN_PREFIX_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(" + "|".join(re.escape(p) for p in _SECRET_VALUE_PREFIXES) + r")[A-Za-z0-9_\-]+"
+)
+
+
+def redact_env_secrets(text: str) -> str:
     """Replace any process-env values that look like secrets with
     ``<redacted>``. Defense in depth for the shell-execute tools, which
     return raw stdout/stderr to chat. A verbose command (``env``,
@@ -348,24 +399,49 @@ def redact_process_secrets(text: str) -> str:
     history.
 
     Conservative shape: only env vars whose NAME contains one of the
-    sensitive substrings have their VALUES redacted. The value-length
-    floor avoids redacting incidental short strings (e.g. a 3-char
-    DEV_TOKEN) that happen to appear elsewhere in tool output.
+    sensitive substrings (TOKEN, SECRET, API_KEY, OAUTH, etc.) have their
+    VALUES redacted. The value-length floor avoids redacting incidental
+    short strings (e.g. a 3-char DEV_TOKEN) that happen to appear
+    elsewhere in tool output.
+
+    Secondary pass: any token that begins with a well-known credential
+    prefix (``ghp_``, ``sk-ant-``, ``xoxb-``, ``AKIA`` ...) is redacted
+    even if the literal env value never appears in the output. Catches
+    derived forms like base64-encoded basic-auth where the raw token is
+    embedded inside another encoding.
+
+    Known gaps the helper does NOT close:
+      - Partial-value leaks: if the output truncates a token
+        (``ghp_super…``), the prefix-match path catches it but only when
+        the prefix is on the known-form list.
+      - Encodings other than the prefix list (URL-encoded, hex-derived
+        HMACs computed from the secret): out of scope, addressed at a
+        higher layer.
     """
     if not text:
         return text
-    out = text
-    for name, value in os.environ.items():
-        if not value or len(value) < _SECRET_VALUE_MIN_LEN:
-            continue
-        if not _looks_like_secret_env_name(name):
-            continue
-        # Replace every literal occurrence. Performance is acceptable
-        # because the loop is O(env size) and `str.replace` is O(N) per
-        # call; tool output is bounded by `capture_output=True` plus the
-        # 30s timeout.
-        if value in out:
-            out = out.replace(value, "<redacted>")
+    # Admin opt-out: a sophisticated user debugging credential helpers may
+    # need raw output. Off by default so the redaction stays load-bearing
+    # in normal use.
+    if os.environ.get("NBI_DISABLE_OUTPUT_SCRUB", "").strip().lower() in ("1", "true", "yes", "on"):
+        return text
+    # Pass 1: redact literal values for sensitive-named env vars. Routes
+    # through the shared `_replace_values` primitive so the redaction
+    # contract stays consistent with `_claude_cli._scrub_env_overrides`.
+    sensitive_values = [
+        value
+        for name, value in os.environ.items()
+        if value and _looks_like_secret_env_name(name)
+    ]
+    out = _replace_values(text, sensitive_values)
+    # Pass 2: redact known-prefix forms. Catches base64/derived shapes
+    # plus tokens an upstream tool might emit that aren't in this
+    # process's env (e.g. a token argued via CLI flag, not env).
+    def _replace_match(match):
+        if len(match.group(0)) >= _PREFIX_VALUE_MIN_LEN:
+            return "<redacted>"
+        return match.group(0)
+    out = _TOKEN_PREFIX_RE.sub(_replace_match, out)
     return out
 
 def _emit(signal, payload: dict) -> None:

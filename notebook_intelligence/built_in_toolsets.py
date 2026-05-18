@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import shlex
 
-from notebook_intelligence.util import get_jupyter_root_dir, redact_process_secrets
+from notebook_intelligence.util import get_jupyter_root_dir, redact_env_secrets
 
 log = logging.getLogger(__name__)
 
@@ -555,7 +555,7 @@ async def execute_command(command: str, working_directory: str = ".", **args) ->
         # command can be `env`, `printenv`, or a misbehaving binary that
         # dumps env on error; without this, those secrets land in chat
         # history (and through to the LLM provider).
-        return redact_process_secrets("\n\n".join(output))
+        return redact_env_secrets("\n\n".join(output))
     except subprocess.TimeoutExpired:
         return f"Command timed out after 30 seconds"
     except Exception as e:
@@ -630,7 +630,7 @@ async def run_command_in_embedded_terminal(command: str, working_directory: str 
         # the chat transcript. The redact helper looks at the running
         # process's env at call time, so per-line invocation is correct.
         for line in process.stdout:
-            response.stream(MarkdownPartData(redact_process_secrets(line) + "\n"))
+            response.stream(MarkdownPartData(redact_env_secrets(line) + "\n"))
 
         # Wait for the process to finish and get the return code
         process.wait()
@@ -640,7 +640,7 @@ async def run_command_in_embedded_terminal(command: str, working_directory: str 
         if process.returncode != 0:
             stderr_output = process.stderr.read()
             response.stream(MarkdownPartData(f"Error executing command: {command}\n"))
-            response.stream(MarkdownPartData(redact_process_secrets(stderr_output) + "\n"))
+            response.stream(MarkdownPartData(redact_env_secrets(stderr_output) + "\n"))
         else:
             response.stream(MarkdownPartData(f"Command executed successfully with return code: {process.returncode}"))
         response.finish()

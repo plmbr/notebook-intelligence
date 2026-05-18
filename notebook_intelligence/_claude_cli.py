@@ -160,11 +160,14 @@ def _scrub_env_overrides(text: str, env_overrides: Optional[dict[str, str]]) -> 
     GIT_TRACE=1, a verbose credential helper) can still echo them into
     stderr. The handler surfaces stderr to the browser; this scrub prevents
     the resulting 4xx response body from containing the secret.
+
+    Routes through ``util._replace_values`` so the redaction contract
+    (literal-substring match, 8-char value floor, `<redacted>` placeholder)
+    stays consistent with the process-env scrub used by the shell tools.
     """
     if not env_overrides:
         return text
-    scrubbed = text
-    for value in env_overrides.values():
-        if value and len(value) >= 8:
-            scrubbed = scrubbed.replace(value, "<redacted>")
-    return scrubbed
+    # Local import keeps the util dep behind the call site so a module-load
+    # cycle (claude_cli imported during extension setup) can't bite.
+    from notebook_intelligence.util import _replace_values
+    return _replace_values(text, env_overrides.values())

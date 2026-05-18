@@ -99,6 +99,12 @@ ls ~/.claude/projects/           # Claude session transcripts
 
 NBI reloads the Claude SDK session whenever a skill changes on disk. If a script or editor frequently rewrites files under `~/.claude/skills/` (autoformatter, sync tool), it triggers the banner. Pause the writer or move the skill out of `~/.claude/skills/` while editing.
 
+## "My shell command output shows `<redacted>`"
+
+The agent's shell-execute tools (`execute_command` and the embedded terminal) automatically redact values for env vars whose name matches sensitive substrings (`TOKEN`, `SECRET`, `API_KEY`, `PASSWORD`, `OAUTH`, `BEARER`, `COOKIE`, `JWT`, `ACCESS_KEY`, …) plus tokens with well-known credential prefixes (`ghp_`, `sk-ant-`, `xoxb-`, `AKIA`, …). This prevents a verbose command like `env`, `printenv`, or `git` with credential-helper tracing from pasting your `GITHUB_TOKEN` / `ANTHROPIC_API_KEY` into chat history.
+
+If you're debugging a credential helper and need the raw value, set `NBI_DISABLE_OUTPUT_SCRUB=1` in the JupyterLab process env and restart. Keep it off in normal use; the redaction is the only line of defense between an LLM-driven command and your secrets going to the model provider.
+
 ## Inline completion is too aggressive or too quiet
 
 Tune the debounce delay in NBI Settings → Inline completion. Lower delays mean more requests, which means higher cost on paid providers. The default balances responsiveness against cost.
