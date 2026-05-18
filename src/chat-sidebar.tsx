@@ -973,6 +973,7 @@ function ChatResponse(props: any) {
             type="button"
             className="copilot-generated-notebook-link"
             data-ref={msg.notebookLink}
+            aria-label={`Open notebook ${msg.notebookLink}`}
             onClick={openNotebook}
           >
             open notebook
