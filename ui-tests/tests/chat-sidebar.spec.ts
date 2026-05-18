@@ -35,14 +35,30 @@ test.describe('chat sidebar layout', () => {
     await expect(slash).toHaveText('/');
   });
 
-  test('sidebar-header gear icon carries a title', async ({ page }) => {
-    // The gear used to ship without a title attribute while its neighbours
-    // had one; users hovering the icon got no affordance. Pin the title.
+  test('sidebar-header gear is a focusable, labelled button', async ({
+    page
+  }) => {
+    // Regression guard for D155 / D156: the gear used to be a <div onClick>
+    // so keyboard users could not reach it. Pin that it is now a real
+    // <button> with an aria-label, that Tab focus lands on it, and that
+    // pressing Enter dispatches its click handler (the settings dialog
+    // opens as the observable side effect).
     await openChatSidebar(page);
     const gear = page
-      .locator('.sidebar-header [title="Open Notebook Intelligence settings"]')
+      .locator(
+        '.sidebar-header button[aria-label="Open Notebook Intelligence settings"]'
+      )
       .first();
     await expect(gear).toBeVisible();
+    await gear.focus();
+    await expect(gear).toBeFocused();
+    await page.keyboard.press('Enter');
+    // The settings command opens an NBI settings widget in the main area.
+    // Asserting the panel's wrapper appears proves Enter dispatched the
+    // button's onClick handler.
+    await expect(page.locator('.nbi-settings-panel').first()).toBeVisible({
+      timeout: 5000
+    });
   });
 });
 
