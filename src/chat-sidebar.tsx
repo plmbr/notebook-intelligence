@@ -72,6 +72,7 @@ import type { Contents } from '@jupyterlab/services';
 import {
   extractLLMGeneratedCode,
   isDarkTheme,
+  safeAnchorUri,
   writeTextToClipboard
 } from './utils';
 import { CheckBoxItem } from './components/checkbox';
@@ -830,19 +831,27 @@ function ChatResponse(props: any) {
                   </button>
                 </div>
               );
-            case ResponseStreamDataType.Anchor:
+            case ResponseStreamDataType.Anchor: {
+              const safeUri = safeAnchorUri(item.content.uri);
+              if (!safeUri) {
+                return (
+                  <div className="chat-response-anchor" key={`key-${index}`}>
+                    <span>
+                      {item.content.title}
+                      <span className="nbi-sr-only"> (link blocked)</span>
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <div className="chat-response-anchor" key={`key-${index}`}>
-                  <a
-                    href={item.content.uri}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={safeUri} target="_blank" rel="noopener noreferrer">
                     {item.content.title}
                     <span className="nbi-sr-only"> (opens in new tab)</span>
                   </a>
                 </div>
               );
+            }
             case ResponseStreamDataType.Progress:
               // Render only the most recent progress entry, and only while
               // the request is still in flight — once the assistant has

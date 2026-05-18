@@ -53,7 +53,7 @@ from notebook_intelligence.claude_sessions import (
 )
 import notebook_intelligence.github_copilot as github_copilot
 from notebook_intelligence.built_in_toolsets import built_in_toolsets
-from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path
+from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri
 from notebook_intelligence.context_factory import RuleContextFactory
 from notebook_intelligence.skillset import SKILL_NAME_REGEX
 
@@ -1701,6 +1701,15 @@ class WebsocketCopilotResponseEmitter(ChatResponse):
                 ]
             }
         elif data_type == ResponseStreamDataType.Anchor:
+            # Anchors stream from arbitrary LLM/tool output. Reject schemes
+            # outside the allowlist server-side before they reach the React
+            # tree; the renderer applies the same check as defense in depth.
+            # Log at DEBUG only: a misbehaving model can flood the stream
+            # with rejected anchors, and the original title may contain
+            # attacker-supplied text we don't want in the server log.
+            sanitized_uri = safe_anchor_uri(data.uri)
+            if not sanitized_uri and data.uri:
+                log.debug("Dropping anchor with disallowed uri scheme")
             data = {
                 "choices": [
                     {
@@ -1708,7 +1717,7 @@ class WebsocketCopilotResponseEmitter(ChatResponse):
                             "nbiContent": {
                                 "type": data_type,
                                 "content": {
-                                    "uri": data.uri,
+                                    "uri": sanitized_uri,
                                     "title": data.title
                                 }
                             },
