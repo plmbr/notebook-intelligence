@@ -52,11 +52,37 @@ describe('injectHtmlFrameCsp', () => {
     expect(injectHtmlFrameCsp(src)).toMatch(META_RE);
   });
 
-  it('prepends before a DOCTYPE-prefixed document', () => {
+  it('keeps a leading DOCTYPE at position zero and slots the meta after it', () => {
+    // A doctype declaration must be the very first content in the
+    // document; putting the CSP meta ahead of it would put the iframe
+    // in quirks mode, which breaks the CSS that matplotlib / plotly
+    // emit. Splice the meta in immediately after the doctype.
     const src = '<!DOCTYPE html><html><head></head><body>y</body></html>';
     const out = injectHtmlFrameCsp(src);
-    expect(out).toMatch(META_RE);
-    expect(out.indexOf('<meta')).toBeLessThan(out.indexOf('<!DOCTYPE'));
+    expect(out.startsWith('<!DOCTYPE html>')).toBe(true);
+    expect(out.indexOf('<!DOCTYPE')).toBeLessThan(out.indexOf('<meta'));
+    expect(out.indexOf('<meta')).toBeLessThan(out.indexOf('<html'));
+  });
+
+  it('handles BOM + leading whitespace before the doctype', () => {
+    const src = '﻿  <!doctype HTML><html><body>y</body></html>';
+    const out = injectHtmlFrameCsp(src);
+    // The doctype is still at the start of the document (after the
+    // BOM/whitespace prefix); the meta is spliced in right after it.
+    const doctypeIdx = out.toLowerCase().indexOf('<!doctype');
+    const metaIdx = out.indexOf('<meta');
+    expect(doctypeIdx).toBeGreaterThanOrEqual(0);
+    expect(metaIdx).toBeGreaterThan(doctypeIdx);
+    expect(metaIdx).toBeLessThan(out.indexOf('<html'));
+  });
+
+  it('does not treat a comment-disguised doctype as a real doctype', () => {
+    // <!-- <!DOCTYPE html> --> is a comment, not a doctype. The browser
+    // ignores it for quirks-mode purposes, and our regex must too.
+    const src = '<!-- <!DOCTYPE html> --><html><body>y</body></html>';
+    const out = injectHtmlFrameCsp(src);
+    // No doctype detected, so the meta goes at position zero.
+    expect(out.startsWith('<meta')).toBe(true);
   });
 
   it('is unaffected by <head> hiding in a comment', () => {
