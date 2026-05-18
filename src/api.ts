@@ -76,6 +76,7 @@ export type PluginScope = 'user' | 'project' | 'local';
 // it cares about. Defining only the fields we observe today as optional
 // keeps newer Claude releases from getting truncated.
 export interface IPluginInfo {
+  id?: string;
   name?: string;
   scope?: PluginScope | string;
   enabled?: boolean;
@@ -90,6 +91,12 @@ export interface IPluginMarketplaceInfo {
   source?: string;
   scope?: PluginScope | string;
   [key: string]: unknown;
+}
+
+export interface IPluginMarketplacePluginInfo extends IPluginInfo {
+  source?: unknown;
+  category?: string;
+  tags?: string[];
 }
 
 export interface IClaudeMCPServer {
@@ -973,6 +980,17 @@ export class NBIAPI {
     const data = await requestAPI<any>('plugins/marketplace');
     return Array.isArray(data?.marketplaces)
       ? (data.marketplaces as IPluginMarketplaceInfo[])
+      : [];
+  }
+
+  static async listPluginMarketplacePlugins(
+    marketplace: string
+  ): Promise<IPluginMarketplacePluginInfo[]> {
+    const data = await requestAPI<any>(
+      `plugins/marketplace/${encodeURIComponent(marketplace)}/plugins`
+    );
+    return Array.isArray(data?.plugins)
+      ? (data.plugins as IPluginMarketplacePluginInfo[])
       : [];
   }
 

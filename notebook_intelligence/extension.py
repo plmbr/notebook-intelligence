@@ -1080,6 +1080,17 @@ class PluginsMarketplaceDetailHandler(PluginsBaseHandler):
             self._error(e)
 
 
+class PluginsMarketplacePluginsHandler(PluginsBaseHandler):
+    @tornado.web.authenticated
+    async def get(self, name):
+        try:
+            plugins = await self.manager.list_marketplace_plugins(name)
+        except (FileNotFoundError, TimeoutError, ValueError) as e:
+            self._error(e)
+            return
+        self.finish(json.dumps({"plugins": plugins}))
+
+
 class SkillsBaseHandler(PolicyGatedHandler):
     """Shared helpers for skills endpoints."""
 
@@ -2593,6 +2604,14 @@ class NotebookIntelligence(ExtensionApp):
         route_pattern_plugins_marketplace = url_path_join(
             base_url, "notebook-intelligence", "plugins", "marketplace"
         )
+        route_pattern_plugins_marketplace_plugins = url_path_join(
+            base_url,
+            "notebook-intelligence",
+            "plugins",
+            "marketplace",
+            r"([^/]+)",
+            "plugins",
+        )
         route_pattern_plugins_marketplace_detail = url_path_join(
             base_url, "notebook-intelligence", "plugins", "marketplace", r"([^/]+)"
         )
@@ -2686,6 +2705,10 @@ class NotebookIntelligence(ExtensionApp):
             (route_pattern_claude_mcp, ClaudeMCPListHandler),
             # Plugin routes: marketplace endpoints before the {scope}/{plugin}
             # catch-all so the literal "marketplace" segment isn't eaten.
+            (
+                route_pattern_plugins_marketplace_plugins,
+                PluginsMarketplacePluginsHandler,
+            ),
             (route_pattern_plugins_marketplace_detail, PluginsMarketplaceDetailHandler),
             (route_pattern_plugins_marketplace, PluginsMarketplaceListHandler),
             (route_pattern_plugins_detail, PluginsDetailHandler),

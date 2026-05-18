@@ -24,7 +24,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import urllib.parse
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from notebook_intelligence._claude_cli import (
@@ -42,6 +44,7 @@ CLI_TIMEOUT_SECONDS = 60.0
 # Marketplace-add fetches the source over the network (git clone, HTTPS
 # manifest pull) so it can outlast the default budget on slow links.
 CLI_TIMEOUT_MARKETPLACE_ADD_SECONDS = 120.0
+CLAUDE_PLUGIN_CACHE_DIR_ENV = "CLAUDE_CODE_PLUGIN_CACHE_DIR"
 
 
 _GITHUB_URL_SCHEMES = ("http://", "https://", "git://", "ssh://")
@@ -125,6 +128,23 @@ def is_acceptable_marketplace_source(source: str) -> bool:
     return False
 
 
+def _claude_plugins_root() -> Path:
+    configured = os.environ.get(CLAUDE_PLUGIN_CACHE_DIR_ENV)
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".claude" / "plugins"
+
+
+def _validate_marketplace_name(name: str) -> str:
+    s = name.strip()
+    if not s:
+        raise ValueError("Missing marketplace name")
+    reject_flag_smuggling("marketplace", s)
+    if s in (".", "..") or "\x00" in s or "/" in s or "\\" in s:
+        raise ValueError("Invalid marketplace name")
+    return s
+
+
 class PluginManager:
     # Class-level so the lock is shared across all PluginManager instances
     # within this process. Handlers construct a fresh manager per request,
@@ -146,6 +166,27 @@ class PluginManager:
     async def list_marketplaces(self) -> list[dict[str, Any]]:
         out = await self._run_cli(["plugin", "marketplace", "list", "--json"])
         return self._parse_json_array(out, "plugin marketplace list")
+
+    async def list_marketplace_plugins(
+        self, marketplace: str
+    ) -> list[dict[str, Any]]:
+        marketplace_name = _validate_marketplace_name(marketplace)
+        manifest = (
+            _claude_plugins_root()
+            / "marketplaces"
+            / marketplace_name
+            / ".claude-plugin"
+            / "marketplace.json"
+        )
+        try:
+            out = manifest.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Marketplace manifest not found for {marketplace_name!r}"
+            ) from exc
+        return self._parse_json_array(
+            out, f"plugin marketplace {marketplace_name} manifest"
+        )
 
     # --- writes (CLI shell-outs) ---------------------------------------
 

@@ -130,6 +130,52 @@ class TestPluginManagerReads:
         result = asyncio.run(manager.list_marketplaces())
         assert result == [{"name": "acme", "source": "github:acme/marketplace"}]
 
+    def test_list_marketplace_plugins_reads_cached_manifest(
+        self, tmp_path, monkeypatch
+    ):
+        plugins_root = tmp_path / "plugins"
+        manifest = (
+            plugins_root
+            / "marketplaces"
+            / "acme"
+            / ".claude-plugin"
+            / "marketplace.json"
+        )
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                {
+                    "plugins": [
+                        {
+                            "name": "alpha",
+                            "description": "Alpha plugin",
+                            "source": "./plugins/alpha",
+                        },
+                        {"name": "beta", "source": "./plugins/beta"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(plugins_root))
+
+        manager = PluginManager()
+
+        assert asyncio.run(manager.list_marketplace_plugins("acme")) == [
+            {
+                "name": "alpha",
+                "description": "Alpha plugin",
+                "source": "./plugins/alpha",
+            },
+            {"name": "beta", "source": "./plugins/beta"},
+        ]
+
+    def test_list_marketplace_plugins_rejects_path_traversal(self):
+        manager = PluginManager()
+
+        with pytest.raises(ValueError, match="Invalid marketplace name"):
+            asyncio.run(manager.list_marketplace_plugins("..\\evil"))
+
     def test_list_plugins_handles_installed_object_shape(self, fake_cli, monkeypatch):
         # `claude plugin list --available --json` returns an object — the
         # bare `--json` form returns an array, but tolerate both.
