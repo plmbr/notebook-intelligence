@@ -981,6 +981,44 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     app.shell.add(panel, 'left', { rank: 1000 });
     app.shell.activateById(panel.id);
 
+    // Global focus shortcut. Activates the NBI sidebar (revealing it if
+    // collapsed) and lands focus on the prompt textarea, so keyboard-
+    // first users can start typing without mousing through panel tabs.
+    // Ctrl/Cmd+Shift+L mirrors common "focus search / focus input"
+    // bindings used by other editors and doesn't collide with any
+    // built-in JupyterLab shortcut.
+    app.commands.addCommand(CommandIDs.focusChatInput, {
+      label: 'Focus Notebook Intelligence chat input',
+      caption: 'Open the NBI sidebar and move focus to the prompt textarea',
+      execute: () => {
+        app.shell.activateById(panel.id);
+        // After activateById commits, the React tree's textarea is in
+        // the DOM. A frame boundary gives Lumino time to settle the
+        // visibility flip; querying earlier can race the layout and
+        // focus() can no-op on an offscreen node.
+        const focusPromptInput = () => {
+          const textarea = document.querySelector<HTMLTextAreaElement>(
+            '#sidebar-user-input textarea'
+          );
+          if (textarea) {
+            textarea.focus();
+            return true;
+          }
+          return false;
+        };
+        if (!focusPromptInput()) {
+          requestAnimationFrame(() => {
+            focusPromptInput();
+          });
+        }
+      }
+    });
+    app.commands.addKeyBinding({
+      command: CommandIDs.focusChatInput,
+      keys: ['Accel Shift L'],
+      selector: 'body'
+    });
+
     app.docRegistry.addWidgetExtension(
       'Notebook',
       new NotebookGenerationToolbarExtension({
@@ -1916,6 +1954,10 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
 
     palette.addItem({
       command: CommandIDs.openConfigurationDialog,
+      category: 'Notebook Intelligence'
+    });
+    palette.addItem({
+      command: CommandIDs.focusChatInput,
       category: 'Notebook Intelligence'
     });
 
