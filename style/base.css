@@ -1718,7 +1718,12 @@ svg.access-token-warning {
   background-color: var(--jp-layout-color2);
 }
 
-.nbi-skill-row:focus {
+/* Highlight the whole row whenever any of its action buttons receives
+   keyboard focus, so a sighted keyboard user can tell which row they're
+   acting on. The row itself isn't focusable any more (the explicit
+   action buttons are); :focus-within bubbles the affordance up from
+   them. */
+.nbi-skill-row:focus-within {
   outline: 2px solid var(--jp-brand-color1);
   outline-offset: -2px;
 }
@@ -1779,8 +1784,7 @@ svg.access-token-warning {
 }
 
 .nbi-skill-row:hover .nbi-skill-row-actions,
-.nbi-skill-row:focus-within .nbi-skill-row-actions,
-.nbi-skill-row:focus .nbi-skill-row-actions {
+.nbi-skill-row:focus-within .nbi-skill-row-actions {
   opacity: 1;
 }
 
@@ -2352,15 +2356,36 @@ svg.access-token-warning {
   color: var(--jp-ui-font-color1);
   font-size: var(--jp-ui-font-size1);
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nbi-icon-button:hover {
   background-color: var(--jp-layout-color3);
 }
 
+/* The rename action has no obvious icon, so it falls back to a short
+   text glyph ("Aa") rendered with the same vertical metrics as the SVG
+   icons so the row stays visually balanced. */
+.nbi-icon-button-text {
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Destructive action: the icon-only delete button signals risk through
+   color + a hover border. Color alone is a WCAG 1.4.1 issue (color is
+   not the only signal); the rest border + focus ring together give a
+   non-color affordance. */
+.nbi-icon-button.danger {
+  color: var(--jp-error-color1, #d32f2f);
+}
+
 .nbi-icon-button.danger:hover {
   background-color: var(--jp-error-color3, rgb(230 100 100 / 20%));
   color: var(--jp-error-color1, #d32f2f);
+  outline: 1px solid var(--jp-error-color1, #d32f2f);
 }
 
 .nbi-breadcrumb-link:focus-visible,

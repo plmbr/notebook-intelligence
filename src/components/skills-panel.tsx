@@ -8,6 +8,7 @@ import React, {
   useState
 } from 'react';
 import { Dialog, showDialog } from '@jupyterlab/apputils';
+import { VscCopy, VscEdit, VscTrash } from '../icons';
 import {
   ISkillDetail,
   ISkillImportPreview,
@@ -778,19 +779,16 @@ function SkillRow(props: {
     e.stopPropagation();
     fn();
   };
+  // The wrapper div is no longer interactive. Nested interactive widgets
+  // (role=button on a div that contains <button> children) violate ARIA
+  // semantics and confuse screen readers and form serialisation. The
+  // visible Edit button is the canonical activation path; the wrapper
+  // keeps its click handler purely as a sighted-user convenience so a
+  // click anywhere on the row still opens the editor, but it's no longer
+  // in the keyboard tab order — that role belongs to the explicit
+  // buttons below.
   return (
-    <div
-      className="nbi-skill-row"
-      onClick={props.onEdit}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          props.onEdit();
-        }
-      }}
-    >
+    <div className="nbi-skill-row" onClick={props.onEdit}>
       <div className="nbi-skill-row-main">
         <div className="nbi-skill-row-name">
           {skill.name}
@@ -808,7 +806,7 @@ function SkillRow(props: {
           title={skill.managed ? 'View (managed, read-only)' : 'Edit'}
           onClick={stopAnd(props.onEdit)}
         >
-          ✎
+          <VscEdit aria-hidden="true" />
         </button>
         {!skill.managed && (
           <button
@@ -818,7 +816,9 @@ function SkillRow(props: {
             title="Rename"
             onClick={stopAnd(props.onRename)}
           >
-            Aa
+            <span aria-hidden="true" className="nbi-icon-button-text">
+              Aa
+            </span>
           </button>
         )}
         <button
@@ -828,7 +828,7 @@ function SkillRow(props: {
           title="Duplicate"
           onClick={stopAnd(props.onDuplicate)}
         >
-          ⧉
+          <VscCopy aria-hidden="true" />
         </button>
         {!skill.managed && (
           <button
@@ -838,7 +838,7 @@ function SkillRow(props: {
             title="Delete"
             onClick={stopAnd(props.onDelete)}
           >
-            🗑
+            <VscTrash aria-hidden="true" />
           </button>
         )}
       </div>
