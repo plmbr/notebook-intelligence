@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tornado.testing import AsyncHTTPTestCase
 
 import notebook_intelligence.extension as ext_module
 from notebook_intelligence.claude_mcp_manager import (
@@ -16,6 +17,7 @@ from notebook_intelligence.claude_mcp_manager import (
 )
 from notebook_intelligence.extension import (
     ClaudeMCPBaseHandler,
+    ClaudeMCPDetailHandler,
     ClaudeMCPListHandler,
 )
 
@@ -504,3 +506,285 @@ class TestLockSerialization:
 # Per-family policy-gate coverage lives in `tests/test_policy_gate.py`,
 # parametrized across SkillsBaseHandler / ClaudeMCPBaseHandler /
 # PluginsBaseHandler.
+
+
+class TestWorkspaceDisable:
+    """`projects.<cwd>.disabledMcpServers[]` round-trips on read/write."""
+
+    def test_disabled_flag_surfaces_on_list(self, claude_home, working_dir):
+        _write_claude_json(
+            claude_home,
+            {
+                "mcpServers": {
+                    "voicemode": {"type": "stdio", "command": "uvx"},
+                    "sentry": {"type": "http", "url": "https://example.com/mcp"},
+                },
+                "projects": {
+                    str(working_dir): {"disabledMcpServers": ["voicemode"]},
+                },
+            },
+        )
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        servers = {s.name: s for s in manager.list_servers()}
+        assert servers["voicemode"].disabled_for_workspace is True
+        assert servers["sentry"].disabled_for_workspace is False
+
+    def test_disabled_flag_scoped_to_cwd(self, claude_home, tmp_path):
+        cwd_a = tmp_path / "a"
+        cwd_a.mkdir()
+        cwd_b = tmp_path / "b"
+        cwd_b.mkdir()
+        _write_claude_json(
+            claude_home,
+            {
+                "mcpServers": {"voicemode": {"type": "stdio", "command": "uvx"}},
+                "projects": {
+                    str(cwd_a): {"disabledMcpServers": ["voicemode"]},
+                    str(cwd_b): {"disabledMcpServers": []},
+                },
+            },
+        )
+        manager_a = ClaudeMCPManager(working_dir=str(cwd_a))
+        manager_b = ClaudeMCPManager(working_dir=str(cwd_b))
+        assert manager_a.list_servers()[0].disabled_for_workspace is True
+        assert manager_b.list_servers()[0].disabled_for_workspace is False
+
+    def test_disable_writes_to_user_config(self, claude_home, working_dir):
+        _write_claude_json(
+            claude_home,
+            {
+                "mcpServers": {"voicemode": {"type": "stdio", "command": "uvx"}},
+                "projects": {str(working_dir): {"otherKey": "preserved"}},
+            },
+        )
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        srv = asyncio.run(manager.set_server_disabled("voicemode", True))
+        assert srv.disabled_for_workspace is True
+
+        with (claude_home / ".claude.json").open() as fp:
+            doc = json.load(fp)
+        project_block = doc["projects"][str(working_dir)]
+        assert project_block["disabledMcpServers"] == ["voicemode"]
+        # Sibling keys must not be clobbered when we touch a project block.
+        assert project_block["otherKey"] == "preserved"
+
+    def test_enable_removes_from_disabled_list(self, claude_home, working_dir):
+        _write_claude_json(
+            claude_home,
+            {
+                "mcpServers": {
+                    "voicemode": {"type": "stdio", "command": "uvx"},
+                    "other": {"type": "stdio", "command": "x"},
+                },
+                "projects": {
+                    str(working_dir): {
+                        "disabledMcpServers": ["voicemode", "other"]
+                    }
+                },
+            },
+        )
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        srv = asyncio.run(manager.set_server_disabled("voicemode", False))
+        assert srv.disabled_for_workspace is False
+        with (claude_home / ".claude.json").open() as fp:
+            doc = json.load(fp)
+        assert doc["projects"][str(working_dir)]["disabledMcpServers"] == [
+            "other"
+        ]
+
+    def test_disable_idempotent(self, claude_home, working_dir):
+        _write_claude_json(
+            claude_home,
+            {
+                "mcpServers": {"voicemode": {"type": "stdio", "command": "uvx"}},
+                "projects": {
+                    str(working_dir): {"disabledMcpServers": ["voicemode"]}
+                },
+            },
+        )
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        asyncio.run(manager.set_server_disabled("voicemode", True))
+        with (claude_home / ".claude.json").open() as fp:
+            doc = json.load(fp)
+        assert doc["projects"][str(working_dir)]["disabledMcpServers"] == [
+            "voicemode"
+        ]
+
+    def test_disable_creates_missing_project_block(self, claude_home, working_dir):
+        _write_claude_json(
+            claude_home,
+            {"mcpServers": {"voicemode": {"type": "stdio", "command": "uvx"}}},
+        )
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        asyncio.run(manager.set_server_disabled("voicemode", True))
+        with (claude_home / ".claude.json").open() as fp:
+            doc = json.load(fp)
+        assert doc["projects"][str(working_dir)]["disabledMcpServers"] == [
+            "voicemode"
+        ]
+
+    def test_disable_creates_missing_config_file(self, claude_home, working_dir):
+        path = claude_home / ".claude.json"
+        assert not path.exists()
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        # Toggling disabled for a server that doesn't yet exist is allowed; the
+        # flag would apply if/when the server is added. The user sees a
+        # synthesized record because there's no canonical definition to read.
+        srv = asyncio.run(manager.set_server_disabled("future-server", True))
+        assert srv.disabled_for_workspace is True
+        assert path.exists()
+        with path.open() as fp:
+            doc = json.load(fp)
+        assert doc["projects"][str(working_dir)]["disabledMcpServers"] == [
+            "future-server"
+        ]
+
+    def test_disable_rejects_corrupt_config(self, claude_home, working_dir):
+        (claude_home / ".claude.json").write_text("{not json", encoding="utf-8")
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        with pytest.raises(ValueError, match="parse"):
+            asyncio.run(manager.set_server_disabled("voicemode", True))
+
+    def test_disable_atomic_write_preserves_other_top_level_keys(
+        self, claude_home, working_dir
+    ):
+        _write_claude_json(
+            claude_home,
+            {
+                "mcpServers": {"voicemode": {"type": "stdio", "command": "uvx"}},
+                "telemetry": {"feedbackSurveyState": "completed"},
+                "projects": {},
+            },
+        )
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        asyncio.run(manager.set_server_disabled("voicemode", True))
+        with (claude_home / ".claude.json").open() as fp:
+            doc = json.load(fp)
+        # Unrelated top-level fields must survive a partial-update write.
+        assert doc["telemetry"] == {"feedbackSurveyState": "completed"}
+        assert doc["mcpServers"]["voicemode"]["command"] == "uvx"
+
+
+class TestPatchEndpointDispatches(AsyncHTTPTestCase):
+    """End-to-end dispatch test for the PATCH handler.
+
+    Earlier handler-method unit tests passed even though the production
+    code raised ``NameError`` on its first import-miss (``validate_scope``
+    was used without being imported in ``extension.py``). This suite drives
+    the real tornado handler so any missing import or wiring bug fails
+    here instead of in the user's browser.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from jupyter_server.base.handlers import APIHandler
+
+        async def _noop(_self):
+            return None
+
+        cls._api_handler_patcher = patch.object(APIHandler, "prepare", _noop)
+        cls._api_handler_patcher.start()
+        # The @tornado.web.authenticated decorator calls self.current_user;
+        # jupyter_server's APIHandler defines current_user as a property
+        # backed by get_current_user(). Stub it to a truthy value so the
+        # decorator passes without setting up cookie_secret + identity.
+        cls._current_user_patcher = patch.object(
+            APIHandler,
+            "current_user",
+            property(lambda _self: {"name": "test-user"}),
+        )
+        cls._current_user_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._current_user_patcher.stop()
+        cls._api_handler_patcher.stop()
+        super().tearDownClass()
+
+    def setUp(self):
+        # `setUp` runs once per test; we need a fresh fake `$HOME` and cwd
+        # for every dispatch so write side-effects don't leak.
+        super().setUp()
+        import tempfile
+
+        self._home = Path(tempfile.mkdtemp(prefix="patch_home_"))
+        self._cwd = Path(tempfile.mkdtemp(prefix="patch_cwd_"))
+        (self._home / ".claude.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "voicemode": {"type": "stdio", "command": "uvx"}
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        self._home_patcher = patch.object(
+            Path, "home", classmethod(lambda cls: self._home)
+        )
+        self._home_patcher.start()
+        self._cwd_patcher = patch.object(
+            ext_module, "get_jupyter_root_dir", lambda: str(self._cwd)
+        )
+        self._cwd_patcher.start()
+
+    def tearDown(self):
+        self._home_patcher.stop()
+        self._cwd_patcher.stop()
+        import shutil
+
+        shutil.rmtree(self._home, ignore_errors=True)
+        shutil.rmtree(self._cwd, ignore_errors=True)
+        super().tearDown()
+
+    def get_app(self):
+        from tornado.web import Application
+
+        return Application(
+            [
+                (
+                    r"/claude-mcp/(user|project|local)/([^/]+)",
+                    ClaudeMCPDetailHandler,
+                ),
+            ]
+        )
+
+    def _fetch_patch(self, path, body):
+        return self.fetch(
+            path,
+            method="PATCH",
+            body=json.dumps(body),
+            headers={"Content-Type": "application/json"},
+            allow_nonstandard_methods=True,
+        )
+
+    def test_patch_toggles_disabled_for_workspace(self):
+        # The actual dispatch path: a NameError on `validate_scope` would
+        # surface here as 500.
+        response = self._fetch_patch(
+            "/claude-mcp/user/voicemode",
+            {"disabled_for_workspace": True},
+        )
+        assert response.code == 200, response.body
+        body = json.loads(response.body)
+        assert body["server"]["disabled_for_workspace"] is True
+        # The on-disk state must reflect the toggle.
+        with (self._home / ".claude.json").open() as fp:
+            doc = json.load(fp)
+        assert doc["projects"][str(self._cwd)]["disabledMcpServers"] == [
+            "voicemode"
+        ]
+
+    def test_patch_rejects_non_bool_payload(self):
+        response = self._fetch_patch(
+            "/claude-mcp/user/voicemode",
+            {"disabled_for_workspace": "false"},
+        )
+        assert response.code == 400
+        assert b"must be a JSON boolean" in response.body
+
+    def test_patch_rejects_missing_field(self):
+        response = self._fetch_patch("/claude-mcp/user/voicemode", {})
+        assert response.code == 400
+        assert b"Missing" in response.body

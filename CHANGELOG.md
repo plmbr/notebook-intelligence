@@ -8,6 +8,71 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 <!-- <START NEW CHANGELOG ENTRY> -->
 
+## [Unreleased]
+
+### Added
+
+- **Skills as a top-level Settings tab** (#224). Promoted from a Claude-mode sub-tab; the tab is now visible in any mode, with a hint banner when Claude mode is off. New admin policy `skills_management_policy` (env `NBI_SKILLS_MANAGEMENT_POLICY`); `force-off` hides the tab, returns HTTP 403 from every `/notebook-intelligence/skills/*` route, and suppresses the managed-skills reconciler.
+- **Claude MCP Servers tab** (#225) for managing the user, project, and local-scope MCP entries Claude Code reads from `~/.claude.json` and `<project>/.mcp.json`. Independent of the existing NBI MCP tab; the two never appear at the same time. New admin policy `claude_mcp_management_policy` (env `NBI_CLAUDE_MCP_MANAGEMENT_POLICY`).
+- **Claude Plugins tab** (#226) wrapping `claude plugin` for install / uninstall / enable / disable / marketplace add. New admin policies `claude_plugins_management_policy` (env `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY`) and `allow_github_plugin_import` (env `NBI_ALLOW_GITHUB_PLUGIN_IMPORT`), the latter mirroring the existing `allow_github_skill_import` knob for marketplace sources.
+- **GitHub auth for plugin marketplace add**. Marketplace sources that resolve as GitHub URLs or `owner/repo` shorthand reuse Skills' `GITHUB_TOKEN` / `GH_TOKEN` / `gh auth token` precedence; tokens are injected into the `claude plugin marketplace add` subprocess via env, never argv.
+- **Launcher tiles for opencode, Pi, and GitHub Copilot CLI** (#268), with a follow-on for **OpenAI Codex**. Each tile appears when the corresponding binary is on `PATH` and opens a Jupyter terminal at the file-browser's current directory. CLI path overrides: `NBI_OPENCODE_CLI_PATH`, `NBI_PI_CLI_PATH`, `NBI_GITHUB_COPILOT_CLI_PATH`, `NBI_CODEX_CLI_PATH`. The capabilities response gains matching `*_cli_available` booleans.
+- **Claude Code launcher tile is no longer gated by Claude chat mode** (#239); it appears whenever the `claude` CLI is on `PATH`.
+- **Dynamic GitHub Copilot model discovery** (#269). NBI now queries `https://api.githubcopilot.com/models` on each Copilot token refresh and the chat-model dropdown rebuilds from the live response, falling back to a hardcoded list on transient failure.
+- **Newer GitHub Copilot chat models** added to the fallback list (#255).
+- **Skill GitHub archive cap raised to 100 MB**, configurable (#257). New traitlet `skill_max_archive_mb` (env `NBI_SKILL_MAX_ARCHIVE_MB`); `0` disables the cap.
+- **`additional_skipped_workspace_directories` accepted in NBI `config.json`** (#241), layered additively on top of the existing traitlet, env, and env-prefix layers so a per-user override can extend (rather than replace) the org-wide list.
+- **Real progress feedback during long Claude tasks** (#254). The chat sidebar shows an elapsed-time counter, a heartbeat-driven pulse with a "may be slow" copy flip after 30 seconds, and inline tool-call narration.
+- **"New chat session" button** in the chat sidebar header restarts the Claude SDK client, mirroring the `/clear` slash command (#246).
+- **Terminal drag-drop file attach** with `@`-mention or shell-escaped raw modes and a per-terminal toolbar toggle (#256). New admin policy `NBI_TERMINAL_DRAG_DROP_POLICY`; tunables `NBI_UPLOAD_MAX_MB` (default `50`) and `NBI_UPLOAD_RETENTION_HOURS` (default `24`) govern the shared upload-staging endpoint used by both terminal drops and chat-sidebar attachments.
+- **Hover preview for image context thumbnails** in the chat sidebar (#267).
+
+### Changed
+
+- Settings tabs are now an ARIA tablist with arrow-key navigation (#206).
+- Accessibility pass across the chat sidebar and popovers covering keyboard and screen-reader behavior (#205).
+- Chat-input footer icons reworded for clarity; the gear button gains a `title` attribute (#271).
+- Cell-tool descriptions mention zero-based indexing so models pick the right cell (#265).
+
+### Fixed
+
+- Websocket writes from worker threads no longer raise `BufferError` after `/clear` or "new chat" on Python 3.13+ (#270). All emitter writes now route through `tornado.IOLoop.call_soon_threadsafe`.
+- Cell tools follow the active notebook when the user switches tabs (#253).
+- `is_connected()` stabilized against the Claude worker-spawn resurrection race (#250).
+- Persisted Claude model now displays after a JupyterLab restart (#244).
+- `/clear` no longer duplicated in the `@`-mention autocomplete (#243).
+- `@`-mention picker refreshes when workspace files change (#251) and closes on Escape from the search input (#266).
+- Notebook-toolbar prompt textarea focuses when the popover opens (#240); the update button works outside Claude mode (#238).
+- Inline chat anchors to the cursor line (#191).
+- Disabled send button is styled neutrally instead of as a primary action (#276); Claude tool-result check renders on the right of its label (#277).
+- Plugin Settings row shows the plugin name even when the CLI returns only `id` (#280).
+
+### Internal
+
+- CVE-driven dependency upgrades (#197); `react-icons` bumped to `~5.6.0` (#245).
+- Galata-based Playwright UI test suite scaffolded (#207) and expanded with user-flow specs covering the chat sidebar, notebook toolbar, cell outputs, and the launcher (#272).
+- Contributor docs cover the traitlet vs env var vs config-file decision (#242).
+
+<!-- <END NEW CHANGELOG ENTRY> -->
+
+## [4.8.0] - 2026-05-11
+
+### Added
+
+- **`allow_github_skill_import` traitlet** (env `NBI_ALLOW_GITHUB_SKILL_IMPORT`) gating user-initiated skill imports from GitHub independently of the managed-skills reconciler (#222). When `False`, the **Import from GitHub** button hides and `/skills/import` returns HTTP 403.
+- **Workspace picker honors `.gitignore`** and gains the `additional_skipped_workspace_directories` traitlet (env `NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES`, layered additively) for extending the built-in skip list (#223). Dot-prefixed files are also skipped by default (#221).
+- Workspace file scan in the `@`-mention picker now runs in parallel (#227).
+
+### Changed
+
+- Skill imports from GitHub block and scope HTTP redirects, including refusing HTTPS-to-HTTP downgrades (#203).
+- Settings tab content scrolls correctly when its body is taller than the dialog (#228); the tab bar styling is standardized across tabs.
+
+### Fixed
+
+- `NBIConfig.save()` is atomic (#202): symlinks are preserved, file mode is preserved across the swap, and the rename is parent-dir fsynced. Prevents the corrupt-config failure mode where a crash mid-write left an empty `config.json`.
+- The NBI notebook toolbar is disabled outside Claude mode where its buttons did not work (#228); a stray new-notebook button was removed.
+
 ## [4.7.0] — 2026-05-07
 
 ### Added
@@ -181,7 +246,8 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 - Settings UI restructured around Claude vs default mode.
 - WebSocket connection reliability improvements.
 
-[unreleased]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.7.0...HEAD
+[unreleased]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.8.0...HEAD
+[4.8.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.7.0...v4.8.0
 [4.7.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.6.0...v4.7.0
 [4.6.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.5.0...v4.6.0
 [4.5.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.4.0...v4.5.0

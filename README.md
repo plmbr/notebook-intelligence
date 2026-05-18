@@ -25,6 +25,8 @@ NBI is free and open-source. Connect it to a free or paid LLM provider of your c
   - [MCP config example](#mcp-config-example)
 - [Rulesets](#rulesets)
 - [Claude Skills](#claude-skills)
+- [Claude MCP Servers](#claude-mcp-servers)
+- [Claude Plugins](#claude-plugins)
 - [Chat feedback](#chat-feedback)
 - [Documentation](#documentation)
 - [Further reading](#further-reading)
@@ -64,6 +66,8 @@ A short glossary you'll see referenced throughout these docs.
 - **Claude Code vs the Anthropic API** — the _Anthropic API_ (`api.anthropic.com`) is the HTTPS endpoint NBI calls directly for inline chat and auto-complete in Claude mode. _Claude Code_ is Anthropic's local CLI agent that NBI shells out to for the chat panel; it talks to Anthropic itself.
 - **MCP** — [Model Context Protocol](https://modelcontextprotocol.io/). A way for the LLM to call out to external tools (read files, hit APIs, run scripts).
 - **Ruleset** — markdown files in `~/.jupyter/nbi/rules/` that get injected into the system prompt to enforce conventions, coding standards, or domain rules.
+- **Skill**: a directory under `~/.claude/skills/` (or `<project>/.claude/skills/`) holding a `SKILL.md` plus helper files. Claude can invoke it like a callable plugin scoped to a workspace.
+- **Claude plugin**: a unit packaged for `claude plugin install`, distributed through a **marketplace** (typically a GitHub repo that publishes a manifest of plugins). Distinct from NBI's own labextension; plugins run inside Claude Code sessions.
 
 ## Feature highlights
 
@@ -91,7 +95,18 @@ When Claude mode is on, the chat sidebar shows a history icon next to the gear. 
 
 #### Claude Code launcher tile
 
-When Claude mode is enabled and the Claude CLI is available, the JupyterLab launcher (the panel that opens with new tabs) shows a **Claude Code** tile alongside the standard kernel launchers. Clicking it opens a session picker — search across past transcripts and resume one in a fresh terminal, or start a new session in the file browser's active subdirectory. Session IDs are copyable from the picker for paste into a `claude --resume <id>` command.
+When the Claude CLI is on `PATH`, the JupyterLab launcher (the panel that opens with new tabs) shows a **Claude Code** tile alongside the standard kernel launchers. Clicking it opens a session picker; search across past transcripts and resume one in a fresh terminal, or start a new session in the file browser's active subdirectory. Session IDs are copyable from the picker for paste into a `claude --resume <id>` command.
+
+#### Other coding-agent launcher tiles
+
+When any of the following CLIs are on `PATH`, the launcher adds a tile for each. Clicking a tile opens a terminal at the file browser's current directory and runs the CLI:
+
+- **opencode** (override path with `NBI_OPENCODE_CLI_PATH`)
+- **Pi** (override path with `NBI_PI_CLI_PATH`)
+- **GitHub Copilot CLI** (override path with `NBI_GITHUB_COPILOT_CLI_PATH`)
+- **OpenAI Codex** (override path with `NBI_CODEX_CLI_PATH`)
+
+Tiles add and remove themselves as CLIs become available or unavailable; they do not require Claude mode.
 
 ### Agent mode
 
@@ -322,11 +337,23 @@ For full details (frontmatter reference, mode-specific rules, auto-reload), see 
 
 ## Claude Skills
 
-When Claude mode is enabled, the Settings panel exposes a **Skills** tab for managing the skills that Claude can invoke. Skills are stored under `~/.claude/skills/` (user) or `<project>/.claude/skills/` (project). You can create and edit skills inline, duplicate, rename, delete (with undo), or import from a public GitHub repo.
+The Settings panel exposes a top-level **Skills** tab for managing the skills that Claude can invoke. Skills are stored under `~/.claude/skills/` (user) or `<project>/.claude/skills/` (project). You can create and edit skills inline, duplicate, rename, delete (with undo), or import from a public GitHub repo. The tab is visible in any mode; when Claude mode is off, a hint banner notes that skills only take effect inside Claude sessions (handy for authoring skills now and using them when you turn Claude mode on later).
 
-For organization-wide deployments, NBI can install and keep a curated set of skills in sync from a YAML manifest pointed at by `NBI_SKILLS_MANIFEST`. Managed skills are read-only in the UI and refreshed on a schedule.
+For organization-wide deployments, your admin can ship a curated manifest of skills and keep them in sync by setting `NBI_SKILLS_MANIFEST`. Skills installed this way are marked **Managed** and are read-only in the UI. Admins who want to keep managed skills but disallow ad-hoc GitHub imports use `NBI_ALLOW_GITHUB_SKILL_IMPORT=false`.
 
 For full details, see [`docs/skills.md`](docs/skills.md).
+
+## Claude MCP Servers
+
+When Claude mode is enabled and the Claude CLI is available, the Settings panel exposes an **MCP Servers** tab that manages the user, project, and local-scope MCP entries Claude Code reads from `~/.claude.json` and the project's `.mcp.json`. This is a different tab from NBI's own MCP Servers tab (which manages the servers used by the non-Claude chat path); the two never appear together, and the Settings dialog shows whichever one applies to your current mode.
+
+Reads come from Claude's JSON config files directly. Writes (add and remove) shell out to `claude mcp add` and `claude mcp remove` so Claude remains the source of truth for any side effects (project-trust prompts, OAuth bookkeeping). Admins can lock the tab with `NBI_CLAUDE_MCP_MANAGEMENT_POLICY=force-off`.
+
+## Claude Plugins
+
+When Claude mode is enabled and the Claude CLI is available, the Settings panel exposes a **Plugins** tab wrapping `claude plugin` for install, uninstall, enable, disable, and marketplace add (for example: add a marketplace from a GitHub repo, then install plugins it publishes). Marketplaces hosted on GitHub reuse the same `GITHUB_TOKEN` / `GH_TOKEN` / `gh auth token` precedence as Skills imports; the token is passed via env to the subprocess and never appears in argv or DEBUG logs. See Anthropic's [plugin docs](https://code.claude.com/docs/en/plugins) for what a plugin is and how marketplaces work.
+
+Admins can lock the entire tab with `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY=force-off`, or keep the tab and block only GitHub-sourced marketplaces with `NBI_ALLOW_GITHUB_PLUGIN_IMPORT=false`.
 
 ## Chat feedback
 
