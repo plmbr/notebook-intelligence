@@ -1887,13 +1887,33 @@ class WebsocketCopilotHandler(websocket.WebSocketHandler):
 
     def __init__(self, application, request, context_factory=None, **kwargs):
         super().__init__(application, request, **kwargs)
-        # TODO: cleanup
+        # Keyed by request messageId; entries are populated when a chat /
+        # inline-completion / generate-code request kicks off, and removed
+        # by `_run_request_thread` once the worker thread returns. The
+        # entry holds the response emitter (for ChatUserInput and
+        # RunUICommandResponse routing) and the cancel token. Without the
+        # removal step the dict grew unbounded for the lifetime of the
+        # websocket — every long chat session leaked one emitter +
+        # cancel token per turn.
         self._messageCallbackHandlers: dict[str, MessageCallbackHandlers] = {}
         self.chat_history = ChatHistory()
         self._context_factory = context_factory or RuleContextFactory()
         ws_connector = ThreadSafeWebSocketConnector(self)
         ai_service_manager.websocket_connector = ws_connector
         github_copilot.websocket_connector = ws_connector
+
+    def _run_request_thread(self, coro, message_id):
+        """Worker-thread entrypoint that pops the messageId from
+        `_messageCallbackHandlers` on completion (success or failure).
+        The dict entry is only needed while the request is in flight —
+        ChatUserInput / RunUICommandResponse / Cancel messages from the
+        client are routed to the emitter by messageId, and the client
+        stops sending those once the response stream ends.
+        """
+        try:
+            asyncio.run(coro)
+        finally:
+            self._messageCallbackHandlers.pop(message_id, None)
 
     def open(self):
         pass
@@ -2068,7 +2088,8 @@ class WebsocketCopilotHandler(websocket.WebSocketHandler):
 
             # last prompt is added later
             request_chat_history = chat_history[chat_history_initial_size:-1] if is_claude_code_mode else chat_history[:-1]
-            thread = threading.Thread(target=asyncio.run, args=(ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, tool_selection=tool_selection, prompt=prompt, chat_history=request_chat_history, cancel_token=cancel_token, rule_context=rule_context), response_emitter),))
+            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, tool_selection=tool_selection, prompt=prompt, chat_history=request_chat_history, cancel_token=cancel_token, rule_context=rule_context), response_emitter)
+            thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId))
             thread.start()
         elif messageType == RequestDataType.GenerateCode:
             data = msg['data']
@@ -2102,7 +2123,8 @@ class WebsocketCopilotHandler(websocket.WebSocketHandler):
                 root_dir=NotebookIntelligence.root_dir
             )
             
-            thread = threading.Thread(target=asyncio.run, args=(ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, prompt=prompt, chat_history=self.chat_history.get_history(chatId), cancel_token=cancel_token, rule_context=rule_context), response_emitter, options={"system_prompt": f"You are an assistant that generates code for '{language}' language. You generate code between existing leading and trailing code sections.{existing_code_message} Be concise and return only code as a response. Don't include leading content or trailing content in your response, they are provided only for context. You can reuse methods and symbols defined in leading and trailing content."}),))
+            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, prompt=prompt, chat_history=self.chat_history.get_history(chatId), cancel_token=cancel_token, rule_context=rule_context), response_emitter, options={"system_prompt": f"You are an assistant that generates code for '{language}' language. You generate code between existing leading and trailing code sections.{existing_code_message} Be concise and return only code as a response. Don't include leading content or trailing content in your response, they are provided only for context. You can reuse methods and symbols defined in leading and trailing content."})
+            thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId))
             thread.start()
         elif messageType == RequestDataType.InlineCompletionRequest:
             data = msg['data']
@@ -2117,7 +2139,8 @@ class WebsocketCopilotHandler(websocket.WebSocketHandler):
             cancel_token = CancelTokenImpl()
             self._messageCallbackHandlers[messageId] = MessageCallbackHandlers(response_emitter, cancel_token)
 
-            thread = threading.Thread(target=asyncio.run, args=(WebsocketCopilotHandler.handle_inline_completions(prefix, suffix, language, filename, response_emitter, cancel_token),))
+            coro = WebsocketCopilotHandler.handle_inline_completions(prefix, suffix, language, filename, response_emitter, cancel_token)
+            thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId))
             thread.start()
         elif messageType == RequestDataType.ChatUserInput:
             handlers = self._messageCallbackHandlers.get(messageId)
@@ -2143,7 +2166,12 @@ class WebsocketCopilotHandler(websocket.WebSocketHandler):
             handlers.cancel_token.cancel_request()
  
     def on_close(self):
-        pass
+        # Drop any handler entries whose worker threads outlive the
+        # websocket connection. The thread wrapper would clean these up
+        # on its own once the coro returns, but a long-running request
+        # left in-flight at disconnect would otherwise pin its emitter
+        # and cancel token for the lifetime of the worker.
+        self._messageCallbackHandlers.clear()
 
     async def handle_inline_completions(prefix, suffix, language, filename, response_emitter, cancel_token):
         if ai_service_manager.inline_completion_model is None:
