@@ -1044,11 +1044,13 @@ button.send-button:disabled:active {
   display: flex;
   flex-direction: column;
   position: absolute;
-  background-color: #f2f3ff;
-}
 
-body[data-jp-theme-light='false'] .inline-popover {
-  background-color: #14162b;
+  /* Use the JupyterLab layer token so the inline prompt picks up the
+     ambient theme (light, dark, high-contrast, solarized, etc.). The
+     previous fixed #f2f3ff / #14162b values bypassed the theme and
+     could yield insufficient text contrast under custom themes. */
+  background-color: var(--jp-layout-color1);
+  color: var(--jp-content-font-color1);
 }
 
 .inline-prompt-container {
