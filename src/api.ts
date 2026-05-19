@@ -156,6 +156,11 @@ export interface ISkillSummary {
   managed: boolean;
   managedSource: string;
   managedRef: string;
+  // User-imported GitHub skills that opted into auto-sync. Distinct
+  // from `managed`: tracking skills are editable and never auto-removed,
+  // only manually replaced when the user clicks Sync.
+  tracksUpstream: boolean;
+  trackingRef: string;
 }
 
 export interface IReconcileResult {
@@ -201,8 +206,23 @@ function skillFromWire(wire: any): ISkillDetail {
     managed: Boolean(wire.managed),
     managedSource: wire.managed_source ?? '',
     managedRef: wire.managed_ref ?? '',
+    tracksUpstream: Boolean(wire.tracks_upstream),
+    trackingRef: wire.tracking_ref ?? '',
     body: wire.body ?? ''
   };
+}
+
+export interface ISyncSkillResult {
+  updated: boolean;
+  ref: string;
+}
+
+export interface ISyncAllTrackingEntry {
+  scope: SkillScope;
+  name: string;
+  updated?: boolean;
+  ref?: string;
+  error?: string;
 }
 
 function claudeModelFromWire(wire: any): IClaudeModelInfo {
@@ -833,6 +853,7 @@ export class NBIAPI {
       description?: string;
       allowedTools?: string[];
       body?: string;
+      tracksUpstream?: boolean;
     }
   ): Promise<ISkillDetail> {
     const wire: any = {};
@@ -844,6 +865,9 @@ export class NBIAPI {
     }
     if (payload.body !== undefined) {
       wire.body = payload.body;
+    }
+    if (payload.tracksUpstream !== undefined) {
+      wire.tracks_upstream = payload.tracksUpstream;
     }
     const data = await requestAPI<any>(
       `skills/${scope}/${encodeURIComponent(name)}`,
@@ -885,6 +909,7 @@ export class NBIAPI {
     scope: SkillScope;
     name?: string;
     overwrite?: boolean;
+    tracksUpstream?: boolean;
   }): Promise<ISkillDetail> {
     const wire: any = { url: payload.url, scope: payload.scope };
     if (payload.name) {
@@ -893,11 +918,44 @@ export class NBIAPI {
     if (payload.overwrite) {
       wire.overwrite = true;
     }
+    if (payload.tracksUpstream) {
+      wire.tracks_upstream = true;
+    }
     const data = await requestAPI<any>('skills/import', {
       method: 'POST',
       body: JSON.stringify(wire)
     });
     return skillFromWire(data.skill);
+  }
+
+  static async syncTrackingSkill(
+    scope: SkillScope,
+    name: string
+  ): Promise<ISyncSkillResult> {
+    const data = await requestAPI<any>(
+      `skills/${scope}/${encodeURIComponent(name)}/sync`,
+      { method: 'POST' }
+    );
+    return {
+      updated: Boolean(data.updated),
+      ref: data.ref ?? ''
+    };
+  }
+
+  static async syncAllTrackingSkills(): Promise<ISyncAllTrackingEntry[]> {
+    const data = await requestAPI<any>('skills/sync-all-tracking', {
+      method: 'POST'
+    });
+    if (!Array.isArray(data?.results)) {
+      return [];
+    }
+    return data.results.map((r: any) => ({
+      scope: r.scope,
+      name: r.name,
+      updated: typeof r.updated === 'boolean' ? r.updated : undefined,
+      ref: typeof r.ref === 'string' ? r.ref : undefined,
+      error: typeof r.error === 'string' ? r.error : undefined
+    }));
   }
 
   static async listClaudeMCPServers(): Promise<IClaudeMCPServer[]> {

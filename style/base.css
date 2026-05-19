@@ -1653,18 +1653,41 @@ svg.access-token-warning {
   font-size: var(--jp-ui-font-size1);
 }
 
-.nbi-skill-managed-badge {
+.nbi-skills-tracking-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  background-color: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.nbi-skill-managed-badge,
+.nbi-skill-tracking-badge {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 6px;
   border-radius: 10px;
-  background-color: var(--jp-brand-color3, var(--jp-layout-color3));
   color: var(--jp-ui-font-color0);
   font-size: var(--jp-ui-font-size0);
   font-weight: 600;
   vertical-align: middle;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.nbi-skill-managed-badge {
+  background-color: var(--jp-brand-color3, var(--jp-layout-color3));
+}
+
+/* Distinct hue from Managed so the two states are visually obvious at a
+   glance: managed = org-curated, tracking = user-opted-in. */
+.nbi-skill-tracking-badge {
+  background-color: var(--jp-accept-color3, var(--jp-layout-color2));
 }
 
 .nbi-skills-section {
