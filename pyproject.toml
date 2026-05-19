@@ -28,27 +28,64 @@ dependencies = [
     "fuzy-jon==0.1.0",
     "tiktoken",
     "cryptography",
-    # 1.83.7 picks up CVE-2026-42203 / CVE-2026-42208 / CVE-2026-42271 fixes.
+    # 1.83.7 picks up CVE-2026-42203 / CVE-2026-42208 / CVE-2026-42271
+    # fixes. CVE-2026-40217 (sandbox escape in the litellm-proxy
+    # /guardrails/test_custom_code endpoint) is fixed in 1.83.10 per
+    # the GHSA-wxxx-gvqv-xp7p advisory, but 1.83.10 has not yet been
+    # released to PyPI. NBI imports litellm as a client library and
+    # does not expose the proxy server endpoints, so the gap is
+    # latent-not-exposed; bump the lower bound when 1.83.10 ships.
     "litellm>=1.83.7",
     "openai",
     "ollama",
-    "fastmcp>=2.11.2",
+    # The official Anthropic MCP Python SDK. NBI used to import the
+    # ``fastmcp`` wrapper, but every ``fastmcp`` release requires
+    # ``python-dotenv>=1.1.0`` which is mutually unsatisfiable with the
+    # ``python-dotenv==1.0.1`` hard-pin in ``litellm 1.83.1+``. The
+    # adapter at ``notebook_intelligence/mcp_client.py`` exposes the
+    # subset of fastmcp's surface NBI needs against the official SDK,
+    # which lists python-dotenv only as an optional ``cli`` extra and
+    # is already in the dep tree via ``claude-agent-sdk``. Track
+    # BerriAI/litellm#25231 for the upstream fix.
+    "mcp>=1.27.0",
     "claude-agent-sdk",
     "anthropic>=0.22.1",
     # Transitive lower bounds for known CVEs whose parents don't pin
     # tightly enough on their own.
     "mistune>=3.2.1",  # CVE-2026-33441
     "python-multipart>=0.0.27",  # CVE-2026-42561
-    # python-dotenv CVE-2026-28684 (fix: 1.2.2) is NOT pinned here because
-    # litellm 1.83.7 hard-pins python-dotenv==1.0.1. Adding a >=1.2.2 lower
-    # bound would force pip to fail resolution on fresh installs. Track
-    # https://github.com/BerriAI/litellm/ for a release that loosens the
-    # pin and re-add this then.
+    # urllib3 reaches us via `requests` (tiktoken's dep), which doesn't
+    # cap the upper bound. 2.7.0 picks up CVE-2026-44431 (cross-origin
+    # redirect handling) and CVE-2026-44432 (streaming API).
+    "urllib3>=2.7.0",
+    # python-dotenv: ``litellm 1.83.1+`` hard-pins ``==1.0.1`` and refuses
+    # to bump it (see BerriAI/litellm#25231 / #26435). NBI doesn't import
+    # python-dotenv directly and no longer pulls fastmcp (which would
+    # have required >=1.1.0), so pip can resolve python-dotenv==1.0.1
+    # from litellm's constraint alone. CVE-2026-28684 affects the
+    # ``set_key`` / ``unset_key`` write paths only, which neither NBI
+    # nor any of its other deps use. Re-add a ``>=1.2.2`` lower bound
+    # when litellm loosens its pin.
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0,<9", "pyyaml"]
+# pytest-timeout caps any single test at the [tool.pytest.ini_options]
+# default below. Specific need: the async stdio-subprocess tests in
+# tests/test_mcp_client_shim.py have no internal timeout, so a hung
+# pipe in the underlying ``mcp`` SDK would otherwise hang the entire
+# CI job. ``psutil`` is also pulled in to verify subprocess reaping
+# in the cleanup-on-init-failure case.
+test = ["pytest>=7.0,<9", "pytest-timeout>=2.3.0", "psutil", "pyyaml"]
+
+[tool.pytest.ini_options]
+# Cap every test at 30 seconds. The async stdio-subprocess tests in
+# tests/test_mcp_client_shim.py spawn a real MCP server and rely on
+# the underlying ``mcp`` SDK's pipes; if a pipe ever deadlocks (the
+# SDK has no built-in timeout), the test would otherwise hang the CI
+# job. Other tests in the suite run in milliseconds, so 30s is
+# generous headroom rather than a target.
+timeout = 30
 
 [tool.hatch.version]
 source = "nodejs"

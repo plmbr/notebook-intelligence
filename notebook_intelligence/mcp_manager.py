@@ -9,7 +9,11 @@ import threading
 import time
 from typing import Any, Optional, Union
 import uuid
-from fastmcp.client import StdioTransport, StreamableHttpTransport
+from notebook_intelligence.mcp_client import (
+    Client,
+    StdioTransport,
+    StreamableHttpTransport,
+)
 from mcp import StdioServerParameters
 import mcp
 from mcp.client.stdio import get_default_environment as mcp_get_default_environment
@@ -18,7 +22,6 @@ from notebook_intelligence.api import BackendMessageType, ChatCommand, ChatReque
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
 import logging
 from enum import Enum
-from fastmcp import Client
 from ._version import __version__ as NBI_VERSION
 EDITOR_VERSION = f"NotebookIntelligence/{NBI_VERSION}"
 
