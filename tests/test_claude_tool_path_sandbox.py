@@ -17,34 +17,36 @@ from unittest.mock import MagicMock
 import pytest
 
 import notebook_intelligence.claude as claude_mod
-from notebook_intelligence.util import set_jupyter_root_dir
+from notebook_intelligence import util as util_mod
 
 
 @pytest.fixture
-def jupyter_root(tmp_path):
+def jupyter_root(tmp_path, monkeypatch):
     # Workspace lives under tmp_path so the parent remains available as an
     # "outside the workspace" target for symlink + absolute-path tests.
+    # `monkeypatch.setattr` resets to the prior value on teardown even if
+    # the test raises, so state can't leak across tests; matches the
+    # sibling pattern in test_builtin_toolset_cwd_sandbox.py.
     root = tmp_path / "workspace"
     root.mkdir()
-    set_jupyter_root_dir(str(root))
-    yield root
-    set_jupyter_root_dir(None)
+    monkeypatch.setattr(util_mod, "_jupyter_root_dir", str(root))
+    return root
 
 
 @pytest.fixture
-def response_spy():
+def response_spy(monkeypatch):
     # The tool calls `claude.get_current_response().run_ui_command(...)`.
     # Inject a spy so each test can observe whether the UI command was
-    # invoked at all, and with what payload when it was.
+    # invoked at all, and with what payload when it was. monkeypatch
+    # restores _current_response on teardown even if the test raises.
     response = MagicMock()
 
     async def fake_run_ui_command(cmd, payload):
         return "ok"
 
     response.run_ui_command.side_effect = fake_run_ui_command
-    claude_mod.set_current_response(response)
-    yield response
-    claude_mod.set_current_response(None)
+    monkeypatch.setattr(claude_mod, "_current_response", response)
+    return response
 
 
 def _invoke_run_command(working_directory: str, command: str = "echo hi"):
@@ -221,10 +223,12 @@ class TestOpenFileInJupyterUiSandbox:
         result, ui_spy = _invoke_open_file("notebook.ipynb")
         assert ui_spy.call_count == 1
         payload = ui_spy.call_args.args[1]
-        # The sandboxed absolute path is forwarded, not the LLM-supplied
-        # relative value, so any intermediate that does cwd-relative
-        # resolution can't double-resolve into a different file.
-        assert payload["path"] == str((jupyter_root / "notebook.ipynb").resolve())
+        # `docmanager:open` routes its `path` through
+        # JupyterLab's contents service, which strips the leading slash
+        # and rejoins under root_dir (jupyter_server.utils.to_os_path).
+        # Forwarding an absolute path would 404 the file. The sandbox
+        # forwards the *relative-to-root* form so the lookup succeeds.
+        assert payload["path"] == "notebook.ipynb"
 
     def test_allows_file_that_does_not_exist_yet(
         self, jupyter_root, response_spy
@@ -235,4 +239,81 @@ class TestOpenFileInJupyterUiSandbox:
         result, ui_spy = _invoke_open_file("brand-new.ipynb")
         assert ui_spy.call_count == 1
         payload = ui_spy.call_args.args[1]
-        assert payload["path"].endswith("brand-new.ipynb")
+        assert payload["path"] == "brand-new.ipynb"
+
+    def test_allows_nested_path_relative_to_root(
+        self, jupyter_root, response_spy
+    ):
+        # A deeper path inside the workspace forwards as the relative
+        # POSIX form, not the absolute one.
+        sub = jupyter_root / "notebooks" / "experiments"
+        sub.mkdir(parents=True)
+        result, ui_spy = _invoke_open_file("notebooks/experiments/exp1.ipynb")
+        assert ui_spy.call_count == 1
+        payload = ui_spy.call_args.args[1]
+        assert payload["path"] == "notebooks/experiments/exp1.ipynb"
+
+
+class TestMCPErrorSignalling:
+    """Pin that rejection paths set the MCP ``is_error`` flag. Without
+    this, the Claude Agent SDK treats the rejection text as a successful
+    tool result and model-side retry heuristics can't tell sandbox
+    violations apart from authoritative output. The flag is read at
+    ``claude_agent_sdk/__init__.py``: ``result.get("is_error", False)``
+    → ``CallToolResult.isError``.
+    """
+
+    def test_run_command_outside_root_sets_is_error(
+        self, jupyter_root, response_spy
+    ):
+        result, ui_spy = _invoke_run_command("/etc")
+        assert result.get("is_error") is True
+        ui_spy.assert_not_called()
+
+    def test_run_command_nonexistent_dir_sets_is_error(
+        self, jupyter_root, response_spy
+    ):
+        result, ui_spy = _invoke_run_command("does-not-exist")
+        assert result.get("is_error") is True
+        ui_spy.assert_not_called()
+
+    def test_run_command_happy_path_no_is_error(
+        self, jupyter_root, response_spy
+    ):
+        (jupyter_root / "work").mkdir()
+        result, ui_spy = _invoke_run_command("work")
+        # Successful call must NOT carry the is_error flag, or the SDK
+        # would treat every legitimate response as a fault.
+        assert "is_error" not in result or result["is_error"] is False
+
+    def test_open_file_outside_root_sets_is_error(
+        self, jupyter_root, response_spy
+    ):
+        result, ui_spy = _invoke_open_file("/etc/passwd")
+        assert result.get("is_error") is True
+        ui_spy.assert_not_called()
+
+
+class TestRootNotSet:
+    """``safe_jupyter_path`` raises ``RuntimeError`` (not ``ValueError``)
+    when the workspace root hasn't been configured, so the tool's
+    ``except ValueError`` block can't swallow a server-side
+    misconfiguration as if it were an LLM-supplied bad path.
+    """
+
+    def test_run_command_propagates_runtime_error(
+        self, monkeypatch, response_spy
+    ):
+        # No jupyter_root fixture: leaves _jupyter_root_dir at whatever
+        # the prior test set, so explicitly clear it for this case.
+        monkeypatch.setattr(util_mod, "_jupyter_root_dir", None)
+        # The outer except Exception still catches RuntimeError and
+        # renders an error response, but the response carries is_error
+        # AND mentions "not set" rather than the LLM-facing "outside
+        # allowed directory" wording. That distinction lets ops alerts
+        # distinguish misconfig from LLM tool-call rejection.
+        result, ui_spy = _invoke_run_command(".")
+        assert result.get("is_error") is True
+        text = result["content"][0]["text"]
+        assert "not set" in text
+        ui_spy.assert_not_called()

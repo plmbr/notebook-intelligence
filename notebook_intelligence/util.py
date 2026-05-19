@@ -37,15 +37,21 @@ def safe_jupyter_path(path: str) -> Path:
     pointing outside is also rejected.
 
     Returns the resolved absolute ``Path``. Raises ``ValueError`` when the
-    workspace root is unset, the input is unrepresentable as a path
-    (e.g. embedded NUL), or the resolved target is outside the workspace.
+    LLM-supplied input is rejected (outside the workspace, embedded NUL,
+    or otherwise unrepresentable). Raises ``RuntimeError`` for the
+    "workspace root not set" case so callers that do ``except ValueError``
+    to surface a sandbox-violation message to the LLM don't accidentally
+    swallow a server-side misconfiguration as if it were user input.
     Callers handle existence / file-vs-directory checks themselves so
     they can produce the contextual error message the LLM needs to
     correct its tool call.
     """
     jupyter_root_dir = get_jupyter_root_dir()
     if jupyter_root_dir is None:
-        raise ValueError("Jupyter root directory is not set")
+        raise RuntimeError(
+            "Jupyter root directory is not set; "
+            "set_jupyter_root_dir was not called before this code path."
+        )
 
     root_dir = Path(jupyter_root_dir).expanduser().resolve()
     target_path = Path(path).expanduser()
