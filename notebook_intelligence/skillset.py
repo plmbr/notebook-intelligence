@@ -33,6 +33,14 @@ class Skill:
     source: str = ""
     managed_source: str = ""
     managed_ref: str = ""
+    # User-imported GitHub skills can opt into "track upstream": a manual
+    # sync button re-fetches the bundle and replaces it on disk. Distinct
+    # from `managed`: managed skills are org-curated (read-only, can be
+    # auto-removed), tracking skills are user-authored (editable, never
+    # auto-removed). `tracking_ref` records the SHA of the last successful
+    # sync so we can skip the tarball fetch when upstream hasn't moved.
+    tracks_upstream: bool = False
+    tracking_ref: str = ""
 
     @classmethod
     def from_path(cls, dir_path: Path, scope: SkillScope) -> 'Skill':
@@ -52,6 +60,8 @@ class Skill:
             source=frontmatter.get("source", "") or "",
             managed_source=frontmatter.get("managed_source", "") or "",
             managed_ref=frontmatter.get("managed_ref", "") or "",
+            tracks_upstream=bool(frontmatter.get("tracks_upstream", False)),
+            tracking_ref=frontmatter.get("tracking_ref", "") or "",
         )
 
     @property
@@ -88,6 +98,8 @@ class Skill:
             "managed": self.managed,
             "managed_source": self.managed_source,
             "managed_ref": self.managed_ref,
+            "tracks_upstream": self.tracks_upstream,
+            "tracking_ref": self.tracking_ref,
         }
         if include_files:
             data["files"] = self.list_files()
@@ -146,8 +158,15 @@ def serialize_skill_md(
     *,
     managed_source: str = "",
     managed_ref: str = "",
+    tracks_upstream: bool = False,
+    tracking_ref: str = "",
 ) -> str:
-    """Render a SKILL.md markdown string from its fields."""
+    """Render a SKILL.md markdown string from its fields.
+
+    The `tracks_upstream` / `tracking_ref` pair only appears in frontmatter
+    when truthy, so a plain user-imported skill that never opted into
+    tracking has identical on-disk content as before this feature landed.
+    """
     frontmatter: Dict[str, Any] = {"name": name, "description": description}
     if allowed_tools:
         frontmatter["allowed-tools"] = list(allowed_tools)
@@ -157,6 +176,10 @@ def serialize_skill_md(
         frontmatter["managed_source"] = managed_source
     if managed_ref:
         frontmatter["managed_ref"] = managed_ref
+    if tracks_upstream:
+        frontmatter["tracks_upstream"] = True
+    if tracking_ref:
+        frontmatter["tracking_ref"] = tracking_ref
     yaml_text = yaml.safe_dump(frontmatter, sort_keys=False, default_flow_style=False).strip()
     body_text = body.rstrip() + "\n" if body.strip() else ""
     return f"---\n{yaml_text}\n---\n\n{body_text}"

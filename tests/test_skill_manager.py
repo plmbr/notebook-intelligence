@@ -156,6 +156,44 @@ class TestManagedFrontmatter:
         assert reloaded.managed_source == "https://github.com/org/repo/tree/main/m"
         assert reloaded.managed_ref == "abc"
 
+    def test_serialize_omits_tracking_keys_when_falsy(self):
+        # A plain user-imported skill that never opted into tracking should
+        # produce identical on-disk content as before the feature landed.
+        content = serialize_skill_md("sk", "d", [], "b")
+        assert "tracks_upstream" not in content
+        assert "tracking_ref" not in content
+
+    def test_from_path_reads_tracking_frontmatter(self, tmp_path):
+        bundle = tmp_path / "sk"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "sk", "d", [], "b",
+                source="https://github.com/org/repo/tree/main/sk",
+                tracks_upstream=True,
+                tracking_ref="deadbeef",
+            ),
+            encoding="utf-8",
+        )
+        skill = Skill.from_path(bundle, "user")
+        assert skill.tracks_upstream is True
+        assert skill.tracking_ref == "deadbeef"
+        assert skill.managed is False
+        # `to_dict` exposes both to the frontend.
+        as_dict = skill.to_dict()
+        assert as_dict["tracks_upstream"] is True
+        assert as_dict["tracking_ref"] == "deadbeef"
+
+    def test_from_path_defaults_when_tracking_fields_absent(self, tmp_path):
+        bundle = tmp_path / "sk"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md("sk", "d", [], "b"), encoding="utf-8"
+        )
+        skill = Skill.from_path(bundle, "user")
+        assert skill.tracks_upstream is False
+        assert skill.tracking_ref == ""
+
     def test_rename_skill_preserves_managed_fields(self, manager, skill_dirs):
         user_dir, _ = skill_dirs
         bundle = user_dir / "oldname"
