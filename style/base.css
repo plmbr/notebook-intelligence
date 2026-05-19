@@ -586,9 +586,29 @@ pre:has(.code-block-header) {
   height: 14px;
 }
 
+/* Rendered as a real <button> so it picks up Tab order, Enter/Space
+   activation, and "button" role announcement. The visual presentation
+   stays anchor-like: underline + link color so users still recognise it
+   as a clickable "open notebook" affordance. */
 .copilot-generated-notebook-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--jp-content-link-color);
   text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
+}
+
+.copilot-generated-notebook-link:hover {
+  filter: brightness(1.15);
+}
+
+.copilot-generated-notebook-link:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
 
 .sidebar-login-info {

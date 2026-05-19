@@ -973,13 +973,15 @@ function ChatResponse(props: any) {
         })}
 
         {msg.notebookLink && (
-          <a
+          <button
+            type="button"
             className="copilot-generated-notebook-link"
             data-ref={msg.notebookLink}
+            aria-label={`Open notebook ${msg.notebookLink}`}
             onClick={openNotebook}
           >
             open notebook
-          </a>
+          </button>
         )}
       </div>
       {msg.from === 'copilot' &&
