@@ -7,27 +7,49 @@ import { MdOutlineCheckBoxOutlineBlank, MdCheckBox } from '../icons';
 export function CheckBoxItem(props: any) {
   const indent = props.indent || 0;
   const disabled = props.disabled || false;
+  const checked = !!props.checked;
 
+  const activate = (event: React.SyntheticEvent) => {
+    if (!disabled) {
+      props.onClick(event);
+    }
+  };
+
+  // Custom checkbox widget. Tracks the WAI-ARIA pattern: role='checkbox'
+  // + aria-checked + tabIndex=0 + Space/Enter to toggle. Disabled state
+  // is exposed via aria-disabled so the element stays focusable; a
+  // screen reader user can still announce "checkbox, disabled" and hear
+  // what's off without being able to toggle it.
   return (
     <div
       className={`checkbox-item checkbox-item-indent-${indent} ${props.header ? 'checkbox-item-header' : ''}`}
       title={props.tooltip || props.title || ''}
-      onClick={event => {
-        if (!disabled) {
-          props.onClick(event);
+      role="checkbox"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : 0}
+      onClick={activate}
+      onKeyDown={event => {
+        if (event.key === ' ' || event.key === 'Enter') {
+          // Space scrolls the page by default, Enter is a no-op on a
+          // <div>; prevent both so the checkbox can own them.
+          event.preventDefault();
+          activate(event);
         }
       }}
     >
       <div className="checkbox-item-toggle">
-        {props.checked ? (
+        {checked ? (
           <MdCheckBox
             className="checkbox-icon"
             style={{ opacity: disabled ? 0.5 : 1 }}
+            aria-hidden="true"
           />
         ) : (
           <MdOutlineCheckBoxOutlineBlank
             className="checkbox-icon"
             style={{ opacity: disabled ? 0.5 : 1 }}
+            aria-hidden="true"
           />
         )}
         <span style={{ opacity: disabled ? 0.5 : 1 }}>{props.label}</span>

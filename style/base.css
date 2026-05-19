@@ -1401,6 +1401,12 @@ svg.access-token-warning {
   background-color: var(--jp-layout-color1);
 }
 
+.checkbox-item:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
 .checkbox-item-indent-0 {
   padding-left: 0;
 }
