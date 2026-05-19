@@ -73,11 +73,14 @@ class AIServiceManager(Host):
             project_dir=self._nbi_config.project_skills_directory(get_jupyter_root_dir()),
         )
         self._skill_reconciler: Optional[SkillReconciler] = None
-        manifest_source = (self._options.get("skills_manifest") or "").strip()
-        if manifest_source:
+        # `skills_manifest_sources` is the resolved list of comma-split
+        # manifests (URL or filesystem path each). Empty list disables the
+        # reconciler.
+        manifest_sources = list(self._options.get("skills_manifest_sources") or [])
+        if manifest_sources:
             self._skill_reconciler = SkillReconciler(
                 skill_manager=self._skill_manager,
-                manifest_source=manifest_source,
+                manifest_sources=manifest_sources,
                 interval_seconds=int(self._options.get("skills_manifest_interval", 86400)),
                 managed_token=self._options.get("managed_skills_token") or None,
             )

@@ -44,7 +44,7 @@ Configure via environment variables (also available as traitlets on `NotebookInt
 
 | Variable                       | Description                                                                                                                                                                             |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NBI_SKILLS_MANIFEST`          | URL (`https://...`) or local filesystem path to the manifest. Empty or unset disables the feature.                                                                                      |
+| `NBI_SKILLS_MANIFEST`          | URL (`https://...`) or filesystem path to the manifest, or a comma-separated list of either. Whitespace around each entry is stripped. Empty or unset disables the feature.             |
 | `NBI_SKILLS_MANIFEST_INTERVAL` | Seconds between reconciles. Default `86400` (24 hours). Reconciliation also runs once at startup.                                                                                       |
 | `NBI_MANAGED_SKILLS_TOKEN`     | Optional bearer token used for **all** managed-skills GitHub operations (see below).                                                                                                    |
 | `NBI_SKILL_MAX_ARCHIVE_MB`     | Per-archive on-wire size cap (megabytes) for skill bundles fetched from GitHub. Default `100`. Applies to both user imports and managed-skills tarballs. Set to `0` to disable the cap. |
@@ -66,11 +66,22 @@ JSON is also accepted (the parser is `yaml.safe_load`).
 ### Reconciler behavior
 
 - The reconciler probes GitHub's commits API for each entry's `subpath` and `ref`, and skips fetching the tarball when the installed `managed_ref` matches the latest SHA. Full-SHA URLs skip the probe.
-- Managed skills present in the install but missing from the manifest are **removed**.
+- Managed skills present in the install but missing from every manifest are **removed**.
 - User-authored skills are never touched. If a user-authored skill has the same name as a manifest entry, the reconciler leaves it alone and reports a per-entry error.
 - A manual **Sync managed skills** button appears in the Skills panel when any managed skill is installed.
 - A `POST /notebook-intelligence/skills/reconcile` endpoint is available for scripted triggers.
-- If the manifest cannot be loaded (network failure, bad YAML, missing `skills:` list), the reconciler logs the error and leaves all managed skills in place rather than mass-deleting on a transient failure.
+- If a manifest cannot be loaded (network failure, bad YAML, missing `skills:` list), the reconciler logs the error and leaves managed skills in place rather than mass-deleting on a transient failure. With multiple manifests configured, removal of stale managed skills is also skipped for the cycle so the skills owned by an unreachable manifest don't get orphaned.
+
+### Multiple manifests
+
+`NBI_SKILLS_MANIFEST` accepts a comma-separated list, e.g. `https://manifests.acme/org.yaml,https://manifests.acme/team.yaml,/srv/local.yaml`. Manifests are unioned, with two layers of dedupe:
+
+- **Same `url:` listed by two manifests**: the earlier source wins, a WARN names both manifests, reconciliation continues.
+- **Two different URLs resolve to the same installed skill name** (either via explicit `name:` overrides or by URL-subpath collision): the second entry is dropped with a per-entry error, leaving the first install intact.
+
+The order of sources in the list determines first-wins precedence. A URL containing a literal comma is not supported.
+
+> **Trust-boundary note for `NBI_MANAGED_SKILLS_TOKEN`.** When set, the token is sent as a `Bearer` `Authorization` header to **every** URL in the manifest list, including non-GitHub hosts. The no-redirect handler blocks server-side redirect-driven leaks, but it cannot stop a typo'd entry from receiving the token. If you mix trust domains (e.g. an org-internal manifest URL plus an external one), either point every source at the same trust boundary or split the deployment into separate spawn profiles with their own tokens.
 
 ### Multi-tenant scoping
 

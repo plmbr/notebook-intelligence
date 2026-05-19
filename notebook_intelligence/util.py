@@ -165,6 +165,21 @@ def decrypt_with_password(password: str, encrypted_data_with_salt: bytes) -> byt
 
     return decrypted_data
 
+def split_csv(raw) -> list:
+    """Parse a comma-separated string into a list of stripped, non-empty tokens.
+
+    Used by env-var and traitlet resolvers across the codebase that share
+    the "comma-separated, whitespace-tolerant, empty-dropping" wire format
+    (e.g. NBI_ENABLED_PROVIDERS, NBI_SKILLS_MANIFEST,
+    NBI_ADDITIONAL_SKIPPED_WORKSPACE_DIRECTORIES). Non-string input
+    degrades to ``[]`` so a traitlet that yields None doesn't crash the
+    resolver. Caller is responsible for any subsequent dedupe.
+    """
+    if not isinstance(raw, str):
+        return []
+    return [token for token in (part.strip() for part in raw.split(",")) if token]
+
+
 def get_enabled_builtin_tools_in_env() -> Set[str]:
   global _enabled_tools
   if _enabled_tools is not None:

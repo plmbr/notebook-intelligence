@@ -60,7 +60,7 @@ from notebook_intelligence.claude_sessions import (
 )
 import notebook_intelligence.github_copilot as github_copilot
 from notebook_intelligence.built_in_toolsets import built_in_toolsets
-from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri
+from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri, split_csv
 from notebook_intelligence.context_factory import RuleContextFactory
 from notebook_intelligence.skillset import SKILL_NAME_REGEX
 
@@ -174,17 +174,34 @@ _FALSE_VALUES = frozenset({"false", "0", "no", "off"})
 _BOOL_ENV_VOCAB = "true, false, 1, 0, yes, no, on, off"
 
 
+def _resolve_skills_manifest_sources(traitlet_value: str) -> list:
+    """Resolve the multi-manifest wire format: env var wins, otherwise traitlet.
+
+    `NBI_SKILLS_MANIFEST` and the matching traitlet both accept either a
+    single source (URL or filesystem path) or a comma-separated list of
+    either. Whitespace is stripped, empty fragments are dropped, so an
+    operator who writes ``"  ,,,  "`` (or leaves the env empty) lands on
+    "no manifests configured" rather than constructing phantom entries.
+    Extracted so the resolver can be unit-tested independent of the
+    extension-class instantiation harness.
+    """
+    raw = (
+        os.environ.get("NBI_SKILLS_MANIFEST", "").strip()
+        or (traitlet_value or "").strip()
+    )
+    return split_csv(raw)
+
+
 def _resolve_csv_appended(env_var_name: str, traitlet_value):
     """Merge a traitlet List with the comma-separated env-var value (append).
 
     Env *adds to* the traitlet list rather than replacing it — the use case
-    is per-pod profiles layering on an org-wide baseline. Whitespace around
-    each token is stripped, empty segments are dropped, and exact duplicates
-    are collapsed while preserving first-seen order.
+    is per-pod profiles layering on an org-wide baseline. Tokens are split
+    via the shared ``util.split_csv`` helper and exact duplicates are
+    collapsed while preserving first-seen order.
     """
     base = list(traitlet_value or [])
-    raw = os.environ.get(env_var_name, "")
-    extras = [name.strip() for name in raw.split(",") if name.strip()]
+    extras = split_csv(os.environ.get(env_var_name, ""))
     return list(dict.fromkeys(base + extras))
 
 
@@ -1318,7 +1335,7 @@ class SkillsReconcileHandler(SkillsBaseHandler):
         if reconciler is None:
             self.set_status(409)
             self.finish(json.dumps({
-                "error": "No managed-skills manifest configured (set NBI_SKILLS_MANIFEST)."
+                "error": "No managed-skills manifest configured (set NBI_SKILLS_MANIFEST, comma-separated for multiple manifests)."
             }))
             return
         # reconcile() does blocking HTTP + tarball extraction; run off the event loop.
@@ -2603,8 +2620,11 @@ class NotebookIntelligence(ExtensionApp):
     skills_manifest = Unicode(
         default_value="",
         help="""
-        URL or filesystem path to a YAML/JSON manifest describing managed
-        Claude skills to install and keep in sync. Empty disables the feature.
+        One or more YAML/JSON manifests describing managed Claude skills to
+        install and keep in sync. Each entry is a URL or filesystem path;
+        list multiple manifests as a comma-separated string. Manifests are
+        unioned with first-wins dedupe on URL collisions and a per-entry
+        error on installed-name collisions. Empty disables the feature.
         Overridden by the NBI_SKILLS_MANIFEST environment variable.
         """,
         config=True,
@@ -2703,12 +2723,12 @@ class NotebookIntelligence(ExtensionApp):
         string_overrides: dict,
     ):
         global ai_service_manager
-        manifest_source = os.environ.get("NBI_SKILLS_MANIFEST", "").strip() or self.skills_manifest.strip()
-        # When skills management is force-off, suppress the manifest so the
+        manifest_sources = _resolve_skills_manifest_sources(self.skills_manifest)
+        # When skills management is force-off, suppress all manifests so the
         # reconciler isn't constructed at all (org-curated skills wouldn't
         # have a UI surface anyway, and stopping reconcile is the contract).
         if is_force_off(feature_policies, "skills_management"):
-            manifest_source = ""
+            manifest_sources = []
         managed_token = (
             os.environ.get("NBI_MANAGED_SKILLS_TOKEN", "").strip()
             or self.managed_skills_token.strip()
@@ -2724,7 +2744,7 @@ class NotebookIntelligence(ExtensionApp):
                 )
         ai_service_manager = AIServiceManager({
             "server_root_dir": server_root_dir,
-            "skills_manifest": manifest_source,
+            "skills_manifest_sources": manifest_sources,
             "skills_manifest_interval": manifest_interval,
             "managed_skills_token": managed_token,
             "feature_policies": feature_policies,

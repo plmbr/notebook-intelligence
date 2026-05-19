@@ -1,10 +1,12 @@
-"""Background reconciliation of managed Claude skills against a manifest.
+"""Background reconciliation of managed Claude skills against one or more
+manifests.
 
-Reads a manifest (`NBI_SKILLS_MANIFEST`) listing Claude skills to install from
-GitHub, installs/updates them, and removes managed skills that have been dropped
-from the manifest. User-authored skills are never touched.
+Reads the manifests pointed at by `NBI_SKILLS_MANIFEST` (comma-separated),
+installs/updates the skills they list from GitHub, and removes managed skills
+that no longer appear in any manifest. User-authored skills are never touched.
 
-See `skill_manifest.py` for the manifest schema.
+See `skill_manifest.py` for the manifest schema and the multi-manifest merge
+rules.
 """
 
 from __future__ import annotations
@@ -23,8 +25,7 @@ from notebook_intelligence.skill_github_import import (
 from notebook_intelligence.skill_manager import SkillManager
 from notebook_intelligence.skill_manifest import (
     ManifestEntry,
-    ManifestError,
-    load_manifest,
+    load_manifests,
 )
 from notebook_intelligence.skillset import Skill, SkillScope
 
@@ -55,36 +56,55 @@ class ReconcileResult:
 
 
 class SkillReconciler:
-    """Reconciles installed managed skills against a manifest on a schedule."""
+    """Reconciles installed managed skills against one or more manifests."""
 
     def __init__(
         self,
         skill_manager: SkillManager,
-        manifest_source: str,
+        manifest_sources: List[str],
         interval_seconds: int,
         managed_token: Optional[str] = None,
     ):
         self._skill_manager = skill_manager
-        self._manifest_source = manifest_source
+        # Defensive copy: callers pass in the resolved list at construct time
+        # and we don't want a later mutation to silently change the set of
+        # manifests reconciled.
+        self._manifest_sources = list(manifest_sources)
         self._interval_seconds = max(int(interval_seconds), 1)
         # Used for manifest fetch, commits-API probe, and tarball download — the
         # whole managed pathway. User-initiated imports do not see this token.
         self._managed_token = managed_token
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        # Guards `_thread` / `_stop` mutations across `start()` / `stop()`.
+        # The admin kill-switch endpoint (`SkillsReconcilerStopHandler`) is
+        # reachable from any authenticated request and a double-click during
+        # an incident must not orphan a daemon thread or race start()'s
+        # `_stop.clear()` against stop()'s `_stop.set()`.
+        self._lifecycle_lock = threading.Lock()
 
     def reconcile(self) -> ReconcileResult:
-        """One pass: load manifest, apply installs/updates/removes. Synchronous."""
+        """One pass: load manifests, apply installs/updates/removes. Synchronous."""
         result = ReconcileResult()
-        try:
-            manifest = load_manifest(
-                self._manifest_source, token=self._managed_token
-            )
-        except ManifestError as e:
-            msg = f"Could not load manifest: {e}"
-            log.error(msg)
-            result.errors.append(msg)
-            return result
+        merged = load_manifests(
+            self._manifest_sources, token=self._managed_token
+        )
+
+        # Surface per-source diagnostics first so they appear in
+        # `ReconcileResult.errors` / log output before any per-entry errors.
+        for warning in merged.warnings:
+            log.warning(warning)
+        for err in merged.errors:
+            log.error(err)
+            result.errors.append(err)
+
+        # If we configured N manifests but fewer than N loaded, some source is
+        # unreachable. Skip stale removal so a transient outage doesn't orphan
+        # the skills owned by the missing manifest. Per-entry installs still
+        # run against whatever did load.
+        all_sources_loaded = (
+            len(merged.loaded_sources) == len(self._manifest_sources)
+        )
 
         # Snapshot managed skills once per cycle. Both the per-entry apply and
         # the stale-removal pass read from this dict, avoiding an O(N*M) disk
@@ -94,9 +114,9 @@ class SkillReconciler:
             for s in self._skill_manager.list_managed_skills()
             if s.managed_source
         }
-        manifest_urls = {entry.url for entry in manifest.entries}
+        manifest_urls = {entry.url for entry in merged.manifest.entries}
 
-        for entry in manifest.entries:
+        for entry in merged.manifest.entries:
             try:
                 self._apply_entry(entry, managed_by_url, result)
             except Exception as e:  # noqa: BLE001 — per-entry isolation
@@ -104,7 +124,16 @@ class SkillReconciler:
                 log.exception("Failed to reconcile skill %s", entry.url)
                 result.errors.append(msg)
 
-        self._remove_stale(manifest_urls, managed_by_url, result)
+        if all_sources_loaded:
+            self._remove_stale(manifest_urls, managed_by_url, result)
+        elif managed_by_url:
+            log.info(
+                "Skipping stale-managed-skill removal: %d/%d manifest sources "
+                "failed to load this cycle; existing managed skills are "
+                "preserved until every source reloads successfully.",
+                len(self._manifest_sources) - len(merged.loaded_sources),
+                len(self._manifest_sources),
+            )
 
         # Intermediate install/delete calls each fire the skill_manager's listeners
         # already; the downstream Claude client update is debounced, so per-entry
@@ -113,22 +142,28 @@ class SkillReconciler:
         return result
 
     def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(
-            name="Skill Reconciler",
-            target=self._run_loop,
-            daemon=True,
-        )
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._thread is not None:
+                return
+            self._stop.clear()
+            self._thread = threading.Thread(
+                name="Skill Reconciler",
+                target=self._run_loop,
+                daemon=True,
+            )
+            self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
-        thread = self._thread
-        self._stop.set()
+        # Signal first, then join outside the lock so an admin who hits the
+        # kill switch a second time during a hung fetch doesn't block on a
+        # held lifecycle lock — the second call sees `_thread is None` and
+        # is a fast no-op.
+        with self._lifecycle_lock:
+            thread = self._thread
+            self._thread = None
+            self._stop.set()
         if thread is not None:
             thread.join(timeout=timeout)
-        self._thread = None
 
     def is_running(self) -> bool:
         thread = self._thread

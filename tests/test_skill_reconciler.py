@@ -56,7 +56,7 @@ class TestReconcileInstall:
         tar = build_tarball({
             "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\nbody",
         })
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_sha("abc123"), _patch_tarball(tar):
             result = reconciler.reconcile()
@@ -87,7 +87,7 @@ class TestReconcileInstall:
             ),
             encoding="utf-8",
         )
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_sha("sha_match"), patch(
             "notebook_intelligence.skill_github_import._fetch_tarball"
@@ -118,7 +118,7 @@ class TestReconcileInstall:
         tar = build_tarball({
             "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: new\n---\nnew body",
         })
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_sha("sha_new"), _patch_tarball(tar):
             result = reconciler.reconcile()
@@ -137,7 +137,7 @@ class TestReconcileInstall:
         tar = build_tarball({
             "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\nbody",
         })
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_tarball(tar), patch(
             "notebook_intelligence.skill_reconciler.get_latest_commit_sha"
@@ -164,7 +164,7 @@ class TestReconcileDelete:
             encoding="utf-8",
         )
         manifest = _write_manifest(tmp_path, "")  # empty manifest
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         result = reconciler.reconcile()
 
@@ -175,7 +175,7 @@ class TestReconcileDelete:
         user_dir, _ = skill_dirs
         manager.create_skill("user", "mine", "my skill", [], "body")
         manifest = _write_manifest(tmp_path, "")  # empty
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         result = reconciler.reconcile()
 
@@ -203,7 +203,7 @@ class TestReconcileErrors:
                 raise ValueError("network flake")
             return tar_good
 
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
         with _patch_sha("sha"), patch(
             "notebook_intelligence.skill_github_import._fetch_tarball",
             side_effect=fake_fetch,
@@ -232,7 +232,7 @@ class TestReconcileErrors:
         # Malformed — missing required `skills:` list.
         bad = tmp_path / "m.yaml"
         bad.write_text("other: []\n", encoding="utf-8")
-        reconciler = SkillReconciler(manager, str(bad), interval_seconds=60)
+        reconciler = SkillReconciler(manager, [str(bad)], interval_seconds=60)
 
         result = reconciler.reconcile()
 
@@ -259,7 +259,7 @@ class TestReconcileErrors:
             tmp_path,
             "  - url: https://github.com/org/repo/tree/main/alpha\n",
         )
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_sha(None), patch(
             "notebook_intelligence.skill_github_import._fetch_tarball"
@@ -287,7 +287,7 @@ class TestReconcileErrors:
         tar = build_tarball({
             "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: gh\n---\nb",
         })
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_sha("sha"), _patch_tarball(tar):
             result = reconciler.reconcile()
@@ -311,7 +311,7 @@ class TestManagedToken:
             "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\nbody",
         })
         reconciler = SkillReconciler(
-            manager, manifest, interval_seconds=60, managed_token="scoped-org-token"
+            manager, [manifest], interval_seconds=60, managed_token="scoped-org-token"
         )
 
         with patch(
@@ -346,7 +346,7 @@ class TestManagedToken:
             raise ValueError("GitHub rejected the token (HTTP 401)")
 
         reconciler = SkillReconciler(
-            manager, manifest, interval_seconds=60, managed_token="expired-token"
+            manager, [manifest], interval_seconds=60, managed_token="expired-token"
         )
         with _patch_sha("abc123"), patch(
             "notebook_intelligence.skill_github_import._fetch_tarball",
@@ -363,7 +363,7 @@ class TestManagedToken:
 class TestBackgroundThread:
     def test_runs_once_at_start_and_on_interval(self, manager, tmp_path):
         manifest = _write_manifest(tmp_path, "")
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=1)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=1)
         call_times = []
 
         orig_reconcile = reconciler.reconcile
@@ -389,13 +389,45 @@ class TestBackgroundThread:
 
     def test_stop_is_idempotent(self, manager, tmp_path):
         manifest = _write_manifest(tmp_path, "")
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
         reconciler.stop()
         reconciler.stop()
 
+    def test_concurrent_start_does_not_spawn_two_threads(self, manager, tmp_path):
+        # The admin kill-switch endpoint is reachable from any authenticated
+        # request, so a start/stop race is reachable in practice. Pin that
+        # two concurrent starts produce exactly one tracked thread, with no
+        # orphaned daemons running in the background.
+        manifest = _write_manifest(tmp_path, "")
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
+        before = threading.active_count()
+        barrier = threading.Barrier(8)
+
+        def racer():
+            barrier.wait()
+            reconciler.start()
+
+        racers = [threading.Thread(target=racer) for _ in range(8)]
+        for t in racers:
+            t.start()
+        for t in racers:
+            t.join(timeout=2.0)
+
+        try:
+            assert reconciler.is_running() is True
+            # Exactly one reconciler thread should be active: thread count
+            # may have one extra during teardown of the racers, but never
+            # eight extra reconciler threads.
+            after = threading.active_count()
+            assert after - before <= 2, (
+                f"start() raced: active threads grew by {after - before}"
+            )
+        finally:
+            reconciler.stop()
+
     def test_is_running_reflects_thread_state(self, manager, tmp_path):
         manifest = _write_manifest(tmp_path, "")
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
         assert reconciler.is_running() is False
         reconciler.start()
         try:
@@ -419,7 +451,7 @@ class TestPolicyForceOffStop:
 
     def test_force_off_at_start_stops_immediately(self, manager, tmp_path, monkeypatch):
         manifest = _write_manifest(tmp_path, "")
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
         call_count = {"n": 0}
         orig_reconcile = reconciler.reconcile
 
@@ -444,7 +476,7 @@ class TestPolicyForceOffStop:
 
     def test_force_off_mid_loop_stops_before_next_pass(self, manager, tmp_path, monkeypatch):
         manifest = _write_manifest(tmp_path, "")
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
         call_count = {"n": 0}
         orig_reconcile = reconciler.reconcile
 
@@ -472,7 +504,7 @@ class TestPolicyForceOffStop:
 
     def test_user_choice_keeps_running(self, manager, tmp_path, monkeypatch):
         manifest = _write_manifest(tmp_path, "")
-        reconciler = SkillReconciler(manager, manifest, interval_seconds=60)
+        reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
         call_count = {"n": 0}
         orig_reconcile = reconciler.reconcile
 
@@ -510,3 +542,231 @@ class TestPolicyForceOffStop:
         ]:
             monkeypatch.setenv("NBI_SKILLS_MANAGEMENT_POLICY", env_value)
             assert SkillReconciler._policy_force_off() is expected, env_value
+
+
+class TestMultipleManifests:
+    """Multi-source reconcile behavior: dedupe, partial failure preserves
+    stale skills, all-source failure surfaces but doesn't crash."""
+
+    def _write(self, tmp_path, name, body):
+        p = tmp_path / name
+        p.write_text(body, encoding="utf-8")
+        return str(p)
+
+    def test_unions_entries_across_sources(self, manager, tmp_path, skill_dirs):
+        user_dir, _ = skill_dirs
+        a = self._write(
+            tmp_path,
+            "a.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/alpha\n",
+        )
+        b = self._write(
+            tmp_path,
+            "b.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/beta\n",
+        )
+        tar = build_tarball({
+            "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\n",
+            "repo-xyz/beta/SKILL.md": "---\nname: beta\ndescription: b\n---\n",
+        })
+
+        reconciler = SkillReconciler(manager, [a, b], interval_seconds=60)
+        with _patch_sha("sha"), _patch_tarball(tar):
+            result = reconciler.reconcile()
+
+        assert result.added == 2
+        assert (user_dir / "alpha").exists()
+        assert (user_dir / "beta").exists()
+
+    def test_partial_failure_missing_first_preserves_managed_skills(
+        self, manager, tmp_path, skill_dirs
+    ):
+        # Reverse-order sibling of the partial-failure test below. Iteration
+        # order shouldn't change behavior — failure on any source must
+        # suppress stale-removal regardless of position in the list.
+        user_dir, _ = skill_dirs
+        owned = user_dir / "alpha"
+        owned.mkdir()
+        (owned / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "alpha", "d", [], "b",
+                managed_source="https://github.com/org/repo/tree/main/alpha",
+                managed_ref="sha",
+            ),
+            encoding="utf-8",
+        )
+        missing = str(tmp_path / "does-not-exist.yaml")
+        good = self._write(
+            tmp_path,
+            "good.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/beta\n",
+        )
+        reconciler = SkillReconciler(
+            manager, [missing, good], interval_seconds=60
+        )
+        tar = build_tarball({
+            "repo-xyz/beta/SKILL.md": "---\nname: beta\ndescription: b\n---\n",
+        })
+        with _patch_sha("sha"), _patch_tarball(tar):
+            result = reconciler.reconcile()
+
+        assert any(missing in err for err in result.errors)
+        assert result.removed == 0
+        assert owned.exists()
+
+    def test_partial_load_failure_preserves_managed_skills(
+        self, manager, tmp_path, skill_dirs
+    ):
+        # Pre-install a managed skill that *would* be removed if the
+        # reconciler ran stale-removal this cycle (because the manifest that
+        # owns it failed to load).
+        user_dir, _ = skill_dirs
+        owned = user_dir / "alpha"
+        owned.mkdir()
+        (owned / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "alpha", "d", [], "b",
+                managed_source="https://github.com/org/repo/tree/main/alpha",
+                managed_ref="sha",
+            ),
+            encoding="utf-8",
+        )
+        good = self._write(
+            tmp_path,
+            "good.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/beta\n",
+        )
+        missing = str(tmp_path / "does-not-exist.yaml")
+
+        reconciler = SkillReconciler(
+            manager, [good, missing], interval_seconds=60
+        )
+        tar = build_tarball({
+            "repo-xyz/beta/SKILL.md": "---\nname: beta\ndescription: b\n---\n",
+        })
+        with _patch_sha("sha"), _patch_tarball(tar):
+            result = reconciler.reconcile()
+
+        # Failure recorded.
+        assert any(missing in err for err in result.errors)
+        # `alpha` survives even though it isn't in the loaded manifest —
+        # we don't know if the missing manifest owned it.
+        assert result.removed == 0
+        assert owned.exists()
+
+    def test_url_dupe_across_manifests_is_first_wins(
+        self, manager, tmp_path, skill_dirs
+    ):
+        # Same skill URL in two manifests — installed once, warning fires.
+        user_dir, _ = skill_dirs
+        a = self._write(
+            tmp_path,
+            "a.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/alpha\n"
+            "    scope: user\n",
+        )
+        b = self._write(
+            tmp_path,
+            "b.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/alpha\n"
+            "    scope: project\n",
+        )
+        tar = build_tarball({
+            "repo-xyz/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\n",
+        })
+        reconciler = SkillReconciler(manager, [a, b], interval_seconds=60)
+        with _patch_sha("sha"), _patch_tarball(tar):
+            result = reconciler.reconcile()
+
+        # One install (first-wins on scope=user), no errors, dupe was a warning
+        # so it doesn't land in ReconcileResult.errors.
+        assert result.added == 1
+        assert (user_dir / "alpha").exists()
+        assert result.errors == []
+
+    def test_name_collision_across_manifests_skips_second(
+        self, manager, tmp_path, skill_dirs
+    ):
+        user_dir, _ = skill_dirs
+        a = self._write(
+            tmp_path,
+            "a.yaml",
+            "skills:\n  - url: https://github.com/org-a/repo/tree/main/shared\n",
+        )
+        b = self._write(
+            tmp_path,
+            "b.yaml",
+            "skills:\n  - url: https://github.com/org-b/other/tree/main/shared\n",
+        )
+        tar = build_tarball({
+            "repo-xyz/shared/SKILL.md": "---\nname: shared\ndescription: x\n---\n",
+        })
+        reconciler = SkillReconciler(manager, [a, b], interval_seconds=60)
+        with _patch_sha("sha"), _patch_tarball(tar):
+            result = reconciler.reconcile()
+
+        # Only one install — the colliding second entry was dropped before
+        # the reconciler saw it. Error explains the collision.
+        assert result.added == 1
+        assert any("name collision" in e for e in result.errors)
+
+    def test_all_sources_fail_no_crash(self, manager, tmp_path, skill_dirs):
+        bad1 = str(tmp_path / "nope1.yaml")
+        bad2 = str(tmp_path / "nope2.yaml")
+        reconciler = SkillReconciler(manager, [bad1, bad2], interval_seconds=60)
+        result = reconciler.reconcile()
+
+        assert result.added == 0
+        assert result.removed == 0
+        assert len(result.errors) == 2
+
+    def test_empty_manifest_counts_as_loaded_and_runs_stale_removal(
+        self, manager, tmp_path, skill_dirs
+    ):
+        # A manifest that parses to `skills: []` is treated as a successful
+        # load (it contributes zero entries but is reachable and well-formed).
+        # That means stale-removal still runs against the union of all loaded
+        # manifests. Pin this so a future "treat empty manifest as failed"
+        # refactor surfaces in CI; the operator-facing contract is "an empty
+        # manifest means you intentionally cleared it."
+        user_dir, _ = skill_dirs
+        orphan = user_dir / "alpha"
+        orphan.mkdir()
+        (orphan / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "alpha", "d", [], "b",
+                managed_source="https://github.com/org/repo/tree/main/alpha",
+                managed_ref="sha",
+            ),
+            encoding="utf-8",
+        )
+        empty = self._write(tmp_path, "empty.yaml", "skills: []\n")
+        other = self._write(
+            tmp_path,
+            "other.yaml",
+            "skills:\n  - url: https://github.com/org/repo/tree/main/beta\n",
+        )
+        reconciler = SkillReconciler(
+            manager, [empty, other], interval_seconds=60
+        )
+        tar = build_tarball({
+            "repo-xyz/beta/SKILL.md": "---\nname: beta\ndescription: b\n---\n",
+        })
+        with _patch_sha("sha"), _patch_tarball(tar):
+            result = reconciler.reconcile()
+
+        # Both manifests loaded → all_sources_loaded → stale-removal ran.
+        # Alpha was not in any manifest → removed.
+        assert result.removed == 1
+        assert not orphan.exists()
+
+    def test_empty_sources_disables_reconcile(self, manager, tmp_path):
+        # Construct directly with an empty list. The wire-up in
+        # AIServiceManager avoids ever constructing the reconciler when no
+        # manifests are configured, but reconcile() on an empty list should
+        # still degrade cleanly (no-op).
+        reconciler = SkillReconciler(manager, [], interval_seconds=60)
+        result = reconciler.reconcile()
+        assert result.added == 0
+        assert result.removed == 0
+        assert result.errors == []

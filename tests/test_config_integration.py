@@ -259,6 +259,71 @@ class TestAdditionalSkippedWorkspaceDirectoriesFourLayerMerge:
         assert result == []
 
 
+class TestSkillsManifestResolver:
+    """Pin the env-var-vs-traitlet contract for the multi-manifest wire
+    format. The resolver is the only place that knows about CSV split
+    semantics for `NBI_SKILLS_MANIFEST`; without this test, a future
+    refactor that swaps `or` for `if` could silently lose the second
+    manifest source.
+    """
+
+    def test_env_wins_over_traitlet(self, monkeypatch):
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.setenv("NBI_SKILLS_MANIFEST", "https://from-env/m.yaml")
+        result = ext_module._resolve_skills_manifest_sources(
+            "https://from-traitlet/m.yaml"
+        )
+        assert result == ["https://from-env/m.yaml"]
+
+    def test_traitlet_used_when_env_empty(self, monkeypatch):
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.delenv("NBI_SKILLS_MANIFEST", raising=False)
+        result = ext_module._resolve_skills_manifest_sources(
+            "https://from-traitlet/m.yaml"
+        )
+        assert result == ["https://from-traitlet/m.yaml"]
+
+    def test_comma_separated_env_yields_list(self, monkeypatch):
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.setenv(
+            "NBI_SKILLS_MANIFEST",
+            "  https://a/m.yaml, https://b/m.yaml ,/srv/c.yaml",
+        )
+        assert ext_module._resolve_skills_manifest_sources("") == [
+            "https://a/m.yaml",
+            "https://b/m.yaml",
+            "/srv/c.yaml",
+        ]
+
+    def test_comma_separated_traitlet_yields_list(self, monkeypatch):
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.delenv("NBI_SKILLS_MANIFEST", raising=False)
+        assert ext_module._resolve_skills_manifest_sources(
+            "https://a/m.yaml,https://b/m.yaml"
+        ) == ["https://a/m.yaml", "https://b/m.yaml"]
+
+    def test_all_separator_input_disables(self, monkeypatch):
+        # Operator who writes `"  ,,,  "` is functionally clearing the env
+        # var; the resolver should land on "no manifests" rather than
+        # construct phantom empty sources that would then fail to load.
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.setenv("NBI_SKILLS_MANIFEST", " , ,  , ")
+        # Falls through to traitlet (which is also empty here).
+        assert ext_module._resolve_skills_manifest_sources("") == []
+
+    def test_empty_env_and_traitlet_returns_empty(self, monkeypatch):
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.delenv("NBI_SKILLS_MANIFEST", raising=False)
+        assert ext_module._resolve_skills_manifest_sources("") == []
+
+    def test_whitespace_only_env_falls_through_to_traitlet(self, monkeypatch):
+        from notebook_intelligence import extension as ext_module
+        monkeypatch.setenv("NBI_SKILLS_MANIFEST", "   ")
+        assert ext_module._resolve_skills_manifest_sources(
+            "https://from-traitlet/m.yaml"
+        ) == ["https://from-traitlet/m.yaml"]
+
+
 class TestNBIConfigPolicyResolution:
     """The boolean policies and string overrides feed through NBIConfig getters
     so SDK consumers (claude.py, ai_service_manager) see resolved values."""
