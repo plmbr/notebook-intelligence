@@ -63,4 +63,5 @@ export namespace CommandIDs {
     'notebook-intelligence:open-github-copilot-cli-launcher';
   export const openCodexLauncher = 'notebook-intelligence:open-codex-launcher';
   export const showTour = 'notebook-intelligence:show-tour';
+  export const focusChatInput = 'notebook-intelligence:focus-chat-input';
 }

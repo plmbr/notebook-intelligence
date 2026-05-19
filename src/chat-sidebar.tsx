@@ -3478,6 +3478,34 @@ function SidebarComponent(props: any) {
     };
   }, [chatMessages]);
 
+  // copilotSidebar:focusPrompt is dispatched from the global keybinding
+  // (Ctrl/Cmd+Shift+L) registered in index.ts. activateById can take
+  // several frames to mount the sidebar when it was collapsed, so the
+  // handler retries up to ~10 frames waiting for the textarea ref to be
+  // populated and on-screen before calling focus(). One frame isn't
+  // enough on a cold-open of the left rail.
+  useEffect(() => {
+    const handler = () => {
+      let attempts = 0;
+      const MAX_ATTEMPTS = 10;
+      const tryFocus = () => {
+        const el = promptInputRef.current;
+        if (el && el.offsetParent !== null) {
+          el.focus();
+          return;
+        }
+        attempts += 1;
+        if (attempts < MAX_ATTEMPTS) {
+          requestAnimationFrame(tryFocus);
+        }
+      };
+      tryFocus();
+    };
+    document.addEventListener('copilotSidebar:focusPrompt', handler);
+    return () =>
+      document.removeEventListener('copilotSidebar:focusPrompt', handler);
+  }, []);
+
   const addOutputContextHandler = useCallback((eventData: any) => {
     const detail = eventData?.detail;
     if (!detail || !detail.outputContext) {
