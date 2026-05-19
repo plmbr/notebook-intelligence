@@ -40,8 +40,11 @@ def _patch_tarball(tar: bytes):
 
 
 def _patch_sha(sha):
+    # Patch at the definition site so it covers both direct callers and the
+    # shared `resolve_desired_sha` wrapper that consumers (reconciler, sync)
+    # both go through.
     return patch(
-        "notebook_intelligence.skill_reconciler.get_latest_commit_sha",
+        "notebook_intelligence.skill_github_import.get_latest_commit_sha",
         return_value=sha,
     )
 
@@ -140,7 +143,7 @@ class TestReconcileInstall:
         reconciler = SkillReconciler(manager, [manifest], interval_seconds=60)
 
         with _patch_tarball(tar), patch(
-            "notebook_intelligence.skill_reconciler.get_latest_commit_sha"
+            "notebook_intelligence.skill_github_import.get_latest_commit_sha"
         ) as probe:
             result = reconciler.reconcile()
 
@@ -315,7 +318,7 @@ class TestManagedToken:
         )
 
         with patch(
-            "notebook_intelligence.skill_reconciler.get_latest_commit_sha",
+            "notebook_intelligence.skill_github_import.get_latest_commit_sha",
             return_value="abc123",
         ) as probe, patch(
             "notebook_intelligence.skill_github_import._fetch_tarball",

@@ -125,6 +125,7 @@ export function SettingsPanelComponentSkills(_props: any): JSX.Element {
     NBIAPI.config.allowGithubSkillImport
   );
   const hasManagedSkills = skills.some(s => s.managed);
+  const hasTrackingSkills = skills.some(s => s.tracksUpstream);
 
   const refresh = async () => {
     setLoading(true);
@@ -186,12 +187,53 @@ export function SettingsPanelComponentSkills(_props: any): JSX.Element {
     setError(null);
     try {
       const r = await NBIAPI.reconcileManagedSkills();
-      const summary = `Sync complete — ${r.added} added, ${r.updated} updated, ${r.removed} removed, ${r.unchanged} unchanged.`;
+      const summary = `Sync complete. ${r.added} added, ${r.updated} updated, ${r.removed} removed, ${r.unchanged} unchanged.`;
       setSyncMessage(
         r.errors.length ? `${summary} (${r.errors.length} error(s))` : summary
       );
       if (r.errors.length) {
         setError(r.errors.join('\n'));
+      }
+      await refresh();
+    } catch (e: any) {
+      setError(`Sync failed: ${e?.message ?? e}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncTracking = async (skill: ISkillSummary) => {
+    setSyncing(true);
+    setSyncMessage(null);
+    setError(null);
+    try {
+      const r = await NBIAPI.syncTrackingSkill(skill.scope, skill.name);
+      setSyncMessage(
+        r.updated
+          ? `Synced "${skill.name}" to ${r.ref.slice(0, 7)}.`
+          : `"${skill.name}" already up to date at ${r.ref.slice(0, 7)}.`
+      );
+      await refresh();
+    } catch (e: any) {
+      setError(`Sync failed for "${skill.name}": ${e?.message ?? e}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncAllTracking = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    setError(null);
+    try {
+      const results = await NBIAPI.syncAllTrackingSkills();
+      const updated = results.filter(r => r.updated).length;
+      const unchanged = results.filter(r => r.updated === false).length;
+      const errors = results.filter(r => r.error);
+      const summary = `Sync complete. ${updated} updated, ${unchanged} unchanged, ${errors.length} error(s).`;
+      setSyncMessage(summary);
+      if (errors.length) {
+        setError(errors.map(r => `${r.name}: ${r.error}`).join('\n'));
       }
       await refresh();
     } catch (e: any) {
@@ -362,6 +404,18 @@ export function SettingsPanelComponentSkills(_props: any): JSX.Element {
               </div>
             </button>
           )}
+          {hasTrackingSkills && allowGithubImport && (
+            <button
+              className="jp-Dialog-button jp-mod-reject jp-mod-styled"
+              onClick={handleSyncAllTracking}
+              disabled={syncing}
+              title="Re-fetch every skill set to track upstream from GitHub"
+            >
+              <div className="jp-Dialog-buttonLabel">
+                {syncing ? 'Syncing…' : 'Sync tracking skills'}
+              </div>
+            </button>
+          )}
           {allowGithubImport && (
             <button
               className="jp-Dialog-button jp-mod-reject jp-mod-styled"
@@ -410,6 +464,8 @@ export function SettingsPanelComponentSkills(_props: any): JSX.Element {
         onRename={handleRename}
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
+        onSync={handleSyncTracking}
+        syncDisabled={syncing || !allowGithubImport}
       />
       <SkillScopeSection
         scope="project"
@@ -424,6 +480,8 @@ export function SettingsPanelComponentSkills(_props: any): JSX.Element {
         onRename={handleRename}
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
+        onSync={handleSyncTracking}
+        syncDisabled={syncing || !allowGithubImport}
       />
       {prompt && (
         <SkillPromptDialog
@@ -465,6 +523,7 @@ function GitHubImportDialog(props: {
   const [preview, setPreview] = useState<ISkillImportPreview | null>(null);
   const [nameOverride, setNameOverride] = useState('');
   const [overwrite, setOverwrite] = useState(false);
+  const [tracksUpstream, setTracksUpstream] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -516,7 +575,8 @@ function GitHubImportDialog(props: {
         url: url.trim(),
         scope,
         name: effectiveName !== preview.name ? effectiveName : undefined,
-        overwrite: collides ? true : undefined
+        overwrite: collides ? true : undefined,
+        tracksUpstream: tracksUpstream || undefined
       });
       await props.onImported();
     } catch (err: any) {
@@ -650,6 +710,17 @@ function GitHubImportDialog(props: {
                   </label>
                 </div>
               )}
+              <div className="nbi-form-field">
+                <label className="nbi-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={tracksUpstream}
+                    onChange={e => setTracksUpstream(e.target.checked)}
+                  />
+                  Track upstream. Show a Sync button so I can re-pull this skill
+                  from GitHub later
+                </label>
+              </div>
             </>
           )}
         </div>
@@ -717,6 +788,8 @@ function SkillScopeSection(props: {
   onRename: (skill: ISkillSummary) => void;
   onDuplicate: (skill: ISkillSummary) => void;
   onDelete: (skill: ISkillSummary) => void;
+  onSync: (skill: ISkillSummary) => void;
+  syncDisabled: boolean;
 }): JSX.Element {
   return (
     <div className="nbi-skills-section">
@@ -749,6 +822,8 @@ function SkillScopeSection(props: {
           onRename={() => props.onRename(skill)}
           onDuplicate={() => props.onDuplicate(skill)}
           onDelete={() => props.onDelete(skill)}
+          onSync={() => props.onSync(skill)}
+          syncDisabled={props.syncDisabled}
         />
       ))}
     </div>
@@ -766,12 +841,26 @@ function ManagedBadge(props: { source?: string }): JSX.Element {
   );
 }
 
+function TrackingBadge(props: { source: string; ref: string }): JSX.Element {
+  const refSuffix = props.ref ? ` (last sync: ${props.ref.slice(0, 7)})` : '';
+  return (
+    <span
+      className="nbi-skill-tracking-badge"
+      title={`Tracking upstream from ${props.source}${refSuffix}`}
+    >
+      Tracking
+    </span>
+  );
+}
+
 function SkillRow(props: {
   skill: ISkillSummary;
   onEdit: () => void;
   onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onSync: () => void;
+  syncDisabled: boolean;
 }): JSX.Element {
   const { skill } = props;
   const stopAnd = (fn: () => void) => (e: React.MouseEvent) => {
@@ -795,12 +884,27 @@ function SkillRow(props: {
         <div className="nbi-skill-row-name">
           {skill.name}
           {skill.managed && <ManagedBadge source={skill.managedSource} />}
+          {!skill.managed && skill.tracksUpstream && (
+            <TrackingBadge source={skill.source} ref={skill.trackingRef} />
+          )}
         </div>
         {skill.description && (
           <div className="nbi-skill-row-description">{skill.description}</div>
         )}
       </div>
       <div className="nbi-skill-row-actions" onClick={e => e.stopPropagation()}>
+        {!skill.managed && skill.tracksUpstream && (
+          <button
+            type="button"
+            className="nbi-icon-button"
+            aria-label="Sync skill from GitHub"
+            title="Sync from GitHub"
+            onClick={stopAnd(props.onSync)}
+            disabled={props.syncDisabled}
+          >
+            ↻
+          </button>
+        )}
         <button
           type="button"
           className="nbi-icon-button"
@@ -1080,6 +1184,10 @@ function SkillEditor(props: {
   const [hasCreated, setHasCreated] = useState(false);
   const [managed, setManaged] = useState(false);
   const [managedSource, setManagedSource] = useState('');
+  const [tracksUpstream, setTracksUpstream] = useState(false);
+  const [trackingRef, setTrackingRef] = useState('');
+  const [skillSource, setSkillSource] = useState('');
+  const [togglingTracking, setTogglingTracking] = useState(false);
   const [rootPath, setRootPath] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -1092,6 +1200,9 @@ function SkillEditor(props: {
     setAllowedTools(skill.allowedTools ?? []);
     setManaged(skill.managed);
     setManagedSource(skill.managedSource ?? '');
+    setTracksUpstream(skill.tracksUpstream);
+    setTrackingRef(skill.trackingRef ?? '');
+    setSkillSource(skill.source ?? '');
     setRootPath(skill.rootPath ?? '');
     const skillMdBody = skill.body ?? '';
     setSavedMeta({
@@ -1515,6 +1626,48 @@ function SkillEditor(props: {
         <div className="nbi-skills-managed-banner" role="note">
           This skill is managed by the organization manifest and is read-only.
           Changes will be overwritten on the next sync.
+        </div>
+      )}
+      {!managed && !effectiveIsNew && skillSource && (
+        <div className="nbi-skills-tracking-row">
+          <label className="nbi-checkbox-label">
+            <input
+              type="checkbox"
+              checked={tracksUpstream}
+              disabled={togglingTracking || saving}
+              onChange={async e => {
+                const next = e.target.checked;
+                // Optimistic flip so the checkbox tracks the click while
+                // the PUT is in flight; rolled back on failure below.
+                setTracksUpstream(next);
+                setTogglingTracking(true);
+                setError(null);
+                try {
+                  const updated = await NBIAPI.updateSkill(
+                    scope,
+                    effectiveName,
+                    { tracksUpstream: next }
+                  );
+                  setTracksUpstream(updated.tracksUpstream);
+                  setTrackingRef(updated.trackingRef);
+                } catch (err: any) {
+                  // Roll back the optimistic flip so the UI matches the
+                  // server's state (the server kept the prior value).
+                  setTracksUpstream(!next);
+                  setError(err?.message ?? String(err));
+                } finally {
+                  setTogglingTracking(false);
+                }
+              }}
+            />
+            Track upstream
+          </label>
+          <span className="nbi-form-hint">
+            Source: {skillSource}
+            {tracksUpstream &&
+              trackingRef &&
+              ` · last sync: ${trackingRef.slice(0, 7)}`}
+          </span>
         </div>
       )}
 

@@ -1653,18 +1653,44 @@ svg.access-token-warning {
   font-size: var(--jp-ui-font-size1);
 }
 
-.nbi-skill-managed-badge {
+.nbi-skills-tracking-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  background-color: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.nbi-skill-managed-badge,
+.nbi-skill-tracking-badge {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 6px;
   border-radius: 10px;
-  background-color: var(--jp-brand-color3, var(--jp-layout-color3));
   color: var(--jp-ui-font-color0);
   font-size: var(--jp-ui-font-size0);
   font-weight: 600;
   vertical-align: middle;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.nbi-skill-managed-badge {
+  background-color: var(--jp-brand-color3, var(--jp-layout-color3));
+}
+
+/* Distinct hue from Managed so the two states are visually obvious at a
+   glance: managed = org-curated, tracking = user-opted-in.
+   `--jp-info-color3` is the closest semantic match in the JupyterLab
+   theme palette and resolves to a visible color in both light and dark
+   themes. */
+.nbi-skill-tracking-badge {
+  background-color: var(--jp-info-color3, var(--jp-layout-color3));
 }
 
 .nbi-skills-section {
@@ -2375,6 +2401,11 @@ svg.access-token-warning {
   color: var(--jp-error-color1, #d32f2f);
 }
 
+.nbi-icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .nbi-breadcrumb-link:focus-visible,
 .nbi-skill-editor-tab:focus-visible,
 .nbi-skill-editor-tab-add:focus-visible,
@@ -2383,6 +2414,10 @@ svg.access-token-warning {
 .nbi-icon-button:focus-visible {
   outline: 2px solid var(--jp-brand-color1);
   outline-offset: 1px;
+}
+
+.nbi-icon-button:disabled:hover {
+  background-color: transparent;
 }
 
 .config-dialog-body a {

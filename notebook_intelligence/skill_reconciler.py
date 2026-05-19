@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, cast
 
 from notebook_intelligence.skill_github_import import (
-    get_latest_commit_sha,
     parse_github_url,
+    resolve_desired_sha,
 )
 from notebook_intelligence.skill_manager import SkillManager
 from notebook_intelligence.skill_manifest import (
@@ -30,8 +29,6 @@ from notebook_intelligence.skill_manifest import (
 from notebook_intelligence.skillset import Skill, SkillScope
 
 log = logging.getLogger(__name__)
-
-_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass
@@ -234,16 +231,7 @@ class SkillReconciler:
             result.added += 1
 
     def _resolve_desired_sha(self, ref_info) -> Optional[str]:
-        # If the ref is already a full SHA, no API probe needed.
-        if ref_info.ref and _SHA_RE.match(ref_info.ref):
-            return ref_info.ref
-        return get_latest_commit_sha(
-            ref_info.owner,
-            ref_info.repo,
-            ref_info.ref,
-            ref_info.subpath,
-            token=self._managed_token,
-        )
+        return resolve_desired_sha(ref_info, token=self._managed_token)
 
     def _remove_stale(
         self,

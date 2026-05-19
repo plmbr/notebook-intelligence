@@ -156,6 +156,44 @@ class TestManagedFrontmatter:
         assert reloaded.managed_source == "https://github.com/org/repo/tree/main/m"
         assert reloaded.managed_ref == "abc"
 
+    def test_serialize_omits_tracking_keys_when_falsy(self):
+        # A plain user-imported skill that never opted into tracking should
+        # produce identical on-disk content as before the feature landed.
+        content = serialize_skill_md("sk", "d", [], "b")
+        assert "tracks_upstream" not in content
+        assert "tracking_ref" not in content
+
+    def test_from_path_reads_tracking_frontmatter(self, tmp_path):
+        bundle = tmp_path / "sk"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "sk", "d", [], "b",
+                source="https://github.com/org/repo/tree/main/sk",
+                tracks_upstream=True,
+                tracking_ref="deadbeef",
+            ),
+            encoding="utf-8",
+        )
+        skill = Skill.from_path(bundle, "user")
+        assert skill.tracks_upstream is True
+        assert skill.tracking_ref == "deadbeef"
+        assert skill.managed is False
+        # `to_dict` exposes both to the frontend.
+        as_dict = skill.to_dict()
+        assert as_dict["tracks_upstream"] is True
+        assert as_dict["tracking_ref"] == "deadbeef"
+
+    def test_from_path_defaults_when_tracking_fields_absent(self, tmp_path):
+        bundle = tmp_path / "sk"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md("sk", "d", [], "b"), encoding="utf-8"
+        )
+        skill = Skill.from_path(bundle, "user")
+        assert skill.tracks_upstream is False
+        assert skill.tracking_ref == ""
+
     def test_rename_skill_preserves_managed_fields(self, manager, skill_dirs):
         user_dir, _ = skill_dirs
         bundle = user_dir / "oldname"
@@ -655,3 +693,227 @@ class TestInstallManagedFromGithub:
             )
         managed = manager.list_managed_skills()
         assert [s.name for s in managed] == ["mgd"]
+
+
+class TestTrackUpstream:
+    """Sync user-imported GitHub skills that have opted into tracking.
+
+    Distinct from managed skills: tracking skills are editable, never
+    auto-removed by a reconciler, and the user explicitly opts in per
+    bundle.
+    """
+
+    def _patch_tar(self, tar: bytes):
+        return patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        )
+
+    def _patch_sha(self, sha):
+        return patch(
+            "notebook_intelligence.skill_github_import.get_latest_commit_sha",
+            return_value=sha,
+        )
+
+    def test_import_with_tracks_upstream_stamps_frontmatter(
+        self, manager, skill_dirs
+    ):
+        user_dir, _ = skill_dirs
+        tar = build_tarball({
+            "repo-xyz/SKILL.md": "---\nname: tr\ndescription: d\n---\nb",
+        })
+        with self._patch_tar(tar):
+            skill = manager.import_from_github(
+                "https://github.com/owner/repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+        assert skill.tracks_upstream is True
+        # No tracking_ref yet — first sync will populate it.
+        assert skill.tracking_ref == ""
+        md = (user_dir / "tr" / SKILL_ENTRY_FILE).read_text()
+        assert "tracks_upstream: true" in md
+
+    def test_update_skill_toggles_tracking_off(self, manager, skill_dirs):
+        user_dir, _ = skill_dirs
+        bundle = user_dir / "tr"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "tr", "d", [], "b",
+                source="https://github.com/owner/repo",
+                tracks_upstream=True,
+                tracking_ref="abc123",
+            ),
+            encoding="utf-8",
+        )
+        updated = manager.update_skill("user", "tr", tracks_upstream=False)
+        assert updated.tracks_upstream is False
+        # Toggling off clears the ref so re-opt-in starts fresh.
+        assert updated.tracking_ref == ""
+        reloaded = Skill.from_path(bundle, "user")
+        assert reloaded.tracks_upstream is False
+        md = bundle.joinpath(SKILL_ENTRY_FILE).read_text()
+        assert "tracks_upstream" not in md
+        assert "tracking_ref" not in md
+
+    def test_update_skill_rejects_tracking_on_managed(self, manager, skill_dirs):
+        user_dir, _ = skill_dirs
+        bundle = user_dir / "m"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "m", "d", [], "b",
+                source="https://github.com/org/repo",
+                managed_source="https://github.com/org/repo",
+                managed_ref="sha",
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="Managed skills"):
+            manager.update_skill("user", "m", tracks_upstream=True)
+
+    def test_update_skill_rejects_tracking_on_no_source(
+        self, manager, skill_dirs
+    ):
+        manager.create_skill("user", "plain", "d", [], "b")
+        with pytest.raises(ValueError, match="no recorded source"):
+            manager.update_skill("user", "plain", tracks_upstream=True)
+
+    def test_sync_installs_fresh_bundle(self, manager, skill_dirs):
+        user_dir, _ = skill_dirs
+        # Bootstrap: import skill opting into tracking.
+        first_tar = build_tarball({
+            "repo-xyz/SKILL.md": "---\nname: tr\ndescription: old\n---\nold body",
+        })
+        with self._patch_tar(first_tar):
+            manager.import_from_github(
+                "https://github.com/owner/repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+
+        # Sync: new SHA, new body.
+        new_tar = build_tarball({
+            "repo-xyz/SKILL.md": "---\nname: tr\ndescription: new\n---\nnew body",
+        })
+        with self._patch_sha("def4567"), self._patch_tar(new_tar):
+            result = manager.sync_tracking_skill("user", "tr")
+
+        assert result == {"updated": True, "ref": "def4567"}
+        reloaded = Skill.from_path(user_dir / "tr", "user")
+        assert reloaded.description == "new"
+        assert reloaded.body.strip() == "new body"
+        assert reloaded.tracks_upstream is True
+        assert reloaded.tracking_ref == "def4567"
+
+    def test_sync_skips_when_sha_matches(self, manager, skill_dirs):
+        user_dir, _ = skill_dirs
+        bundle = user_dir / "tr"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "tr", "d", [], "old",
+                source="https://github.com/owner/repo",
+                tracks_upstream=True,
+                tracking_ref="sha_match",
+            ),
+            encoding="utf-8",
+        )
+        with self._patch_sha("sha_match"), patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball"
+        ) as fetch:
+            result = manager.sync_tracking_skill("user", "tr")
+        assert result == {"updated": False, "ref": "sha_match"}
+        # Tarball never fetched when SHA matches: saves bandwidth and avoids
+        # an unnecessary rmtree/copytree of an unchanged bundle.
+        fetch.assert_not_called()
+
+    def test_sync_raises_when_probe_fails(self, manager, skill_dirs):
+        user_dir, _ = skill_dirs
+        bundle = user_dir / "tr"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "tr", "d", [], "preserved",
+                source="https://github.com/owner/repo",
+                tracks_upstream=True,
+                tracking_ref="abc",
+            ),
+            encoding="utf-8",
+        )
+        with self._patch_sha(None), patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball"
+        ) as fetch:
+            with pytest.raises(RuntimeError, match="probe GitHub"):
+                manager.sync_tracking_skill("user", "tr")
+        # Existing bundle preserved across the failure.
+        reloaded = Skill.from_path(bundle, "user")
+        assert reloaded.body.strip() == "preserved"
+        fetch.assert_not_called()
+
+    def test_sync_rejects_non_tracking_skill(self, manager, skill_dirs):
+        manager.create_skill("user", "plain", "d", [], "b")
+        with pytest.raises(ValueError, match="not tracking upstream"):
+            manager.sync_tracking_skill("user", "plain")
+
+    def test_sync_rejects_managed_skill(self, manager, skill_dirs):
+        user_dir, _ = skill_dirs
+        bundle = user_dir / "m"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "m", "d", [], "b",
+                managed_source="https://github.com/org/repo",
+                managed_ref="sha",
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="managed by the org"):
+            manager.sync_tracking_skill("user", "m")
+
+    def test_sync_rejects_missing_skill(self, manager):
+        with pytest.raises(FileNotFoundError):
+            manager.sync_tracking_skill("user", "nope")
+
+    def test_sync_preserves_bundle_on_staging_failure(
+        self, manager, skill_dirs
+    ):
+        user_dir, _ = skill_dirs
+        bundle = user_dir / "tr"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            serialize_skill_md(
+                "tr", "d", [], "preserved",
+                source="https://github.com/owner/repo",
+                tracks_upstream=True,
+                tracking_ref="old",
+            ),
+            encoding="utf-8",
+        )
+        # Probe succeeds with a new SHA, but the tarball fetch raises. The
+        # bundle on disk must NOT be touched (rmtree happens only after
+        # staging succeeds).
+        with self._patch_sha("new_sha"), patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            side_effect=ValueError("simulated outage"),
+        ):
+            with pytest.raises(ValueError, match="simulated outage"):
+                manager.sync_tracking_skill("user", "tr")
+        reloaded = Skill.from_path(bundle, "user")
+        assert reloaded.body.strip() == "preserved"
+        assert reloaded.tracking_ref == "old"
+
+    def test_list_tracking_skills_filters(self, manager, skill_dirs):
+        manager.create_skill("user", "plain", "d", [], "b")
+        tar = build_tarball({
+            "repo-xyz/SKILL.md": "---\nname: tr\ndescription: d\n---\nb",
+        })
+        with self._patch_tar(tar):
+            manager.import_from_github(
+                "https://github.com/owner/repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+        tracking = manager.list_tracking_skills()
+        assert [s.name for s in tracking] == ["tr"]

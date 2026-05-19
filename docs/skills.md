@@ -34,6 +34,29 @@ Pick the target scope (user or project) and NBI fetches, validates, and installs
 
 GitHub auth for imports uses, in order: `GITHUB_TOKEN` → `GH_TOKEN` → `gh` CLI auth. Public-repo imports work without auth.
 
+## Tracking upstream for user-imported skills
+
+The Import-from-GitHub dialog has a **Track upstream** checkbox. When you tick it, the installed skill is stamped with a `tracks_upstream: true` frontmatter flag and the Skills panel shows a per-skill **Sync** button (↻) and a panel-level **Sync tracking skills** button.
+
+Tracking is opt-in per skill and entirely manual. Clicking Sync probes GitHub for the latest commit at the recorded `source` URL, and:
+
+- If the commit SHA matches the last recorded `tracking_ref`, the bundle is left alone (no tarball fetch, no rewrite).
+- Otherwise NBI fetches the new bundle, replaces the bundle directory on disk, and stamps the new `tracking_ref`.
+
+The bundle on disk is **never deleted** by a sync action, even when:
+
+- The GitHub commits-API probe fails (network outage, rate limit). Sync raises a visible error and the existing bundle stays in place.
+- The tarball fetch fails after a successful probe. The rmtree only happens after staging succeeds, so a mid-fetch failure leaves the previous version intact.
+- The upstream repo or subpath disappears entirely. Sync errors; the bundle stays.
+
+A tracking skill is the user's. You can still edit its `SKILL.md`, rename it, delete it. The next Sync overwrites local edits the same way `git pull` would.
+
+Tracking is mutually exclusive with the org-managed flag: a skill that the reconciler installed via the org manifest cannot also be set to track upstream from the user-skill side. To migrate, remove it from the manifest first.
+
+To toggle tracking on a skill you already imported (without the checkbox), open the skill in the editor. A **Track upstream** toggle appears for any non-managed skill with a recorded source URL. Toggling off removes the `tracks_upstream` and `tracking_ref` frontmatter and the Sync button disappears; the bundle becomes an ordinary user-authored skill.
+
+The admin policy `allow_github_skill_import = False` blocks sync too: the same network egress is gated by the same flag, so an admin who disables imports also disables sync.
+
 ## Managed skills via an org manifest
 
 For organization-wide deployments (e.g., Kubeflow notebooks), NBI can install and keep a curated set of Claude skills in sync from a YAML or JSON manifest. Skills installed this way are marked **Managed** in the UI — they are read-only (edit, rename, and delete are disabled) and refreshed on a schedule.

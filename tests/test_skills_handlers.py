@@ -17,6 +17,8 @@ from notebook_intelligence.extension import (
     SkillsListHandler,
     SkillsReconcileHandler,
     SkillsReconcilerStopHandler,
+    SkillsSyncAllTrackingHandler,
+    SkillSyncHandler,
 )
 from notebook_intelligence.skill_reconciler import ReconcileResult
 from notebook_intelligence.skill_manager import SkillManager
@@ -59,6 +61,12 @@ def _make_handler(handler_cls, body: bytes = b"", query_args: dict | None = None
     handler.allow_github_skill_import = SkillsBaseHandler.allow_github_skill_import
     # `_error` reads the real dict, not the spec'd mock proxy.
     handler.exception_status_map = SkillsBaseHandler.exception_status_map
+    # Bind real class attributes from the handler so MagicMock auto-proxies
+    # don't return MagicMock placeholders when handler code reads them
+    # (e.g. SkillsSyncAllTrackingHandler.SYNC_CONCURRENCY).
+    for attr in ("SYNC_CONCURRENCY",):
+        if hasattr(handler_cls, attr):
+            setattr(handler, attr, getattr(handler_cls, attr))
     return handler
 
 
@@ -145,6 +153,110 @@ class TestSkillDetail:
         SkillDetailHandler.put(handler, "user", "x")
         body = _parse_response(handler)
         assert body["skill"]["description"] == "new"
+
+    def test_put_tracks_upstream_on_managed_returns_400(self, skill_manager):
+        # The manager raises ValueError for managed + tracking; the handler
+        # must map that to 400 rather than letting it bubble as a 500.
+        user_dir = skill_manager.scope_dir("user")
+        bundle = user_dir / "m"
+        bundle.mkdir()
+        (bundle / SKILL_ENTRY_FILE).write_text(
+            "---\nname: m\ndescription: d\n"
+            "managed_source: https://github.com/org/repo\n"
+            "managed_ref: sha\n---\nbody",
+            encoding="utf-8",
+        )
+        handler = _make_handler(
+            SkillDetailHandler,
+            body=json.dumps({"tracks_upstream": True}).encode(),
+        )
+        SkillDetailHandler.put(handler, "user", "m")
+        handler.set_status.assert_called_with(400)
+        body = _parse_response(handler)
+        assert "Managed skills" in body["error"]
+
+    def test_put_tracks_upstream_on_no_source_returns_400(self, skill_manager):
+        # A skill with no recorded source URL cannot opt into tracking;
+        # the manager raises ValueError and the handler maps to 400.
+        skill_manager.create_skill("user", "plain", "d", [], "b")
+        handler = _make_handler(
+            SkillDetailHandler,
+            body=json.dumps({"tracks_upstream": True}).encode(),
+        )
+        SkillDetailHandler.put(handler, "user", "plain")
+        handler.set_status.assert_called_with(400)
+        body = _parse_response(handler)
+        assert "no recorded source" in body["error"]
+
+    def test_put_tracks_upstream_blocked_when_github_import_disabled(
+        self, skill_manager
+    ):
+        # The toggle would let an admin's "imports disabled" kill switch
+        # leak: bit gets set, sync still blocked. Reject the toggle when
+        # the policy is off.
+        tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: x\ndescription: d\n---\nb",
+        })
+        with patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        ):
+            skill_manager.import_from_github(
+                "https://github.com/owner/repo", scope="user"
+            )
+        handler = _make_handler(
+            SkillDetailHandler,
+            body=json.dumps({"tracks_upstream": True}).encode(),
+        )
+        handler.allow_github_skill_import = False
+        SkillDetailHandler.put(handler, "user", "x")
+        handler.set_status.assert_called_with(403)
+
+    def test_put_without_tracks_upstream_preserves_current(self, skill_manager):
+        # Regression pin: a PUT body that omits `tracks_upstream` must NOT
+        # silently flip the bit off. The handler passes None for that field
+        # and the manager treats None as "leave unchanged."
+        tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: x\ndescription: d\n---\nb",
+        })
+        with patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        ):
+            skill_manager.import_from_github(
+                "https://github.com/owner/repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+        handler = _make_handler(
+            SkillDetailHandler,
+            body=json.dumps({"description": "new"}).encode(),
+        )
+        SkillDetailHandler.put(handler, "user", "x")
+        body = _parse_response(handler)
+        assert body["skill"]["description"] == "new"
+        assert body["skill"]["tracks_upstream"] is True
+
+    def test_update_can_toggle_tracks_upstream(self, skill_manager):
+        # Bootstrap a user-imported skill that has a source but isn't
+        # tracking yet. PUT with tracks_upstream=true flips it on.
+        tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: x\ndescription: d\n---\nbody",
+        })
+        with patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        ):
+            skill_manager.import_from_github(
+                "https://github.com/owner/repo", scope="user"
+            )
+        handler = _make_handler(
+            SkillDetailHandler,
+            body=json.dumps({"tracks_upstream": True}).encode(),
+        )
+        SkillDetailHandler.put(handler, "user", "x")
+        body = _parse_response(handler)
+        assert body["skill"]["tracks_upstream"] is True
 
     def test_update_missing_returns_404(self, skill_manager):
         handler = _make_handler(
@@ -326,6 +438,191 @@ class TestSkillsImportHandlers:
         )
         handler.allow_github_skill_import = False
         SkillsImportHandler.post(handler)
+        handler.set_status.assert_called_with(403)
+
+    def test_import_passes_tracks_upstream_flag_through(self, skill_manager):
+        tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: tr\ndescription: d\n---\nbody",
+        })
+        handler = _make_handler(
+            SkillsImportHandler,
+            body=json.dumps({
+                "url": "https://github.com/owner/repo",
+                "scope": "user",
+                "tracks_upstream": True,
+            }).encode(),
+        )
+        with patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        ):
+            SkillsImportHandler.post(handler)
+        body = _parse_response(handler)
+        assert body["skill"]["tracks_upstream"] is True
+
+
+class TestSkillSyncHandler:
+    """Per-skill sync action: re-fetch bundle, replace on disk, surface
+    failures without touching the existing install.
+    """
+
+    def _patch_sha(self, sha):
+        return patch(
+            "notebook_intelligence.skill_github_import.get_latest_commit_sha",
+            return_value=sha,
+        )
+
+    def _patch_tar(self, tar):
+        return patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        )
+
+    def _bootstrap_tracking_skill(self, manager):
+        tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: tr\ndescription: old\n---\nold",
+        })
+        with self._patch_tar(tar):
+            manager.import_from_github(
+                "https://github.com/owner/repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+
+    def test_sync_updates_when_sha_changes(self, skill_manager):
+        self._bootstrap_tracking_skill(skill_manager)
+        new_tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: tr\ndescription: new\n---\nnew",
+        })
+        handler = _make_handler(SkillSyncHandler)
+        with self._patch_sha("def4567"), self._patch_tar(new_tar):
+            asyncio.run(SkillSyncHandler.post(handler, "user", "tr"))
+        body = _parse_response(handler)
+        assert body == {"updated": True, "ref": "def4567"}
+
+    def test_sync_unchanged_short_circuits(self, skill_manager):
+        self._bootstrap_tracking_skill(skill_manager)
+        # First sync stamps the ref. Second sync with same SHA → unchanged.
+        new_tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: tr\ndescription: d\n---\nb",
+        })
+        handler1 = _make_handler(SkillSyncHandler)
+        with self._patch_sha("aaa"), self._patch_tar(new_tar):
+            asyncio.run(SkillSyncHandler.post(handler1, "user", "tr"))
+
+        handler2 = _make_handler(SkillSyncHandler)
+        with self._patch_sha("aaa"), patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball"
+        ) as fetch:
+            asyncio.run(SkillSyncHandler.post(handler2, "user", "tr"))
+        body = _parse_response(handler2)
+        assert body == {"updated": False, "ref": "aaa"}
+        fetch.assert_not_called()
+
+    def test_sync_returns_404_for_missing_skill(self, skill_manager):
+        handler = _make_handler(SkillSyncHandler)
+        asyncio.run(SkillSyncHandler.post(handler, "user", "ghost"))
+        handler.set_status.assert_called_with(404)
+
+    def test_sync_rejects_non_tracking_skill(self, skill_manager):
+        skill_manager.create_skill("user", "plain", "d", [], "b")
+        handler = _make_handler(SkillSyncHandler)
+        asyncio.run(SkillSyncHandler.post(handler, "user", "plain"))
+        # ValueError maps to 400 via exception_status_map.
+        body = _parse_response(handler)
+        assert "not tracking upstream" in body["error"]
+
+    def test_sync_probe_failure_maps_to_502(self, skill_manager):
+        # Probe failure raises RuntimeError. The exception_status_map sends
+        # that to 502 (upstream unreachable) rather than the default 400
+        # (which would mislead the client into thinking the request was
+        # malformed).
+        self._bootstrap_tracking_skill(skill_manager)
+        handler = _make_handler(SkillSyncHandler)
+        with self._patch_sha(None):
+            asyncio.run(SkillSyncHandler.post(handler, "user", "tr"))
+        handler.set_status.assert_called_with(502)
+
+    def test_sync_returns_403_when_github_import_disabled(self, skill_manager):
+        self._bootstrap_tracking_skill(skill_manager)
+        handler = _make_handler(SkillSyncHandler)
+        handler.allow_github_skill_import = False
+        asyncio.run(SkillSyncHandler.post(handler, "user", "tr"))
+        handler.set_status.assert_called_with(403)
+
+
+class TestSkillsSyncAllTrackingHandler:
+    def _patch_sha(self, sha):
+        return patch(
+            "notebook_intelligence.skill_github_import.get_latest_commit_sha",
+            return_value=sha,
+        )
+
+    def _patch_tar(self, tar):
+        return patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            return_value=tar,
+        )
+
+    def test_sync_all_isolates_per_skill_failures(self, skill_manager):
+        # Two tracking skills, one of which will fail to sync.
+        tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: alpha\ndescription: d\n---\nb",
+        })
+        with self._patch_tar(tar):
+            skill_manager.import_from_github(
+                "https://github.com/owner/alpha-repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+        tar2 = build_tarball({
+            "repo-x/SKILL.md": "---\nname: beta\ndescription: d\n---\nb",
+        })
+        with self._patch_tar(tar2):
+            skill_manager.import_from_github(
+                "https://github.com/owner/beta-repo",
+                scope="user",
+                tracks_upstream=True,
+            )
+        # Probe returns SHA for both; tarball for alpha succeeds, beta
+        # raises (simulated upstream failure).
+        new_tar = build_tarball({
+            "repo-x/SKILL.md": "---\nname: alpha\ndescription: new\n---\nnew",
+        })
+        fetch_calls = {"n": 0}
+
+        def fake_fetch(owner, repo, ref, *, token=None):
+            fetch_calls["n"] += 1
+            if "beta" in repo:
+                raise ValueError("beta upstream offline")
+            return new_tar
+
+        handler = _make_handler(SkillsSyncAllTrackingHandler)
+        with self._patch_sha("sha1"), patch(
+            "notebook_intelligence.skill_github_import._fetch_tarball",
+            side_effect=fake_fetch,
+        ):
+            asyncio.run(SkillsSyncAllTrackingHandler.post(handler))
+        body = _parse_response(handler)
+        results = {r["name"]: r for r in body["results"]}
+        # Alpha synced; beta surfaced an error.
+        assert results["alpha"]["updated"] is True
+        assert "error" in results["beta"]
+        assert "beta upstream offline" in results["beta"]["error"]
+
+    def test_sync_all_with_no_tracking_skills_returns_empty(self, skill_manager):
+        skill_manager.create_skill("user", "plain", "d", [], "b")
+        handler = _make_handler(SkillsSyncAllTrackingHandler)
+        asyncio.run(SkillsSyncAllTrackingHandler.post(handler))
+        body = _parse_response(handler)
+        assert body == {"results": []}
+
+    def test_sync_all_returns_403_when_github_import_disabled(
+        self, skill_manager
+    ):
+        handler = _make_handler(SkillsSyncAllTrackingHandler)
+        handler.allow_github_skill_import = False
+        asyncio.run(SkillsSyncAllTrackingHandler.post(handler))
         handler.set_status.assert_called_with(403)
 
 

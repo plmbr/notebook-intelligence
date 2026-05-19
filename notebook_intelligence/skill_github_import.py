@@ -234,6 +234,29 @@ def _fetch_tarball(
     return data
 
 
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def resolve_desired_sha(
+    ref_info: "GitHubRef", *, token: Optional[str] = None
+) -> Optional[str]:
+    """Resolve the SHA the caller should treat as "latest" for this ref.
+
+    Short-circuits the commits-API probe when the URL already pins a
+    full 40-char SHA (no point round-tripping GitHub to confirm a SHA
+    we already have). Otherwise probes `get_latest_commit_sha`; returns
+    None on any probe failure so the caller can decide whether to fall
+    back to a tarball fetch or surface the outage. Shared between the
+    managed-skills reconciler and the user-skill track-upstream sync
+    path so both paths agree on what "up to date" means.
+    """
+    if ref_info.ref and _SHA_RE.match(ref_info.ref):
+        return ref_info.ref
+    return get_latest_commit_sha(
+        ref_info.owner, ref_info.repo, ref_info.ref, ref_info.subpath, token=token
+    )
+
+
 def get_latest_commit_sha(
     owner: str,
     repo: str,

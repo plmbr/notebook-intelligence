@@ -12,7 +12,11 @@ from notebook_intelligence.skillset import (
     SkillScope,
     serialize_skill_md,
 )
-from notebook_intelligence.skill_github_import import stage_skill_from_github
+from notebook_intelligence.skill_github_import import (
+    parse_github_url,
+    resolve_desired_sha,
+    stage_skill_from_github,
+)
 
 log = logging.getLogger(__name__)
 
@@ -202,6 +206,7 @@ class SkillManager:
         description: Optional[str] = None,
         allowed_tools: Optional[List[str]] = None,
         body: Optional[str] = None,
+        tracks_upstream: Optional[bool] = None,
     ) -> Skill:
         skill = self.get_skill(scope, name)
         if skill is None:
@@ -211,6 +216,28 @@ class SkillManager:
         new_allowed_tools = allowed_tools if allowed_tools is not None else skill.allowed_tools
         new_body = body if body is not None else skill.body
 
+        # `tracks_upstream=None` means "leave unchanged" — caller didn't touch
+        # the toggle. Explicit True/False both apply. Managed skills cannot
+        # opt into tracking; the two metadata pairs are mutually exclusive.
+        if tracks_upstream is None:
+            new_tracks_upstream = skill.tracks_upstream
+        else:
+            if tracks_upstream and skill.managed:
+                raise ValueError(
+                    "Managed skills cannot track upstream; remove from the "
+                    "manifest first."
+                )
+            if tracks_upstream and not skill.source:
+                raise ValueError(
+                    f"Skill '{name}' has no recorded source URL; can only "
+                    "track upstream for GitHub-imported skills."
+                )
+            new_tracks_upstream = bool(tracks_upstream)
+        # Toggling off clears tracking_ref so a future re-opt-in starts
+        # from a clean slate; the existing bundle on disk is otherwise
+        # untouched and becomes a plain user-authored skill again.
+        new_tracking_ref = skill.tracking_ref if new_tracks_upstream else ""
+
         md_content = serialize_skill_md(
             name,
             new_description,
@@ -219,6 +246,8 @@ class SkillManager:
             source=skill.source,
             managed_source=skill.managed_source,
             managed_ref=skill.managed_ref,
+            tracks_upstream=new_tracks_upstream,
+            tracking_ref=new_tracking_ref,
         )
         skill.skill_md_path().write_text(md_content, encoding="utf-8")
 
@@ -234,6 +263,8 @@ class SkillManager:
             source=skill.source,
             managed_source=skill.managed_source,
             managed_ref=skill.managed_ref,
+            tracks_upstream=new_tracks_upstream,
+            tracking_ref=new_tracking_ref,
         )
         self._notify_skills_changed()
         return updated
@@ -263,6 +294,8 @@ class SkillManager:
             source=skill.source,
             managed_source=skill.managed_source,
             managed_ref=skill.managed_ref,
+            tracks_upstream=skill.tracks_upstream,
+            tracking_ref=skill.tracking_ref,
         )
         (new_bundle_dir / SKILL_ENTRY_FILE).write_text(md_content, encoding="utf-8")
 
@@ -359,8 +392,16 @@ class SkillManager:
         scope: SkillScope,
         name_override: Optional[str] = None,
         overwrite: bool = False,
+        tracks_upstream: bool = False,
     ) -> Skill:
-        """Fetch, validate, and install a skill from GitHub into the given scope."""
+        """Fetch, validate, and install a skill from GitHub into the given scope.
+
+        When ``tracks_upstream=True``, stamps the skill with a `tracks_upstream`
+        frontmatter flag so a later sync action can re-fetch from the same
+        URL. The initial install doesn't record a `tracking_ref` because
+        the staging API doesn't surface the resolved commit SHA; the next
+        sync probes the commits API and stamps it.
+        """
         staged = stage_skill_from_github(url)
         try:
             name = name_override.strip() if name_override else staged.name
@@ -386,6 +427,7 @@ class SkillManager:
                 staged.allowed_tools,
                 staged.body,
                 source=staged.canonical_url,
+                tracks_upstream=tracks_upstream,
             )
             (target_dir / SKILL_ENTRY_FILE).write_text(md_content, encoding="utf-8")
 
@@ -394,6 +436,77 @@ class SkillManager:
             return skill
         finally:
             shutil.rmtree(staged.tmp_root, ignore_errors=True)
+
+    def sync_tracking_skill(self, scope: SkillScope, name: str) -> dict:
+        """Re-fetch a tracking skill from its recorded GitHub source.
+
+        Returns a status dict ``{updated: bool, ref: str|None}``. Raises
+        ``FileNotFoundError`` if the skill doesn't exist, ``ValueError`` if
+        the skill isn't tracking-eligible (not opted in, no source URL, or
+        managed). Network/parse failures bubble up so the HTTP layer can
+        surface them as errors; the existing bundle on disk is left intact
+        on any error path (the rmtree happens only after staging succeeds).
+        """
+        skill = self.get_skill(scope, name)
+        if skill is None:
+            raise FileNotFoundError(f"Skill '{name}' not found in {scope} scope")
+        if skill.managed:
+            raise ValueError(
+                f"Skill '{name}' is managed by the org manifest; sync is "
+                "handled by the reconciler, not the track-upstream button."
+            )
+        if not skill.tracks_upstream:
+            raise ValueError(
+                f"Skill '{name}' is not tracking upstream; enable tracking "
+                "before syncing."
+            )
+        if not skill.source:
+            raise ValueError(
+                f"Skill '{name}' has no recorded source URL; cannot sync."
+            )
+
+        # SHA probe first. If the commits API returns a SHA equal to the
+        # last-synced ref, skip the tarball fetch entirely — saves bandwidth
+        # and avoids an unnecessary rmtree/copytree of an unchanged bundle.
+        # If the probe fails (None), surface that as an error rather than
+        # silently re-downloading: the user clicked the button expecting a
+        # fresh check, and a probe-then-fetch dance would mask real outages.
+        ref_info = parse_github_url(skill.source)
+        desired_sha = resolve_desired_sha(ref_info)
+        if desired_sha is None:
+            raise RuntimeError(
+                "Could not probe GitHub for the latest commit; the existing "
+                "skill is unchanged. Try again later."
+            )
+        if skill.tracking_ref == desired_sha:
+            return {"updated": False, "ref": desired_sha}
+
+        staged = stage_skill_from_github(skill.source)
+        try:
+            # Stage succeeded; replacing the bundle is the destructive step.
+            # We preserve the on-disk name (the user may have renamed) and
+            # write the tracking pair back so frontmatter stays consistent.
+            shutil.rmtree(skill.root_path)
+            shutil.copytree(staged.skill_root, skill.root_path)
+            md_content = serialize_skill_md(
+                skill.name,
+                staged.description,
+                staged.allowed_tools,
+                staged.body,
+                source=staged.canonical_url,
+                tracks_upstream=True,
+                tracking_ref=desired_sha,
+            )
+            skill.skill_md_path().write_text(md_content, encoding="utf-8")
+        finally:
+            shutil.rmtree(staged.tmp_root, ignore_errors=True)
+
+        self._notify_skills_changed()
+        return {"updated": True, "ref": desired_sha}
+
+    def list_tracking_skills(self) -> List[Skill]:
+        """Return only installed skills with `tracks_upstream` set."""
+        return [s for s in self.list_skills() if s.tracks_upstream]
 
     def install_managed_from_github(
         self,
