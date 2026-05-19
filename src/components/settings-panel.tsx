@@ -594,12 +594,13 @@ function SettingsPanelComponentGeneral(props: any) {
                           Ollama
                         </a>{' '}
                         is running and models are downloaded to your computer.{' '}
-                        <a
-                          href="javascript:void(0)"
+                        <button
+                          type="button"
+                          className="link-button"
                           onClick={handleRefreshOllamaModelListClick}
                         >
                           Try again
-                        </a>{' '}
+                        </button>{' '}
                         once ready.
                       </div>
                     )}

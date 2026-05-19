@@ -737,6 +737,45 @@ pre:has(.code-block-header) {
   height: 16px;
 }
 
+/* Anchor-styled button used in place of the old <a href="javascript:void(0)">
+   pattern. Keeps the visual affordance (link color + underline) while
+   participating in the document's natural tab order. The color matches
+   JupyterLab's anchor token so the affordance reads as a link, not as
+   plain underlined body text. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--jp-content-link-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  filter: brightness(1.15);
+}
+
+.link-button:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* tabIndex=-1 wrappers receive programmatic focus on open; the popover
+   already carries a brand-color box-shadow as its visual affordance, so
+   the wrapper's default browser focus ring would only stack a second
+   indicator on top. */
+.workspace-file-popover:focus,
+.mode-tools-popover:focus {
+  outline: none;
+}
+
+/* Reset the UA <button> chrome (border, padding, font) on the icon-
+   buttons so the conversion from <div onClick> doesn't shift the 24px
+   header height or push the icons off-center. padding-right keeps the
+   pre-conversion gap from the icon to the next sibling. */
 .mode-tools-popover-button {
   display: flex;
   align-items: center;
@@ -746,7 +785,10 @@ pre:has(.code-block-header) {
   height: 24px;
   color: white;
   background-color: var(--jp-brand-color0);
-  padding-right: 6px;
+  padding: 0 6px 0 0;
+  border: none;
+  font: inherit;
+  line-height: 1;
   border-radius: 2px;
 }
 
