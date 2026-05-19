@@ -3065,11 +3065,21 @@ svg.access-token-warning {
   z-index: 100;
 }
 
-/* Coding Agent launcher tile: Anthropic orange icon.
-   Placed last to satisfy no-descending-specificity lint rule. */
-.jp-LauncherCard[data-category='Coding Agent'] .jp-LauncherCard-icon svg,
-.jp-Launcher-sectionHeader svg[data-icon='notebook-intelligence:claude-icon'] {
+/* Set Claude Code launcher title color to Anthropic orange */
+.jp-LauncherCard-icon svg[data-icon='notebook-intelligence:claude-icon'] {
   color: #d97757;
+}
+
+/* Set Claude Code launcher category icon to sparkles.svg */
+.jp-Launcher-sectionHeader svg[data-icon='notebook-intelligence:claude-icon'] {
+  /* Use sparkles.svg from the project assets via a mask + background-image trick */
+  mask: url('../style/icons/sparkles.svg') no-repeat center / contain;
+  -webkit-mask: url('../style/icons/sparkles.svg') no-repeat center / contain;
+  background-color: currentcolor;
+
+  /* Hide the default SVG fill to show only the masked shape */
+  fill: transparent;
+  color: var(--jp-brand-color1);
 }
 
 /* First-run tour overlay. Rendered into document.body via portal so
