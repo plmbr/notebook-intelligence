@@ -1,0 +1,58 @@
+{
+  "command": {
+    "label": "Show NBI tour"
+  },
+  "ui": {
+    "skip": "Skip tour",
+    "next": "Next",
+    "back": "Back",
+    "done": "Done"
+  },
+  "steps": {
+    "welcome": {
+      "title": "Welcome to Notebook Intelligence",
+      "description": "Your AI assistant lives in this sidebar. Take a quick tour of the settings, attachments, and chat modes so you can use it confidently."
+    },
+    "new-chat": {
+      "title": "Start a new chat",
+      "description": "Begin a fresh session when context gets crowded or you want to switch tasks."
+    },
+    "claude-history": {
+      "title": "Pick up where you left off",
+      "description": "Reopen an earlier Claude session from this workspace."
+    },
+    "settings-gear": {
+      "title": "Settings",
+      "description": "Configure providers, API keys, and extensions (MCP servers, skills, admin policies)."
+    },
+    "slash-commands": {
+      "title": "Run a slash command",
+      "description": "Open the menu for built-in commands and installed skills. Typing / at the start of the prompt does the same thing."
+    },
+    "add-context": {
+      "title": "Attach files as context",
+      "description": "Pin workspace files so the assistant can reference them. Typing @ in the prompt opens the same picker."
+    },
+    "upload-file": {
+      "title": "Upload from your computer",
+      "description": "Add files from outside the workspace. They're saved to the workspace and attached to this chat."
+    },
+    "drag-and-drop": {
+      "title": "Drag and drop",
+      "description": "Drag files from the JupyterLab file browser or your desktop onto the prompt. Keyboard users can attach the same files with the 'Attach files as context' and 'Upload from your computer' buttons."
+    },
+    "chat-mode": {
+      "title": "Pick a chat mode",
+      "description": "Ask is read-only and only answers questions. Agent can also run tools, such as file edits and shell commands."
+    },
+    "launcher-tiles": {
+      "title": "Run a coding agent in a terminal",
+      "description_singular": "The JupyterLab Launcher has a {launchers} tile in the 'Coding Agent' section. It opens a CLI session in a Jupyter terminal next to your notebook.",
+      "description_plural": "The JupyterLab Launcher has a 'Coding Agent' section with tiles for {launchers}. Each tile opens a CLI session in a Jupyter terminal next to your notebook."
+    },
+    "done": {
+      "title": "You're ready",
+      "description": "Try this: open a notebook and ask, 'Explain what this notebook does and suggest one improvement.' You can replay this tour anytime from the command palette."
+    }
+  }
+}

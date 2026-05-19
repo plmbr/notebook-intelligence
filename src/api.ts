@@ -273,6 +273,11 @@ export type SettingLockName =
 
 export type ISettingLocks = Record<SettingLockName, { locked: boolean }>;
 
+// Shared frozen object returned by NBIConfig.tourOverrides when no
+// admin overrides are present. Stable identity matters for downstream
+// consumers (memoized command-palette label, useMemo deps).
+const EMPTY_TOUR_OVERRIDES: Readonly<Record<string, any>> = Object.freeze({});
+
 export class NBIConfig {
   get userHomeDir(): string {
     return this.capabilities.user_home_dir;
@@ -402,6 +407,18 @@ export class NBIConfig {
 
   get chatFeedbackEnabled(): boolean {
     return this.capabilities.chat_feedback_enabled === true;
+  }
+
+  // Admin-supplied tour-copy overrides, served from the capabilities
+  // response after server-side validation. Returns the raw dict; the
+  // tour module decides how to apply it. Defaults to a shared frozen
+  // empty object so callers can spread/access keys without
+  // null-checking AND the getter doesn't allocate a fresh `{}` on every
+  // read (the JupyterLab command palette polls a command's label
+  // thunk on every keystroke, so identity stability matters).
+  get tourOverrides(): Record<string, any> {
+    const v = this.capabilities.tour_overrides;
+    return v && typeof v === 'object' ? v : EMPTY_TOUR_OVERRIDES;
   }
 
   get allowGithubSkillImport(): boolean {

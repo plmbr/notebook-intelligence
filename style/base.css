@@ -2798,3 +2798,154 @@ svg.access-token-warning {
 .jp-Launcher-sectionHeader svg[data-icon='notebook-intelligence:claude-icon'] {
   color: #d97757;
 }
+
+/* First-run tour overlay. Rendered into document.body via portal so
+   it floats above the entire JupyterLab UI, not just the sidebar.
+   JupyterLab uses z-index 10000 for dialogs / command palette /
+   menus and 10001 for the completer and active menubar item; sit one
+   above so the tour reliably covers any concurrent JupyterLab UI
+   layer the user might pop while the tour is visible. */
+.nbi-tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  pointer-events: none;
+}
+
+.nbi-tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  pointer-events: auto;
+}
+
+.nbi-tour-spotlight {
+  position: absolute;
+  border-radius: 6px;
+
+  /* Theme-aware ring via the JupyterLab brand color. A solid scrim
+     "wall" (outer box-shadow) cuts the dimming hole around the
+     anchor, then the inner ring draws the brand accent so the
+     spotlight reads on both light and dark themes. */
+  box-shadow:
+    0 0 0 3px var(--jp-brand-color1, rgb(33 150 243 / 80%)),
+    0 0 0 9999px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+.nbi-tour-tooltip {
+  position: absolute;
+  pointer-events: auto;
+  background: var(--jp-layout-color1);
+  color: var(--jp-content-font-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  font-size: var(--jp-ui-font-size1);
+}
+
+/* CSS-triangle arrow pointing from the tooltip toward the anchor. The
+   direction class encodes "tooltip is on the SIDE of the anchor", so
+   .nbi-tour-arrow-top (tooltip above anchor) puts the arrow at the
+   bottom edge pointing down. */
+.nbi-tour-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.nbi-tour-arrow-top {
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 8px 8px 0;
+  border-color: var(--jp-layout-color1) transparent transparent transparent;
+  filter: drop-shadow(0 1px 0 var(--jp-border-color2));
+}
+
+.nbi-tour-arrow-bottom {
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 8px 8px;
+  border-color: transparent transparent var(--jp-layout-color1) transparent;
+  filter: drop-shadow(0 -1px 0 var(--jp-border-color2));
+}
+
+.nbi-tour-arrow-left {
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 8px 0 8px 8px;
+  border-color: transparent transparent transparent var(--jp-layout-color1);
+  filter: drop-shadow(1px 0 0 var(--jp-border-color2));
+}
+
+.nbi-tour-arrow-right {
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 8px 8px 8px 0;
+  border-color: transparent var(--jp-layout-color1) transparent transparent;
+  filter: drop-shadow(-1px 0 0 var(--jp-border-color2));
+}
+
+.nbi-tour-progress {
+  position: relative;
+  height: 4px;
+  background: var(--jp-layout-color2);
+  border-radius: 2px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.nbi-tour-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--jp-brand-color1, #2196f3);
+  border-radius: 2px;
+  transition: width 200ms ease-out;
+}
+
+.nbi-tour-body {
+  /* aria-live region; no presentational change needed here, but the
+     class is a stable hook for future polish (illustrations, etc). */
+}
+
+.nbi-tour-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.nbi-tour-description {
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+
+.nbi-tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Skip is the *passive* exit (Esc / Done / Next are the active paths),
+   so style it as a muted text link rather than a full button. This
+   keeps the visual hierarchy at one primary action per step. */
+.nbi-tour-skip-link {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--jp-ui-font-color2);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nbi-tour-skip-link:hover,
+.nbi-tour-skip-link:focus-visible {
+  color: var(--jp-ui-font-color1);
+  outline: none;
+}

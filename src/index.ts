@@ -15,6 +15,10 @@ import {
   MainAreaWidget,
   Notification
 } from '@jupyterlab/apputils';
+import { dispatchShowTour } from './tour/tour-events';
+import { resetTour } from './tour/tour-state';
+import { TOUR_DEFAULTS } from './tour/tour-steps';
+import { commandLabel } from './tour/tour-config';
 import { IMainMenu } from '@jupyterlab/mainmenu';
 
 import { IEditorLanguageRegistry } from '@jupyterlab/codemirror';
@@ -1085,6 +1089,60 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
 
         return newPyFile;
       }
+    });
+
+    app.commands.addCommand(CommandIDs.showTour, {
+      label: () =>
+        commandLabel(
+          NBIAPI.config.tourOverrides,
+          TOUR_DEFAULTS.command?.label ?? 'Show NBI tour'
+        ),
+      caption:
+        'Replay the first-run tour highlighting the chat sidebar affordances',
+      execute: async () => {
+        // Make sure the sidebar is open before the tour fires; the
+        // overlay anchors to elements that only exist when the
+        // sidebar widget is mounted. Activate the left-rail panel
+        // directly (the same id used in app.shell.add above).
+        app.shell.activateById(panel.id);
+        // Reset persistence so re-runs always fire.
+        resetTour();
+        // activateById is fire-and-forget: the panel can still be
+        // mid-layout when this returns, and dispatching synchronously
+        // would race the anchor measurement. Wait for the panel to
+        // actually be visible before firing, then dispatch on a frame
+        // boundary so the sidebar's React tree has committed.
+        const fire = () => {
+          requestAnimationFrame(() => dispatchShowTour());
+        };
+        if (panel.isVisible) {
+          fire();
+        } else {
+          // Use a bounded rAF poll waiting for the panel to become
+          // visible. activateById is asynchronous and we can't
+          // synchronously observe completion from outside the widget.
+          let attempts = 0;
+          const tick = () => {
+            attempts += 1;
+            if (panel.isVisible || attempts >= 30) {
+              fire();
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }
+      }
+    });
+    palette.addItem({
+      command: CommandIDs.showTour,
+      category: 'Notebook Intelligence'
+    });
+    // The label thunk above reads from NBIAPI.config.tourOverrides,
+    // which arrives asynchronously over the capabilities call. The
+    // command palette caches labels until told otherwise, so tell it.
+    NBIAPI.configChanged.connect(() => {
+      app.commands.notifyCommandChanged(CommandIDs.showTour);
     });
 
     app.commands.addCommand(CommandIDs.showFormInputDialog, {

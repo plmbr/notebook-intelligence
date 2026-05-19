@@ -52,6 +52,7 @@ from notebook_intelligence.mcp_config_validation import (
 from notebook_intelligence.claude import ClaudeCodeChatParticipant, fetch_claude_models
 from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
 from notebook_intelligence.plugin_manager import PluginManager
+from notebook_intelligence.tour_config import load_tour_config
 from notebook_intelligence.claude_sessions import (
     NBI_CONTEXT_PREFIX,
     get_sessions_dir as get_claude_sessions_dir,
@@ -411,6 +412,9 @@ class GetCapabilitiesHandler(APIHandler):
     additional_skipped_workspace_directories = []
     feature_policies = {}
     string_overrides = {}
+    # Resolved at extension init from NBI_TOUR_CONFIG_PATH (or the
+    # tour_config_path traitlet). Empty string disables the override.
+    tour_config_path = ""
 
     @tornado.web.authenticated
     def get(self):
@@ -538,6 +542,16 @@ class GetCapabilitiesHandler(APIHandler):
                 "iconPath": participant.icon_path,
                 "commands": [command.name for command in participant.commands]
             })
+
+        # Admin tour copy overrides. The loader fails closed: a missing,
+        # oversized, or malformed file returns {} and the frontend
+        # renders the built-in defaults. Reading on every capabilities
+        # call (rather than caching) lets an admin edit the file without
+        # restarting Jupyter; the file is small and the path is usually
+        # unset, so the cost is at most one stat call per request. The
+        # path itself is pre-resolved at initialize_handlers time.
+        response["tour_overrides"] = load_tour_config(self.tour_config_path)
+
         self.finish(json.dumps(response))
 
 class ConfigHandler(APIHandler):
@@ -2631,6 +2645,21 @@ class NotebookIntelligence(ExtensionApp):
         config=True,
     )
 
+    tour_config_path = Unicode(
+        default_value="",
+        help="""
+        Filesystem path to a YAML (or JSON) file with admin overrides for
+        the in-app first-run tour copy. Lets a deployment rewrite step
+        titles, descriptions, button labels, and the launcher-tile
+        templates without rebuilding the extension. The file is read on
+        every capabilities call so edits take effect on the next sidebar
+        mount; a missing, oversized, or malformed file falls back to the
+        built-in defaults with a single WARN. Overridden by the
+        NBI_TOUR_CONFIG_PATH environment variable.
+        """,
+        config=True,
+    )
+
     def initialize_settings(self):
         pass
 
@@ -2787,6 +2816,13 @@ class NotebookIntelligence(ExtensionApp):
             self.allow_enabling_coding_agent_launchers_with_env
         )
         GetCapabilitiesHandler.enable_chat_feedback = self.enable_chat_feedback
+        # Tour copy overrides: env var wins if set, otherwise fall back to
+        # the traitlet. Pre-resolve here so the handler doesn't have to
+        # re-check os.environ on every call.
+        GetCapabilitiesHandler.tour_config_path = (
+            os.environ.get("NBI_TOUR_CONFIG_PATH", "").strip()
+            or (self.tour_config_path or "").strip()
+        )
         SkillsBaseHandler.allow_github_skill_import = _resolve_bool_with_env(
             "NBI_ALLOW_GITHUB_SKILL_IMPORT", self.allow_github_skill_import
         )

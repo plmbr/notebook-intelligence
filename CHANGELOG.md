@@ -26,6 +26,7 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 - **"New chat session" button** in the chat sidebar header restarts the Claude SDK client, mirroring the `/clear` slash command (#246).
 - **Terminal drag-drop file attach** with `@`-mention or shell-escaped raw modes and a per-terminal toolbar toggle (#256). New admin policy `NBI_TERMINAL_DRAG_DROP_POLICY`; tunables `NBI_UPLOAD_MAX_MB` (default `50`) and `NBI_UPLOAD_RETENTION_HOURS` (default `24`) govern the shared upload-staging endpoint used by both terminal drops and chat-sidebar attachments.
 - **Hover preview for image context thumbnails** in the chat sidebar (#267).
+- **First-run tour of the chat sidebar**. Highlights the gear, file-attach button, chat-mode dropdown, and (when available) the Claude session history icon so new users can discover the popovers and mode picker without scrolling the README. Replays from the command palette via "Show NBI tour"; capability-aware so steps for unavailable CLIs are skipped.
 
 ### Changed
 

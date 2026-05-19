@@ -80,6 +80,10 @@ import { mcpServerSettingsToEnabledState } from './components/mcp-util';
 import claudeSvgStr from '../style/icons/claude.svg';
 import { AskUserQuestion } from './components/ask-user-question';
 import { ClaudeSessionPicker } from './components/claude-session-picker';
+import { TourOverlay } from './tour/tour-overlay';
+import { TOUR_ANCHOR } from './tour/tour-anchors';
+import { TOUR_START_EVENT, TOUR_STOP_EVENT } from './tour/tour-events';
+import { hasCompletedTour } from './tour/tour-state';
 import { IClaudeSessionInfo } from './api';
 import {
   NOTEBOOK_GENERATION_PROGRESS_EVENT,
@@ -1111,6 +1115,64 @@ function SidebarComponent(props: any) {
   const [chatMessages, setChatMessages] = useState<IChatMessage[]>([]);
   const [prompt, setPrompt] = useState<string>('');
   const [draftPrompt, setDraftPrompt] = useState<string>('');
+  // The first-run tour is rendered inside the sidebar so it can anchor
+  // to DOM elements that only exist when the sidebar is mounted. Auto-
+  // show once per browser (state in localStorage); the JupyterLab
+  // command `notebook-intelligence:show-tour` dispatches the start
+  // event so the same component handles both flows.
+  const [tourVisible, setTourVisible] = useState<boolean>(false);
+  const sidebarRootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (hasCompletedTour()) {
+      return;
+    }
+    // The sidebar React tree mounts even when the Lumino panel is
+    // hidden (lm-mod-hidden). Firing the tour while hidden anchors
+    // resolve to 0x0 rects which clamps the tooltip into the viewport
+    // corner over unrelated UI. Poll on each animation frame until the
+    // root is actually laid out, then fire. Cap the poll so a sidebar
+    // that's never opened doesn't keep an rAF tick warm for the whole
+    // session.
+    let cancelled = false;
+    let rafId = 0;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 1800; // ~30s at 60Hz
+    const tick = () => {
+      if (cancelled) {
+        return;
+      }
+      if (hasCompletedTour()) {
+        // The command palette replay path may have completed the tour
+        // out of band; stop polling.
+        return;
+      }
+      const root = sidebarRootRef.current;
+      if (root && root.offsetParent !== null && root.offsetWidth > 0) {
+        setTourVisible(true);
+        return;
+      }
+      attempts += 1;
+      if (attempts >= MAX_ATTEMPTS) {
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
+  }, []);
+  useEffect(() => {
+    const start = () => setTourVisible(true);
+    const stop = () => setTourVisible(false);
+    document.addEventListener(TOUR_START_EVENT, start);
+    document.addEventListener(TOUR_STOP_EVENT, stop);
+    return () => {
+      document.removeEventListener(TOUR_START_EVENT, start);
+      document.removeEventListener(TOUR_STOP_EVENT, stop);
+    };
+  }, []);
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const [ghLoginStatus, setGHLoginStatus] = useState(
     GitHubCopilotLoginStatus.NotLoggedIn
@@ -1125,7 +1187,6 @@ function SidebarComponent(props: any) {
     useState(0);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const autocompleteRef = useRef<HTMLDivElement>(null);
-  const sidebarRootRef = useRef<HTMLDivElement>(null);
   const atButtonRef = useRef<HTMLButtonElement>(null);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   // position on prompt history stack
@@ -3548,12 +3609,14 @@ function SidebarComponent(props: any) {
           <span>Drop files to attach as context</span>
         </div>
       )}
+      {tourVisible && <TourOverlay onClose={() => setTourVisible(false)} />}
       <div className="sidebar-header">
         <div className="sidebar-title">Notebook Intelligence</div>
         {NBIAPI.config.isInClaudeCodeMode && (
           <>
             <div
               className="user-input-footer-button"
+              data-tour-id={TOUR_ANCHOR.newChat}
               onClick={() => startNewChatSession()}
               title="Start a new chat session (restarts the Claude client)"
               aria-label="Start a new chat session"
@@ -3562,6 +3625,7 @@ function SidebarComponent(props: any) {
             </div>
             <div
               className="user-input-footer-button"
+              data-tour-id={TOUR_ANCHOR.claudeHistory}
               onClick={() => setShowClaudeSessionPicker(true)}
               title="Resume previous Claude session"
             >
@@ -3571,6 +3635,7 @@ function SidebarComponent(props: any) {
         )}
         <div
           className="user-input-footer-button"
+          data-tour-id={TOUR_ANCHOR.settingsGear}
           onClick={() => handleSettingsButtonClick()}
           title="Open Notebook Intelligence settings"
           aria-label="Open Notebook Intelligence settings"
@@ -3667,6 +3732,7 @@ function SidebarComponent(props: any) {
       {chatEnabled && (
         <div
           id="sidebar-user-input"
+          data-tour-id={TOUR_ANCHOR.promptInput}
           className={`sidebar-user-input ${copilotRequestInProgress ? 'generating' : ''}`}
         >
           <textarea
@@ -3810,6 +3876,7 @@ function SidebarComponent(props: any) {
               <button
                 type="button"
                 ref={atButtonRef}
+                data-tour-id={TOUR_ANCHOR.slashCommands}
                 className="user-input-footer-button user-input-footer-slash-button"
                 onClick={() => {
                   setShowPopover(prev => !prev);
@@ -3823,6 +3890,7 @@ function SidebarComponent(props: any) {
             )}
             <button
               type="button"
+              data-tour-id={TOUR_ANCHOR.addContext}
               className={`user-input-footer-button ${selectedContextFiles.length > 0 ? 'tools-button tools-button-active' : ''}`}
               onClick={() => handleWorkspaceFilePickerClick()}
               title="Add workspace file as context"
@@ -3835,6 +3903,7 @@ function SidebarComponent(props: any) {
             </button>
             <button
               type="button"
+              data-tour-id={TOUR_ANCHOR.uploadFile}
               className="user-input-footer-button"
               onClick={() => fileInputRef.current?.click()}
               title="Upload file from computer"
@@ -3852,7 +3921,7 @@ function SidebarComponent(props: any) {
             <div style={{ flexGrow: 1 }}></div>
             <div className="chat-mode-widgets-container">
               {!NBIAPI.config.isInClaudeCodeMode && (
-                <div>
+                <div data-tour-id={TOUR_ANCHOR.chatMode}>
                   <select
                     className="chat-mode-select"
                     title="Chat mode"
