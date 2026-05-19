@@ -59,6 +59,7 @@ import notebook_intelligence.github_copilot as github_copilot
 from notebook_intelligence.built_in_toolsets import built_in_toolsets
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri
 from notebook_intelligence.context_factory import RuleContextFactory
+from notebook_intelligence.skill_manifest import split_sources
 from notebook_intelligence.skillset import SKILL_NAME_REGEX
 
 ai_service_manager: AIServiceManager = None
@@ -1292,7 +1293,7 @@ class SkillsReconcileHandler(SkillsBaseHandler):
         if reconciler is None:
             self.set_status(409)
             self.finish(json.dumps({
-                "error": "No managed-skills manifest configured (set NBI_SKILLS_MANIFEST)."
+                "error": "No managed-skills manifest configured (set NBI_SKILLS_MANIFEST, comma-separated for multiple manifests)."
             }))
             return
         # reconcile() does blocking HTTP + tarball extraction; run off the event loop.
@@ -2557,8 +2558,11 @@ class NotebookIntelligence(ExtensionApp):
     skills_manifest = Unicode(
         default_value="",
         help="""
-        URL or filesystem path to a YAML/JSON manifest describing managed
-        Claude skills to install and keep in sync. Empty disables the feature.
+        One or more YAML/JSON manifests describing managed Claude skills to
+        install and keep in sync. Each entry is a URL or filesystem path;
+        list multiple manifests as a comma-separated string. Manifests are
+        unioned with first-wins dedupe on URL collisions and a per-entry
+        error on installed-name collisions. Empty disables the feature.
         Overridden by the NBI_SKILLS_MANIFEST environment variable.
         """,
         config=True,
@@ -2642,12 +2646,20 @@ class NotebookIntelligence(ExtensionApp):
         string_overrides: dict,
     ):
         global ai_service_manager
-        manifest_source = os.environ.get("NBI_SKILLS_MANIFEST", "").strip() or self.skills_manifest.strip()
-        # When skills management is force-off, suppress the manifest so the
+        # NBI_SKILLS_MANIFEST and the matching traitlet both accept a
+        # comma-separated list of manifests. `split_sources` strips whitespace
+        # and drops empty entries so trailing commas / accidental whitespace
+        # don't construct phantom sources.
+        manifest_raw = (
+            os.environ.get("NBI_SKILLS_MANIFEST", "").strip()
+            or self.skills_manifest.strip()
+        )
+        manifest_sources = split_sources(manifest_raw)
+        # When skills management is force-off, suppress all manifests so the
         # reconciler isn't constructed at all (org-curated skills wouldn't
         # have a UI surface anyway, and stopping reconcile is the contract).
         if is_force_off(feature_policies, "skills_management"):
-            manifest_source = ""
+            manifest_sources = []
         managed_token = (
             os.environ.get("NBI_MANAGED_SKILLS_TOKEN", "").strip()
             or self.managed_skills_token.strip()
@@ -2663,7 +2675,7 @@ class NotebookIntelligence(ExtensionApp):
                 )
         ai_service_manager = AIServiceManager({
             "server_root_dir": server_root_dir,
-            "skills_manifest": manifest_source,
+            "skills_manifest_sources": manifest_sources,
             "skills_manifest_interval": manifest_interval,
             "managed_skills_token": managed_token,
             "feature_policies": feature_policies,
