@@ -3,8 +3,45 @@
 import {
   attachOpenFileRefreshWatcher,
   IRefreshWatcherEnv,
-  shouldRevertContext
+  shouldRevertContext,
+  WATCHED_SHELL_AREAS
 } from '../../src/open-file-refresh-watcher';
+
+describe('WATCHED_SHELL_AREAS', () => {
+  it('excludes "down" because LabShell.widgets() throws on it at runtime', () => {
+    // Regression pin for PR #330 review feedback (mbektas). 'down' is
+    // present in JupyterLab's TypeScript Area union but absent from
+    // LabShell.widgets()'s runtime switch; including it would throw
+    // `Invalid area: down` and surface as an unhandled promise
+    // rejection on every poll tick.
+    expect(WATCHED_SHELL_AREAS).not.toContain('down');
+  });
+
+  it('includes "main" so the primary editor area is always covered', () => {
+    expect(WATCHED_SHELL_AREAS).toContain('main');
+  });
+
+  it('contains only areas LabShell.widgets() implements', () => {
+    // The runtime switch at @jupyterlab/application/lib/shell.js
+    // handles: main, left, right, header, top, menu, bottom. We walk
+    // the document-hosting subset (main, left, right); chrome areas
+    // (header/top/menu/bottom) never host DocumentWidget. Pin the
+    // exact set so a future widening that re-adds 'down' (or any
+    // unimplemented area) trips this assertion.
+    const RUNTIME_IMPLEMENTED = new Set([
+      'main',
+      'left',
+      'right',
+      'header',
+      'top',
+      'menu',
+      'bottom'
+    ]);
+    for (const area of WATCHED_SHELL_AREAS) {
+      expect(RUNTIME_IMPLEMENTED).toContain(area);
+    }
+  });
+});
 
 describe('shouldRevertContext', () => {
   const base = {

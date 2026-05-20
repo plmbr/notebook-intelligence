@@ -10,15 +10,10 @@ import { JupyterFrontEnd } from '@jupyterlab/application';
 import { DocumentWidget } from '@jupyterlab/docregistry';
 import { Contents } from '@jupyterlab/services';
 
-import { IRefreshWatcherEnv } from './open-file-refresh-watcher';
-
-// JL4 hosts editable documents in 'main' (default) and 'down' (the
-// split-down editor pane). Walk the sidebars too: users can drag a
-// notebook to 'left' or 'right' in JL4, and a non-DocumentWidget
-// sitting in a sidebar costs only the instanceof filter check below.
-// 'top'/'header'/'menu'/'bottom' are chrome (toolbars, status bar)
-// and never host documents.
-const WATCHED_SHELL_AREAS = ['main', 'down', 'left', 'right'] as const;
+import {
+  IRefreshWatcherEnv,
+  WATCHED_SHELL_AREAS
+} from './open-file-refresh-watcher';
 
 export function buildRefreshWatcherEnv(
   app: JupyterFrontEnd,
@@ -27,7 +22,23 @@ export function buildRefreshWatcherEnv(
   return {
     iterDocumentWidgets: function* () {
       for (const area of WATCHED_SHELL_AREAS) {
-        for (const widget of app.shell.widgets(area)) {
+        // Defensive try/catch: LabShell.widgets() throws for areas it
+        // doesn't implement. We've audited the current set against
+        // the runtime, but a future JL bump could rename or remove
+        // an area; surfacing it as a console warning rather than an
+        // unhandled rejection keeps the watcher running for the
+        // areas that DO work.
+        let widgets: Iterable<unknown>;
+        try {
+          widgets = app.shell.widgets(area);
+        } catch (err) {
+          console.warn(
+            `[NBI] open-file-refresh-watcher: skipping shell area "${area}":`,
+            err
+          );
+          continue;
+        }
+        for (const widget of widgets) {
           if (widget instanceof DocumentWidget) {
             yield widget;
           }

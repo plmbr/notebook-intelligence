@@ -20,6 +20,24 @@ export const DEFAULT_REFRESH_POLL_INTERVAL_MS = 3000;
 // without hammering the server.
 export const DEFAULT_TICK_CONCURRENCY = 4;
 
+// Shell areas the live binding walks looking for open DocumentWidgets.
+// 'main' is the primary editor area (including split panes managed by
+// the underlying DockPanel); 'left' and 'right' catch the rare case
+// where a user drags a notebook tab into a sidebar in JL4.
+//
+// 'down' is intentionally absent. It's listed in JupyterLab's
+// TypeScript Area union (application/lib/shell.d.ts) but NOT
+// implemented in LabShell.widgets()'s runtime switch
+// (application/lib/shell.js) — asking for it throws
+// `Invalid area: down`. Reported on PR #330 review; do not re-add
+// without confirming the runtime impl in the installed JL version.
+//
+// The constant lives here (rather than in the env binding) so the
+// test suite can pin its contents without importing
+// @jupyterlab/docregistry, which ships ESM that ts-jest's default
+// transform can't parse.
+export const WATCHED_SHELL_AREAS = ['main', 'left', 'right'] as const;
+
 /**
  * Inputs the revert decision depends on. Keeping this pure (no
  * JupyterLab types) lets the unit test pin the policy without
