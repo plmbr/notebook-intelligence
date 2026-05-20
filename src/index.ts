@@ -95,6 +95,8 @@ import sparklesSvgstr from '../style/icons/sparkles.svg';
 import copilotSvgstr from '../style/icons/copilot.svg';
 import sparklesWarningSvgstr from '../style/icons/sparkles-warning.svg';
 import claudeSvgstr from '../style/icons/claude.svg';
+import openaiSvgstr from '../style/icons/openai.svg';
+import opencodeSvgstr from '../style/icons/opencode.svg';
 
 import {
   applyCodeToSelectionInEditor,
@@ -308,6 +310,16 @@ const sparkleIcon = new LabIcon({
 const claudeIcon = new LabIcon({
   name: 'notebook-intelligence:claude-icon',
   svgstr: claudeSvgstr
+});
+
+const openaiIcon = new LabIcon({
+  name: 'notebook-intelligence:openai-icon',
+  svgstr: openaiSvgstr
+});
+
+const opencodeIcon = new LabIcon({
+  name: 'notebook-intelligence:opencode-icon',
+  svgstr: opencodeSvgstr
 });
 
 const sparkleWarningIcon = new LabIcon({
@@ -1497,7 +1509,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       commandId: CommandIDs.openOpenCodeLauncher,
       label: 'opencode',
       caption: 'Start an opencode session in a Jupyter terminal',
-      icon: terminalIcon,
+      icon: opencodeIcon,
       cliCommand: 'opencode',
       isAvailable: () =>
         NBIAPI.config.isOpenCodeCliAvailable &&
@@ -1532,7 +1544,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       commandId: CommandIDs.openCodexLauncher,
       label: 'Codex',
       caption: 'Start an OpenAI Codex CLI session in a Jupyter terminal',
-      icon: terminalIcon,
+      icon: openaiIcon,
       cliCommand: 'codex',
       isAvailable: () =>
         NBIAPI.config.isCodexCliAvailable &&
