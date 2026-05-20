@@ -1,0 +1,2 @@
+[mcp_servers.NECP]
+url = "http://ngpmcpgateway.prod.local.dev.netflix.net:9123/proxy-mcp/necpmcp-prod/mcp?tags=js%2Cpython"
