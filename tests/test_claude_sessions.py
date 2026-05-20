@@ -290,6 +290,106 @@ class TestListSessions:
         result = _list_sessions_in_dir(project_cwd, claude_home=str(fake_claude_home))
         assert [s.preview for s in result] == ["Hello world"]
 
+    def test_unwraps_joined_preamble_and_prompt_in_one_message(
+        self, sessions_dir, fake_claude_home, project_cwd
+    ):
+        # Repro for issue #329: claude.py joins consecutive user-role
+        # messages with "\n" before handing them to the SDK, so a session
+        # whose only turn is preamble + prompt gets recorded as one
+        # combined user message. The picker must still surface the user's
+        # prompt as the preview (and must not drop the session as
+        # "all-skippable").
+        joined = _user_line(
+            "real",
+            "Additional context: Current directory open in Jupyter is: ''\n"
+            "How can I load JSON from a URL and save as dataframe?",
+        )
+        _write_jsonl(sessions_dir / "real.jsonl", [joined])
+
+        result = _list_sessions_in_dir(project_cwd, claude_home=str(fake_claude_home))
+        assert len(result) == 1
+        assert (
+            result[0].preview
+            == "How can I load JSON from a URL and save as dataframe?"
+        )
+
+    def test_unwraps_joined_preamble_in_structured_content(
+        self, sessions_dir, fake_claude_home, project_cwd
+    ):
+        # Same joined-on-newline shape, but the content arrives as a
+        # single content block (the Anthropic structured form). The
+        # block.text is the combined preamble + prompt string.
+        joined = _user_line(
+            "real",
+            [
+                {
+                    "type": "text",
+                    "text": (
+                        "Additional context: Current directory open in "
+                        "Jupyter is: ''\nHello world"
+                    ),
+                }
+            ],
+        )
+        _write_jsonl(sessions_dir / "real.jsonl", [joined])
+
+        result = _list_sessions_in_dir(project_cwd, claude_home=str(fake_claude_home))
+        assert [s.preview for s in result] == ["Hello world"]
+
+    def test_joined_preamble_with_skippable_prompt_still_skips(
+        self, sessions_dir, fake_claude_home, project_cwd
+    ):
+        # When the preamble is joined with another skippable form (a
+        # control slash command, here), the combined message must
+        # still be treated as skippable so the picker keeps scanning
+        # for a real prompt instead of using "/exit" as the preview.
+        # Exercises the recursive call's path through the legacy
+        # _CONTROL_SLASH_COMMANDS check.
+        joined = _user_line(
+            "real",
+            "Additional context: Current directory open in Jupyter is: ''\n/exit",
+        )
+        real_prompt = _user_line("real", "Plot a sine wave")
+        _write_jsonl(sessions_dir / "real.jsonl", [joined, real_prompt])
+
+        result = _list_sessions_in_dir(project_cwd, claude_home=str(fake_claude_home))
+        assert [s.preview for s in result] == ["Plot a sine wave"]
+
+    def test_joined_preamble_alone_without_newline_still_skips(
+        self, sessions_dir, fake_claude_home, project_cwd
+    ):
+        # Pins the `newline_at == -1` branch of the helper: when the
+        # transcript records the preamble with no trailing newline /
+        # prompt (a single-context-update turn), the helper returns
+        # an empty string and the recursive _is_skippable_text call
+        # bottoms out on the empty-stripped guard.
+        preamble_only = _user_line(
+            "real",
+            "Additional context: Current directory open in Jupyter is: ''",
+        )
+        _write_jsonl(sessions_dir / "real.jsonl", [preamble_only])
+
+        result = _list_sessions_in_dir(project_cwd, claude_home=str(fake_claude_home))
+        assert len(result) == 1
+        assert result[0].preview == ""
+
+    def test_joined_preamble_with_empty_post_newline_still_skips(
+        self, sessions_dir, fake_claude_home, project_cwd
+    ):
+        # A preamble followed by only whitespace after the newline
+        # should behave like the preamble-alone case. The recursive
+        # _is_skippable_text call sees whitespace-only text, .strip()s
+        # to "", and skips via the empty-stripped guard.
+        whitespace_tail = _user_line(
+            "real",
+            "Additional context: Current directory open in Jupyter is: ''\n   \n",
+        )
+        _write_jsonl(sessions_dir / "real.jsonl", [whitespace_tail])
+
+        result = _list_sessions_in_dir(project_cwd, claude_home=str(fake_claude_home))
+        assert len(result) == 1
+        assert result[0].preview == ""
+
     def test_keeps_skippable_only_session_with_empty_preview(
         self, sessions_dir, fake_claude_home, project_cwd
     ):

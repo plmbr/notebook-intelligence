@@ -253,10 +253,49 @@ def _is_skippable_user_message(obj: dict) -> bool:
     return False
 
 
+def _strip_nbi_context_preamble(text: str) -> str:
+    """Strip the NBI context-preamble line if it leads ``text``.
+
+    The backend appends the preamble (``Additional context: ...``) as
+    its own user-role message in ``extension.py``, but ``claude.py``
+    joins consecutive user-role entries with ``\\n`` before handing
+    them to the SDK. The session transcript therefore records one
+    combined user message whose first line is the preamble and whose
+    remainder is the user's actual prompt. Returning the remainder
+    here lets the skip and preview logic treat the joined form like
+    the separate form (issue #329).
+
+    Returns ``text`` unchanged when the preamble isn't present.
+    Returns an empty string when the preamble is the entire message
+    (no newline, no following content).
+    """
+    if not text.startswith(NBI_CONTEXT_PREFIX):
+        return text
+    newline_at = text.find("\n")
+    if newline_at == -1:
+        return ""
+    return text[newline_at + 1 :]
+
+
 def _is_skippable_text(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return True
+    # Unwrap the NBI preamble before checking the rest of the skip
+    # rules: the preamble itself is skippable, but the user's actual
+    # prompt that follows it (when claude.py joined the two user-role
+    # messages into one) usually isn't. Without this, a single-prompt
+    # session shows no preview because the only user message starts
+    # with the preamble.
+    if stripped.startswith(NBI_CONTEXT_PREFIX):
+        # Recurses at most once. NBI_CONTEXT_PREFIX is single-line, so
+        # the helper strips through the first newline (or returns ""
+        # when no newline exists). The unwrapped tail therefore cannot
+        # itself start with the preamble — the recursive call falls
+        # through to the legacy prefix / control-command checks or
+        # bottoms out on the empty-stripped guard at the top of this
+        # function.
+        return _is_skippable_text(_strip_nbi_context_preamble(stripped))
     if stripped.startswith(_SKIPPABLE_PREFIXES):
         return True
     return stripped in _CONTROL_SLASH_COMMANDS
@@ -276,6 +315,12 @@ def _extract_preview(obj: dict) -> str:
             if block.get("type") == "text" and isinstance(block.get("text"), str):
                 parts.append(block["text"])
         text = "\n".join(parts)
+
+    # Drop the NBI context preamble line if claude.py joined it onto
+    # the front of the user's actual prompt (issue #329). Without
+    # this, the preview reads "Additional context: ..." instead of
+    # what the user asked.
+    text = _strip_nbi_context_preamble(text)
 
     # Collapse whitespace so multi-line prompts render as a single row.
     text = " ".join(text.split())
