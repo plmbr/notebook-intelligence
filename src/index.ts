@@ -102,6 +102,7 @@ import {
   applyCodeToSelectionInEditor,
   cellOutputAsText,
   cellOutputHasError,
+  chooseWorkspaceDirectory,
   compareSelections,
   extractLLMGeneratedCode,
   getSelectionInEditor,
@@ -1429,10 +1430,19 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         });
         const result = await dialog.launch();
         if (result.button.accept) {
-          // New Session: open the terminal at whatever subdirectory the file
-          // browser is currently viewing, mirroring how Jupyter's own
-          // terminal launcher behaves (issue #182).
-          launchCliInTerminal('claude', defaultBrowser?.model.path);
+          // New Session: let the user choose a start directory (defaulting
+          // to the file browser's current path). If they cancel the folder
+          // picker, abort rather than silently opening the terminal in an
+          // unexpected location.
+          const cwd = await chooseWorkspaceDirectory(
+            docManager,
+            'Choose start directory for Claude Code',
+            defaultBrowser?.model.path
+          );
+          if (cwd === undefined) {
+            return;
+          }
+          launchCliInTerminal('claude', cwd);
         }
       }
     });
@@ -1491,8 +1501,16 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         caption: config.caption,
         icon: config.icon,
         isVisible: () => config.isAvailable(),
-        execute: () => {
-          launchCliInTerminal(config.cliCommand, defaultBrowser?.model.path);
+        execute: async () => {
+          const cwd = await chooseWorkspaceDirectory(
+            docManager,
+            `Choose start directory for ${config.label}`,
+            defaultBrowser?.model.path
+          );
+          if (cwd === undefined) {
+            return;
+          }
+          launchCliInTerminal(config.cliCommand, cwd);
         }
       });
       syncLauncherEntry(

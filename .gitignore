@@ -134,6 +134,10 @@ ui-tests/.tsbuild/
 # Yarn cache
 .yarn/
 
+# Local AI assistant config and runtime state
+.codex/
+.claude/scheduled_tasks.lock
+
 # gh-pages
 _site/
 Gemfile.lock
