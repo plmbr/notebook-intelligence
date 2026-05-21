@@ -975,7 +975,9 @@ function SettingsPanelComponentGeneral(props: any) {
         </div>
 
         <div className="model-config-section">
-          <div className="model-config-section-header">Chat history storage</div>
+          <div className="model-config-section-header">
+            Chat history storage
+          </div>
           <div className="model-config-section-body">
             <div className="model-config-section-row">
               <div className="model-config-section-column">
@@ -995,12 +997,20 @@ function SettingsPanelComponentGeneral(props: any) {
                   <option value="local">Local temporary storage</option>
                   <option value="none">None</option>
                 </select>
-                <div className="form-field-description" style={{ marginTop: '6px' }}>
-                  mysql: persisted in remote DB; local: in-process temporary memory (with limit); none: no backend chat history recording.
+                <div
+                  className="form-field-description"
+                  style={{ marginTop: '6px' }}
+                >
+                  mysql: persisted in remote DB; local: in-process temporary
+                  memory (with limit); none: no backend chat history recording.
                 </div>
                 {historyMode === 'mysql' && (
-                  <div className="form-field-description" style={{ marginTop: '6px' }}>
-                    Fill MySQL connection fields, then click "Apply MySQL settings" to activate this mode.
+                  <div
+                    className="form-field-description"
+                    style={{ marginTop: '6px' }}
+                  >
+                    Fill MySQL connection fields, then click "Apply MySQL
+                    settings" to activate this mode.
                   </div>
                 )}
               </div>
@@ -1015,7 +1025,9 @@ function SettingsPanelComponentGeneral(props: any) {
                     value={localMaxMessages}
                     min={1}
                     onChange={event =>
-                      setLocalMaxMessages(Math.max(1, Number(event.target.value || 1)))
+                      setLocalMaxMessages(
+                        Math.max(1, Number(event.target.value || 1))
+                      )
                     }
                   />
                 </div>

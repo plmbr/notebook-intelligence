@@ -586,7 +586,7 @@ function ChatResponse(props: any) {
     }
 
     let reasoningContent = '';
-    let reasoningStartTime = new Date(item.created);
+    const reasoningStartTime = new Date(item.created);
     const reasoningEndTime = new Date();
 
     let startPos = -1;
@@ -1275,7 +1275,7 @@ function SidebarComponent(props: any) {
           const formattedMessages: IChatMessage[] = [];
 
           // History from backend is a list of individual messages
-          // We need to group them by assistant response if needed, 
+          // We need to group them by assistant response if needed,
           // or just map them to IChatMessage
           for (const msg of history) {
             const date = new Date(msg.created_at);
@@ -1286,16 +1286,24 @@ function SidebarComponent(props: any) {
 
             // Ignore empty assistant/tool rows from legacy persistence to keep
             // refresh state identical to pre-refresh streaming view.
-            if (!hasMessageContent && (msg.role === 'assistant' || msg.role === 'tool')) {
+            if (
+              !hasMessageContent &&
+              (msg.role === 'assistant' || msg.role === 'tool')
+            ) {
               continue;
             }
 
-            const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+            const toolCalls = Array.isArray(msg.tool_calls)
+              ? msg.tool_calls
+              : [];
             const serializedParts = toolCalls.find(
-              (call: any) => call?.type === 'ui_message_parts' && Array.isArray(call.parts)
+              (call: any) =>
+                call?.type === 'ui_message_parts' && Array.isArray(call.parts)
             );
             const parameterCalls = toolCalls.filter(
-              (call: any) => call?.type === 'ui_tool_parameters' && call.arguments !== undefined
+              (call: any) =>
+                call?.type === 'ui_tool_parameters' &&
+                call.arguments !== undefined
             );
 
             let contents: IChatMessageContent[] = [];
@@ -1314,7 +1322,11 @@ function SidebarComponent(props: any) {
                 parameterCalls.length > 0
                   ? {
                       title: 'Parameters',
-                      content: `\`\`\`json\n${JSON.stringify(parameterCalls.map((call: any) => call.arguments), null, 2)}\n\`\`\``
+                      content: `\`\`\`json\n${JSON.stringify(
+                        parameterCalls.map((call: any) => call.arguments),
+                        null,
+                        2
+                      )}\n\`\`\``
                     }
                   : undefined;
               contents = [
@@ -1345,7 +1357,9 @@ function SidebarComponent(props: any) {
                 date,
                 from: 'copilot',
                 contents,
-                participant: NBIAPI.config.chatParticipants.find(p => p.id === msg.participant_id)
+                participant: NBIAPI.config.chatParticipants.find(
+                  p => p.id === msg.participant_id
+                )
               });
             }
           }

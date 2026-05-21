@@ -389,21 +389,25 @@ export class NBIConfig {
   }
 
   get mysqlConfig(): any {
-    return this.capabilities.mysql_config ?? {
-      enabled: false,
-      host: 'localhost',
-      port: 3306,
-      user: '',
-      password: '',
-      database: 'notebook_intelligence'
-    };
+    return (
+      this.capabilities.mysql_config ?? {
+        enabled: false,
+        host: 'localhost',
+        port: 3306,
+        user: '',
+        password: '',
+        database: 'notebook_intelligence'
+      }
+    );
   }
 
   get historyConfig(): any {
-    return this.capabilities.history_config ?? {
-      mode: 'local',
-      local_max_messages: 10
-    };
+    return (
+      this.capabilities.history_config ?? {
+        mode: 'local',
+        local_max_messages: 10
+      }
+    );
   }
 
   get claudeModels(): IClaudeModelInfo[] {
