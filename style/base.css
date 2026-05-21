@@ -259,7 +259,6 @@
 
 .sidebar-user-input .user-input-context-row {
   display: flex;
-  flex-direction: row;
   align-items: center;
   flex-flow: row wrap;
   gap: 4px;
@@ -1723,7 +1722,6 @@ svg.access-token-warning {
   border-radius: 10px;
   font-size: var(--jp-ui-font-size0);
   color: var(--jp-ui-font-color1);
-  border-radius: 4px;
 }
 
 .pill-item:hover {
