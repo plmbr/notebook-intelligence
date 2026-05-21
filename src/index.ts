@@ -62,7 +62,6 @@ import { IDisposable } from '@lumino/disposable';
 import React from 'react';
 import { ReactWidget } from '@jupyterlab/apputils';
 import { LauncherPicker } from './components/launcher-picker';
-import { pickStartDirectory } from './coding-agent-launcher';
 import stripAnsi from 'strip-ansi';
 import {
   ChatSidebar,
@@ -101,6 +100,7 @@ import {
   applyCodeToSelectionInEditor,
   cellOutputAsText,
   cellOutputHasError,
+  chooseWorkspaceDirectory,
   compareSelections,
   extractLLMGeneratedCode,
   getSelectionInEditor,
@@ -1422,7 +1422,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           // to the file browser's current path). If they cancel the folder
           // picker, abort rather than silently opening the terminal in an
           // unexpected location.
-          const cwd = await pickStartDirectory(
+          const cwd = await chooseWorkspaceDirectory(
             docManager,
             'Choose start directory for Claude Code',
             defaultBrowser?.model.path
@@ -1490,7 +1490,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         icon: config.icon,
         isVisible: () => config.isAvailable(),
         execute: async () => {
-          const cwd = await pickStartDirectory(
+          const cwd = await chooseWorkspaceDirectory(
             docManager,
             `Choose start directory for ${config.label}`,
             defaultBrowser?.model.path

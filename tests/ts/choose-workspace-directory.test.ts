@@ -1,13 +1,7 @@
 // Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
 import { FileDialog } from '@jupyterlab/filebrowser';
-import { pickStartDirectory } from '../../src/coding-agent-launcher';
-
-jest.mock('@jupyterlab/filebrowser', () => ({
-  FileDialog: {
-    getExistingDirectory: jest.fn()
-  }
-}));
+import { chooseWorkspaceDirectory } from '../../src/utils';
 
 const getExistingDirectory =
   FileDialog.getExistingDirectory as jest.MockedFunction<
@@ -16,14 +10,14 @@ const getExistingDirectory =
 
 const fakeDocManager = {} as any;
 
-describe('pickStartDirectory', () => {
+describe('chooseWorkspaceDirectory', () => {
   it('returns the path of the first selected directory when accepted', async () => {
     getExistingDirectory.mockResolvedValue({
       button: { accept: true } as any,
       value: [{ path: 'my-project' } as any]
     } as any);
 
-    const result = await pickStartDirectory(
+    const result = await chooseWorkspaceDirectory(
       fakeDocManager,
       'label',
       'workspace'
@@ -47,7 +41,7 @@ describe('pickStartDirectory', () => {
       value: [{ path: '' } as any]
     } as any);
 
-    const result = await pickStartDirectory(fakeDocManager, 'label');
+    const result = await chooseWorkspaceDirectory(fakeDocManager, 'label');
 
     expect(result).toBe('');
   });
@@ -58,7 +52,7 @@ describe('pickStartDirectory', () => {
       value: null
     } as any);
 
-    const result = await pickStartDirectory(fakeDocManager, 'label');
+    const result = await chooseWorkspaceDirectory(fakeDocManager, 'label');
 
     expect(result).toBeUndefined();
   });
@@ -73,7 +67,7 @@ describe('pickStartDirectory', () => {
       value: []
     } as any);
 
-    const result = await pickStartDirectory(
+    const result = await chooseWorkspaceDirectory(
       fakeDocManager,
       'label',
       'workspace'
@@ -88,7 +82,7 @@ describe('pickStartDirectory', () => {
       value: null
     } as any);
 
-    const result = await pickStartDirectory(fakeDocManager, 'label');
+    const result = await chooseWorkspaceDirectory(fakeDocManager, 'label');
 
     expect(result).toBe('');
   });

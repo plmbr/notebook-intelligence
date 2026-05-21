@@ -23,7 +23,9 @@ module.exports = {
     '^tiktoken$': '<rootDir>/tests/ts/__mocks__/tiktoken.ts',
     '\\.svg$': '<rootDir>/tests/ts/__mocks__/svg.ts',
     '^@jupyterlab/apputils$':
-      '<rootDir>/tests/ts/__mocks__/jupyterlab-apputils.ts'
+      '<rootDir>/tests/ts/__mocks__/jupyterlab-apputils.ts',
+    '^@jupyterlab/filebrowser$':
+      '<rootDir>/tests/ts/__mocks__/jupyterlab-filebrowser.ts'
   },
   clearMocks: true
 };
