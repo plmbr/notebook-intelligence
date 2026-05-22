@@ -39,8 +39,35 @@ CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL = "claude-sonnet-4-5"
 CLAUDE_CODE_CHAT_PARTICIPANT_ID = "claude-code"
 CLAUDE_CODE_MAX_BUFFER_SIZE = 20 * 1024 * 1024 # 20MB
 
-JUPYTER_UI_TOOLS_SYSTEM_PROMPT = """You can interact with the JupyterLab UI (notebook / file editor, terminal, etc.) using the tools provided in 'nbi' MCP server. Tools in 'nbi' MCP server, directly interact with the JupyterLab UI, accessing notebooks and files in the UI. When interacting with JupyterLab UI, use relative file paths for file paths. If you create a notebook or run it, save it after creating or running it.
+JUPYTER_UI_TOOLS_SYSTEM_PROMPT = """You can interact with the JupyterLab UI (notebook / file editor, terminal, etc.) using the tools provided in 'nbi' MCP server. Tools in 'nbi' MCP server, directly interact with the JupyterLab UI, accessing notebooks and files open in the UI. When interacting with JupyterLab UI, use relative file paths for file paths. If the user has asked you to create a notebook, save it afterward.
 """
+
+
+def build_claude_system_prompt(
+    jupyter_ui_tools_enabled: bool,
+    jupyter_root_dir: str,
+) -> str:
+    """Build the system prompt for the Claude Code chat participant.
+
+    Module-level so the test suite can pin the answer-don't-create
+    bias guard (issue #335) without instantiating the chat
+    participant or touching JupyterLab runtime state.
+
+    Order is load-bearing: the chat-default guard paragraph must
+    appear BEFORE the UI-tools block. The UI-tools block ends with
+    a conditional save instruction whose recency would otherwise
+    dilute the guard's "default to chat reply" framing.
+    """
+    return f"""You are an AI programming assistant hosted in JupyterLab. JupyterLab supports Jupyter notebooks, plain file editors, and terminals; treat all three as first-class surfaces.
+Assume Python if the language is not specified.
+JupyterLab is launched from a working directory and it can only access files in this directory and its subdirectories. Follow the same rule for file system access. Working directory for current session is '{jupyter_root_dir}'.
+If messages contain relative file paths, assume they are relative to the working directory.
+If you need to install a Python package within a notebook cell code, use %pip install <package_name> instead of !pip install <package_name>.
+
+Default to answering questions directly in your chat reply. Many user prompts are questions about code, data, or files ("summarize this", "explain this", "what does this output mean", "how would I do X", "debug this", "show me what this does") and the right response is prose in your reply, not a new artifact. Do not create a notebook, file, or other workspace artifact unless the user explicitly asks for one (for example: "create a notebook that...", "write me a script to...", "save this as a file", "show me a notebook that..."). When the user attaches a file and asks a question about it, read the file if you need to and answer in your reply; do not produce a new notebook to hold the answer.
+{JUPYTER_UI_TOOLS_SYSTEM_PROMPT if jupyter_ui_tools_enabled else ""}
+"""
+
 
 class ClaudeAgentEventType(str, Enum):
     GetServerInfo = 'get-server-info'
@@ -1438,13 +1465,10 @@ class ClaudeCodeChatParticipant(BaseChatParticipant):
         return client_options
 
     def _create_system_prompt(self, jupyter_ui_tools_enabled: bool) -> str:
-        return f"""You are an AI programming assistant integrated into JupyterLab which is an IDE for Jupyter notebooks.
-Assume Python if the language is not specified.
-JupyterLab is launched from a working directory and it can only access files in this directory and its subdirectories. Follow the same rule for file system access. Working directory for current session is '{get_jupyter_root_dir()}'.
-If messages contain relative file paths, assume they are relative to the working directory.
-If you need to install a Python package within a notebook cell code, use %pip install <package_name> instead of !pip install <package_name>.
-{JUPYTER_UI_TOOLS_SYSTEM_PROMPT if jupyter_ui_tools_enabled else ""}
-"""
+        return build_claude_system_prompt(
+            jupyter_ui_tools_enabled,
+            get_jupyter_root_dir(),
+        )
 
     def clear_chat_history(self):
         self._client.clear_chat_history()
