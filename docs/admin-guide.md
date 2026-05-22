@@ -680,6 +680,7 @@ NBI is tested against the JupyterLab and `jupyter_server` versions declared in [
 
 | NBI version | JupyterLab | jupyter_server | Python    |
 | ----------- | ---------- | -------------- | --------- |
+| 5.0.x       | 4.x        | 2.x            | 3.10+     |
 | 4.8.x       | 4.x        | 2.x            | 3.10+     |
 | 4.7.x       | 4.x        | 2.x            | 3.10+     |
 | 4.6.x       | 4.x        | 2.x            | 3.10–3.12 |
@@ -687,18 +688,18 @@ NBI is tested against the JupyterLab and `jupyter_server` versions declared in [
 | 4.4.x       | 4.x        | 2.x            | 3.10–3.12 |
 | 4.3.x       | 4.x        | 2.x            | 3.10–3.12 |
 
-Upper bounds for `litellm`, `claude-agent-sdk`, `anthropic`, and `fastmcp` are not pinned in `pyproject.toml`. For production deployments, pin these in your image build:
+Upper bounds for `litellm`, `claude-agent-sdk`, `anthropic`, and `mcp` are not pinned in `pyproject.toml`. For production deployments, pin these in your image build:
 
 ```bash
 pip install \
-  "notebook-intelligence==4.5.*" \
-  "litellm==1.62.*" \
+  "notebook-intelligence==5.0.*" \
+  "litellm==1.83.*" \
   "claude-agent-sdk==0.x.*" \
   "anthropic==0.x.*" \
-  "fastmcp==2.x.*"
+  "mcp==1.27.*"
 ```
 
-Substitute the versions you've validated. The NBI test suite is currently TypeScript-only (`jlpm test`); end-to-end Python testing is a future work item.
+Substitute the versions you've validated. As of 5.0.0 NBI uses the official `mcp` Python SDK (the prior `fastmcp` dependency was removed); see the [5.0.0 changelog migration note](../CHANGELOG.md#migration-note) if your image previously pinned `fastmcp`. The NBI test suite is currently TypeScript-only (`jlpm test`); end-to-end Python testing is a future work item.
 
 ---
 
