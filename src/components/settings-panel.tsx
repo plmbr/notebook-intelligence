@@ -384,6 +384,13 @@ function SettingsPanelComponentGeneral(props: any) {
     });
   };
 
+  const toggleRefreshOpenFilesOnDiskChange = () => {
+    NBIAPI.setConfig({
+      refresh_open_files_on_disk_change:
+        !featurePolicies.refresh_open_files_on_disk_change.enabled
+    });
+  };
+
   const updateModelOptionsForProvider = (
     providerId: string,
     modelType: 'chat' | 'inline-completion'
@@ -860,6 +867,30 @@ function SettingsPanelComponentGeneral(props: any) {
                   disabled={featurePolicies.output_toolbar.locked}
                   tooltip={lockedTip(featurePolicies.output_toolbar.locked)}
                   onClick={toggleOutputToolbar}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="model-config-section">
+          <div className="model-config-section-header">External changes</div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <CheckBoxItem
+                  label="Refresh open files when changed on disk"
+                  title="Automatically reload notebook and file editor tabs when an external process (terminal command, sync client, or AI agent) edits the file. Skipped when the tab has unsaved local edits."
+                  checked={
+                    featurePolicies.refresh_open_files_on_disk_change.enabled
+                  }
+                  disabled={
+                    featurePolicies.refresh_open_files_on_disk_change.locked
+                  }
+                  tooltip={lockedTip(
+                    featurePolicies.refresh_open_files_on_disk_change.locked
+                  )}
+                  onClick={toggleRefreshOpenFilesOnDiskChange}
                 />
               </div>
             </div>

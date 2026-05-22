@@ -2,14 +2,7 @@
   "title": "Notebook Intelligence",
   "description": "Notebook Intelligence settings",
   "type": "object",
-  "properties": {
-    "refresh_open_files_on_disk_change": {
-      "type": "boolean",
-      "title": "Refresh open files when changed on disk",
-      "description": "Automatically reload notebook and file editor tabs when their content changes on disk (for example, when an external process such as a terminal command, a sync client, or an AI assistant edits the file). Skipped when the tab has unsaved local edits, so typed-but-not-yet-saved work is never clobbered.",
-      "default": true
-    }
-  },
+  "properties": {},
   "additionalProperties": false,
   "jupyter.lab.toolbars": {
     "Cell": [

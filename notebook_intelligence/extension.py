@@ -329,6 +329,11 @@ FEATURE_POLICY_SPEC = (
         "NBI_TERMINAL_DRAG_DROP_POLICY",
         "terminal_drag_drop_policy",
     ),
+    (
+        "refresh_open_files_on_disk_change",
+        "NBI_REFRESH_OPEN_FILES_ON_DISK_CHANGE_POLICY",
+        "refresh_open_files_on_disk_change_policy",
+    ),
 )
 FEATURE_POLICY_NAMES = tuple(name for name, _, _ in FEATURE_POLICY_SPEC)
 
@@ -380,6 +385,7 @@ def _build_feature_policies_response(policies: dict, nbi_config) -> dict:
         "claude_mcp_management": True,
         "claude_plugins_management": True,
         "terminal_drag_drop": True,
+        "refresh_open_files_on_disk_change": nbi_config.refresh_open_files_on_disk_change,
     }
 
     response = {}
@@ -588,6 +594,7 @@ class ConfigHandler(APIHandler):
             "enable_explain_error",
             "enable_output_followup",
             "enable_output_toolbar",
+            "refresh_open_files_on_disk_change",
         ])
         # Top-level keys whose write is rejected outright when locked.
         locked_keys = set()
@@ -599,6 +606,8 @@ class ConfigHandler(APIHandler):
             locked_keys.add("enable_output_toolbar")
         if is_locked(self.feature_policies.get("store_github_access_token", POLICY_USER_CHOICE)):
             locked_keys.add("store_github_access_token")
+        if is_locked(self.feature_policies.get("refresh_open_files_on_disk_change", POLICY_USER_CHOICE)):
+            locked_keys.add("refresh_open_files_on_disk_change")
         # chat_model / inline_completion_model are locked when *either* of their
         # provider/id env vars is set; the resolver below preserves the locked
         # subfield so a user can still update the unlocked one.
@@ -2781,6 +2790,19 @@ class NotebookIntelligence(ExtensionApp):
         for hardened deployments that don't want files staged through
         the upload endpoint. Overridden by the
         NBI_TERMINAL_DRAG_DROP_POLICY env var.
+        """,
+        config=True,
+    )
+
+    refresh_open_files_on_disk_change_policy = TraitletEnum(
+        list(VALID_POLICIES),
+        default_value=POLICY_USER_CHOICE,
+        help="""
+        Org-wide policy for the open-files refresh watcher. "user-choice"
+        (default) honors the user's `refresh_open_files_on_disk_change`
+        setting from config.json. "force-on" pins the watcher on
+        regardless of the user setting; "force-off" pins it off. Overridden
+        by the NBI_REFRESH_OPEN_FILES_ON_DISK_CHANGE_POLICY env var.
         """,
         config=True,
     )
