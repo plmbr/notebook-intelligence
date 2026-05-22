@@ -119,7 +119,7 @@ The full surface, in one table.
 | `NBI_LOG_LEVEL`                                  | str  | `INFO`                      | env                                | Python logging level for the `notebook_intelligence` logger.                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `NBI_DISABLE_OUTPUT_SCRUB`                       | bool | unset                       | env                                | When set (`1` / `true` / `yes` / `on`), disables the shell-tool output scrubber so raw stdout/stderr (including any env-var values that leak) is sent through to chat. Default off; the scrubber redacts values for sensitive-named env vars (`TOKEN`, `SECRET`, `API_KEY`, ...) plus tokens with well-known credential prefixes (`ghp_`, `sk-ant-`, `AKIA`, ...). Opt out only when debugging credential helpers where the redaction interferes.                        |
 | `GITHUB_TOKEN`, `GH_TOKEN`                       | str  | unset                       | env                                | Used (in that order) by user-initiated skill imports and GitHub-sourced plugin marketplace adds for GitHub auth. Falls back to `gh` CLI auth.                                                                                                                                                                                                                                                                                                                            |
-| `NBI_*_POLICY`                                   | str  | `user-choice`               | env                                | Lock individual Settings panel toggles. See [README → Admin policies](../README.md#admin-policies) for the full list of `*_POLICY` env vars and matching traitlets, including `NBI_SKILLS_MANAGEMENT_POLICY`, `NBI_CLAUDE_MCP_MANAGEMENT_POLICY`, `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY`, and `NBI_TERMINAL_DRAG_DROP_POLICY`.                                                                                                                                           |
+| `NBI_*_POLICY`                                   | str  | `user-choice`               | env                                | Lock individual Settings panel toggles. See [README → Admin policies](../README.md#admin-policies) for the full list of `*_POLICY` env vars and matching traitlets, including `NBI_SKILLS_MANAGEMENT_POLICY`, `NBI_CLAUDE_MCP_MANAGEMENT_POLICY`, `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY`, `NBI_TERMINAL_DRAG_DROP_POLICY`, and `NBI_REFRESH_OPEN_FILES_ON_DISK_CHANGE_POLICY`.                                                                                           |
 
 Configure traitlets in `jupyter_server_config.py`:
 
@@ -538,6 +538,18 @@ c.NotebookIntelligence.terminal_drag_drop_policy = "force-off"
 Or via env: `NBI_TERMINAL_DRAG_DROP_POLICY=force-off`.
 
 Force-off hides the per-terminal drag-drop toolbar toggle and rejects upload-staging POSTs from a terminal context. Drag-drop is **enabled by default**; flip it off in regulated tenants where the staging file write or the resulting `@`-mention path is undesirable.
+
+### Disabling the open-files refresh watcher
+
+```python
+c.NotebookIntelligence.refresh_open_files_on_disk_change_policy = "force-off"
+```
+
+Or via env: `NBI_REFRESH_OPEN_FILES_ON_DISK_CHANGE_POLICY=force-off`.
+
+The refresh watcher reloads open notebook and file editor tabs when their content changes on disk (for example, when an agent edits a file). It skips tabs with unsaved local edits. Enabled by default; users can opt out in the NBI Settings dialog. Use `force-off` in deployments where automatic reloads could surprise users editing the same files via external tooling, or `force-on` to mandate the behavior tenant-wide.
+
+---
 
 Terminal drag-drop and chat-sidebar file attach both write to the shared upload-staging directory under the JupyterLab process's `tempfile.gettempdir()`. Two tunables govern that endpoint:
 

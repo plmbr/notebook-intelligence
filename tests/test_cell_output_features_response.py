@@ -26,6 +26,7 @@ def _config(
     followup=True,
     toolbar=True,
     store_token=False,
+    refresh_open_files=True,
     claude_settings=None,
 ):
     return SimpleNamespace(
@@ -33,6 +34,7 @@ def _config(
         enable_output_followup=followup,
         enable_output_toolbar=toolbar,
         store_github_access_token=store_token,
+        refresh_open_files_on_disk_change=refresh_open_files,
         claude_settings=claude_settings if claude_settings is not None else {},
     )
 
@@ -167,6 +169,35 @@ class TestBuildFeaturePoliciesResponse:
         # is added to the spec but not to the response builder.
         response = _build_feature_policies_response({}, _config())
         assert set(response.keys()) == set(FEATURE_POLICY_NAMES)
+
+    def test_refresh_open_files_reflects_user_pref_when_unforced(self):
+        response = _build_feature_policies_response(
+            {}, _config(refresh_open_files=False)
+        )
+        assert response["refresh_open_files_on_disk_change"] == {
+            "enabled": False,
+            "locked": False,
+        }
+
+    def test_refresh_open_files_force_off_locks_against_user_on(self):
+        response = _build_feature_policies_response(
+            {"refresh_open_files_on_disk_change": POLICY_FORCE_OFF},
+            _config(refresh_open_files=True),
+        )
+        assert response["refresh_open_files_on_disk_change"] == {
+            "enabled": False,
+            "locked": True,
+        }
+
+    def test_refresh_open_files_force_on_locks_against_user_off(self):
+        response = _build_feature_policies_response(
+            {"refresh_open_files_on_disk_change": POLICY_FORCE_ON},
+            _config(refresh_open_files=False),
+        )
+        assert response["refresh_open_files_on_disk_change"] == {
+            "enabled": True,
+            "locked": True,
+        }
 
 
 class TestBuildSettingLocksResponse:

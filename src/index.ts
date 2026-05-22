@@ -838,7 +838,6 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
   // ours. Cast through the top-level Token type to keep the plugin
   // declaration well-typed for the other optionals.
   optional: [
-    ISettingRegistry,
     IStatusBar,
     ILauncher,
     ITerminalTracker as unknown as Token<unknown>
@@ -852,7 +851,6 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     languageRegistry: IEditorLanguageRegistry,
     palette: ICommandPalette,
     mainMenu: IMainMenu,
-    settingRegistry: ISettingRegistry | null,
     statusBar: IStatusBar | null,
     launcher: ILauncher | null,
     terminalTracker: ITerminalTracker | null
@@ -911,38 +909,13 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       new NBIInlineCompletionProvider(telemetryEmitter)
     );
 
-    // Snapshot the user's "refresh open files when changed on disk"
-    // toggle. The watcher reads it on every tick so flipping the
-    // setting takes effect without restarting Lab. Default-true so
-    // out-of-box agentic flows pick up file edits automatically;
-    // gated by ISettingRegistry availability (Lab can run without it
-    // in stripped-down embeds).
-    let refreshOnDiskEnabled = true;
-    if (settingRegistry) {
-      settingRegistry
-        .load(plugin.id)
-        .then(settings => {
-          const readToggle = (s: ISettingRegistry.ISettings) =>
-            s.composite['refresh_open_files_on_disk_change'] !== false;
-          refreshOnDiskEnabled = readToggle(settings);
-          settings.changed.connect(s => {
-            refreshOnDiskEnabled = readToggle(s);
-          });
-        })
-        .catch(reason => {
-          console.error(
-            'Failed to load settings for @notebook-intelligence/notebook-intelligence.',
-            reason
-          );
-        });
-    }
-
-    // JupyterLab plugins don't have a deactivate hook, so the watcher
-    // runs for the lifetime of the Lab session. We discard the teardown
-    // function here intentionally; it exists for test ergonomics.
+    // JL plugins have no deactivate hook, so the watcher runs for the
+    // lifetime of the Lab session and the returned teardown is intentionally
+    // discarded (it exists for test ergonomics).
     attachOpenFileRefreshWatcher({
       env: buildRefreshWatcherEnv(app, app.serviceManager.contents),
-      isEnabled: () => refreshOnDiskEnabled
+      isEnabled: () =>
+        NBIAPI.config.featurePolicies.refresh_open_files_on_disk_change.enabled
     });
 
     const waitForFileToBeActive = async (

@@ -276,7 +276,8 @@ export type FeaturePolicyName =
   | 'skills_management'
   | 'claude_mcp_management'
   | 'claude_plugins_management'
-  | 'terminal_drag_drop';
+  | 'terminal_drag_drop'
+  | 'refresh_open_files_on_disk_change';
 
 export type IFeaturePolicies = Record<
   FeaturePolicyName,
@@ -496,17 +497,21 @@ export class NBIConfig {
       'skills_management',
       'claude_mcp_management',
       'claude_plugins_management',
-      'terminal_drag_drop'
+      'terminal_drag_drop',
+      'refresh_open_files_on_disk_change'
     ];
-    // Admin-only management gates (no per-user toggle) default *open* when
-    // missing — a new frontend hitting an older backend without these
-    // capability fields must keep the tab visible. The other policies pair
-    // with a user-toggle and default closed (a missing field means "no
-    // user pref recorded yet, treat as off"), matching prior semantics.
+    // Policies that default *open* when the capability field is missing,
+    // covering two cases: admin-only management gates (no user toggle) where
+    // a new frontend on an older backend must keep the tab visible, and the
+    // open-files refresh watcher whose documented default is on so its
+    // first ticks before capabilities land don't silently no-op. The other
+    // policies pair with a user toggle and default closed (missing means
+    // "no user pref recorded yet, treat as off").
     const defaultOpen: ReadonlySet<FeaturePolicyName> = new Set([
       'skills_management',
       'claude_mcp_management',
-      'claude_plugins_management'
+      'claude_plugins_management',
+      'refresh_open_files_on_disk_change'
     ]);
     const result = {} as IFeaturePolicies;
     for (const name of names) {

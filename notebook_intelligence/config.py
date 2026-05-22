@@ -206,6 +206,11 @@ class NBIConfig:
         return bool(self.get('enable_output_toolbar', True))
 
     @property
+    def refresh_open_files_on_disk_change(self) -> bool:
+        """User preference for the open-files refresh watcher (default on)."""
+        return bool(self.get('refresh_open_files_on_disk_change', True))
+
+    @property
     def rules_directory(self) -> str:
         """Get the rules directory path."""
         return os.path.join(self.nbi_user_dir, 'rules')
