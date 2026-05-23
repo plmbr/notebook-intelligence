@@ -87,7 +87,7 @@ The base URL must speak the Chat Completions API. vLLM, LiteLLM, TGI, and llama.
 If something doesn't work, check:
 
 - `jupyter server extension list` — `notebook_intelligence` should appear under "OK".
-- `jupyter labextension list` — `@notebook-intelligence/notebook-intelligence` should be listed as enabled.
+- `jupyter labextension list` — `@plmbr/notebook-intelligence` should be listed as enabled.
 - The JupyterLab terminal output where you ran `jupyter lab`. NBI logs server-side errors there.
 
-For deeper issues, see the [troubleshooting guide](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/troubleshooting.md) in the repo or [open an issue](https://github.com/notebook-intelligence/notebook-intelligence/issues).
+For deeper issues, see the [troubleshooting guide](https://github.com/plmbr/notebook-intelligence/blob/main/docs/troubleshooting.md) in the repo or [open an issue](https://github.com/plmbr/notebook-intelligence/issues).

@@ -16,7 +16,7 @@ description: A JupyterLab extension for Claude Code, GitHub Copilot, Ollama, and
       </p>
       <div class="hero__cta">
         <a class="btn btn--primary" href="#install">Install</a>
-        <a class="btn btn--ghost" href="https://github.com/notebook-intelligence/notebook-intelligence" rel="noopener">View on GitHub</a>
+        <a class="btn btn--ghost" href="https://github.com/plmbr/notebook-intelligence" rel="noopener">View on GitHub</a>
       </div>
     </div>
     <div>

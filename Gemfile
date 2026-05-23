@@ -1,6 +1,6 @@
 source "https://rubygems.org"
 
-# Jekyll site for notebook-intelligence.github.io.
+# Jekyll site for plmbr.dev.
 #
 # Build locally:
 #   bundle install

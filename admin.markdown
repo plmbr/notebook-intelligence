@@ -47,8 +47,8 @@ Set `NBI_SKILLS_MANIFEST=https://your-org/skills.yaml` (or a filesystem path). N
 
 ## Reference
 
-- [Full admin guide](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/admin-guide.md) — every env var, every default, every interaction.
-- [Security policy](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/SECURITY.md) — disclosure, threat model, supply-chain posture.
-- [Privacy](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/PRIVACY.md) — what NBI sends where.
+- [Full admin guide](https://github.com/plmbr/notebook-intelligence/blob/main/docs/admin-guide.md) — every env var, every default, every interaction.
+- [Security policy](https://github.com/plmbr/notebook-intelligence/blob/main/SECURITY.md) — disclosure, threat model, supply-chain posture.
+- [Privacy](https://github.com/plmbr/notebook-intelligence/blob/main/PRIVACY.md) — what NBI sends where.
 
 <p style="margin-top: var(--space-10);"><a class="btn btn--primary" href="{{ '/install/' | relative_url }}">Install NBI</a></p>

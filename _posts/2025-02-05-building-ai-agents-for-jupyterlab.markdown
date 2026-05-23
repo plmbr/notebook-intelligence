@@ -9,7 +9,7 @@ redirect_from:
   - /blog/building-ai-agents-for-jupyterlab/
 ---
 
-[Notebook Intelligence](https://github.com/notebook-intelligence/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
+[Notebook Intelligence](https://github.com/plmbr/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
 
 GitHub Copilot and other AI coding assistants are great at generating code and answering coding related questions. But they can do a lot more than generating text and code thanks to LLM features such as tool calling and AI agents. NBI provides an extensible AI framework to integrate tool calling and AI agents into JupyterLab Copilot Chat.
 
@@ -255,7 +255,7 @@ That is all there is to create an AI Agent for JupyterLab using Notebook Intelli
 
 ## Try it out and share your feedback!
 
-I am looking forward to seeing the AI Agents built by the community. Please try the extension APIs and share your feedback using project's [GitHub issues](https://github.com/notebook-intelligence/notebook-intelligence/issues)! User feedback from the community will shape the project's roadmap.
+I am looking forward to seeing the AI Agents built by the community. Please try the extension APIs and share your feedback using project's [GitHub issues](https://github.com/plmbr/notebook-intelligence/issues)! User feedback from the community will shape the project's roadmap.
 
 ## About the Author
 

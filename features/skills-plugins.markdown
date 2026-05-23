@@ -34,7 +34,7 @@ skills:
 
 ## Reference
 
-- [NBI Skills documentation](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/skills.md)
+- [NBI Skills documentation](https://github.com/plmbr/notebook-intelligence/blob/main/docs/skills.md)
 - [Claude Skills SDK](https://docs.claude.com/en/docs/claude-code/skills)
 - [Claude Plugins](https://docs.claude.com/en/docs/claude-code/plugins)
 

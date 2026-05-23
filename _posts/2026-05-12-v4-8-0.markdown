@@ -67,4 +67,4 @@ Beyond the workspace scan, the `@`-mention context picker also now skips dot-pre
 pip install --upgrade notebook-intelligence
 ```
 
-Then restart JupyterLab. Full set of changes in the [v4.8.0 release notes](https://github.com/notebook-intelligence/notebook-intelligence/releases/tag/v4.8.0).
+Then restart JupyterLab. Full set of changes in the [v4.8.0 release notes](https://github.com/plmbr/notebook-intelligence/releases/tag/v4.8.0).

@@ -9,7 +9,7 @@ redirect_from:
   - /blog/support-for-any-llm-provider/
 ---
 
-[Notebook Intelligence](https://github.com/notebook-intelligence/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
+[Notebook Intelligence](https://github.com/plmbr/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
 
 Notebook Intelligence now supports any LLM Provider and compatible model for chat and auto-complete. Chat model is used for Copilot Chat in the sidebar and inline chat popups that are accessible from notebook and file editors. Auto-complete model is used for providing completion suggestions as you type in a notebook or file editor (as ghost text). Your chat model and auto-complete model don't have to be from the same provider for use with NBI.
 
@@ -75,7 +75,7 @@ For building NBI extensions see [Building AI Extensions for JupyterLab]({{site.b
 
 ## Try it out and share your feedback!
 
-Please try the LLM provider and model options and share your feedback using project's [GitHub issues](https://github.com/notebook-intelligence/notebook-intelligence/issues)! User feedback from the community will shape the project's roadmap.
+Please try the LLM provider and model options and share your feedback using project's [GitHub issues](https://github.com/plmbr/notebook-intelligence/issues)! User feedback from the community will shape the project's roadmap.
 
 ## About the Author
 

@@ -65,7 +65,7 @@ New value-presence locks (set the env var to a value to pin it; the UI control b
 
 The `/claude-sessions` HTTP route also accepts `?scope=cwd` to filter to sessions whose recorded `cwd` matches the lab's working directory.
 
-Full env-var reference: [docs/admin-guide.md](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/admin-guide.md).
+Full env-var reference: [docs/admin-guide.md](https://github.com/plmbr/notebook-intelligence/blob/main/docs/admin-guide.md).
 
 ## Internal
 
@@ -89,4 +89,4 @@ Full env-var reference: [docs/admin-guide.md](https://github.com/notebook-intell
 pip install --upgrade notebook-intelligence
 ```
 
-Then restart JupyterLab. Full changes in the [CHANGELOG](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/CHANGELOG.md#470--2026-05-07).
+Then restart JupyterLab. Full changes in the [CHANGELOG](https://github.com/plmbr/notebook-intelligence/blob/main/CHANGELOG.md#470--2026-05-07).
