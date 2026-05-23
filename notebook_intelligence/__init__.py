@@ -23,7 +23,7 @@ from .api import *
 def _jupyter_labextension_paths():
     return [{
         "src": "labextension",
-        "dest": "@notebook-intelligence/notebook-intelligence"
+        "dest": "@plmbr/notebook-intelligence"
     }]
 
 

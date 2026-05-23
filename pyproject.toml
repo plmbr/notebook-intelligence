@@ -98,8 +98,8 @@ artifacts = ["notebook_intelligence/labextension"]
 exclude = [".github", "binder", "src", "style", "media"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"notebook_intelligence/labextension" = "share/jupyter/labextensions/@notebook-intelligence/notebook-intelligence"
-"install.json" = "share/jupyter/labextensions/@notebook-intelligence/notebook-intelligence/install.json"
+"notebook_intelligence/labextension" = "share/jupyter/labextensions/@plmbr/notebook-intelligence"
+"install.json" = "share/jupyter/labextensions/@plmbr/notebook-intelligence/install.json"
 "jupyter-config/server-config" = "etc/jupyter/jupyter_server_config.d"
 
 [tool.hatch.build.hooks.version]

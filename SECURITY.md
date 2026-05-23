@@ -26,7 +26,7 @@ NBI follows semantic versioning starting with 4.0.0. Security fixes land on the 
 In-scope:
 
 - The `notebook_intelligence` server extension and its HTTP handlers.
-- The `@notebook-intelligence/notebook-intelligence` JupyterLab frontend.
+- The `@plmbr/notebook-intelligence` JupyterLab frontend.
 - Built-in tools (`nbi-notebook-edit`, `nbi-notebook-execute`, `nbi-python-file-edit`, `nbi-file-edit`, `nbi-file-read`, `nbi-command-execute`).
 - The Claude Skills import and managed-manifest reconciler.
 

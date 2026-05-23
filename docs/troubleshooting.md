@@ -8,7 +8,7 @@ After `pip install notebook-intelligence`, restart JupyterLab. If a restart does
 
 ```bash
 jupyter server extension list   # look for "notebook_intelligence  enabled"
-jupyter labextension list       # look for "@notebook-intelligence/notebook-intelligence ... enabled"
+jupyter labextension list       # look for "@plmbr/notebook-intelligence ... enabled"
 ```
 
 If either is disabled or missing:
@@ -111,5 +111,5 @@ Tune the debounce delay in NBI Settings → Inline completion. Lower delays mean
 
 ## Still stuck?
 
-- Check [GitHub issues](https://github.com/notebook-intelligence/notebook-intelligence/issues) for similar reports.
+- Check [GitHub issues](https://github.com/plmbr/notebook-intelligence/issues) for similar reports.
 - Open a new issue including the information listed in [CONTRIBUTING.md](../CONTRIBUTING.md#filing-a-good-bug-report).

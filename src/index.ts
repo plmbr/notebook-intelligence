@@ -659,7 +659,7 @@ class NBIInlineCompletionProvider
   }
 
   get identifier(): string {
-    return '@notebook-intelligence/notebook-intelligence';
+    return '@plmbr/notebook-intelligence';
   }
 
   get icon(): LabIcon.ILabIcon {
@@ -819,10 +819,10 @@ class MCPConfigEditor {
 }
 
 /**
- * Initialization data for the @notebook-intelligence/notebook-intelligence extension.
+ * Initialization data for the @plmbr/notebook-intelligence extension.
  */
 const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
-  id: '@notebook-intelligence/notebook-intelligence:plugin',
+  id: '@plmbr/notebook-intelligence:plugin',
   description: 'Notebook Intelligence',
   autoStart: true,
   requires: [
@@ -856,7 +856,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     terminalTracker: ITerminalTracker | null
   ) => {
     console.log(
-      'JupyterLab extension @notebook-intelligence/notebook-intelligence is activated!'
+      'JupyterLab extension @plmbr/notebook-intelligence is activated!'
     );
 
     const telemetryEmitter = new TelemetryEmitter();

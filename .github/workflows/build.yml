@@ -42,7 +42,7 @@ jobs:
         jupyter server extension list 2>&1 | grep -ie "notebook_intelligence.*OK"
 
         jupyter labextension list
-        jupyter labextension list 2>&1 | grep -ie "@notebook-intelligence/notebook-intelligence.*OK"
+        jupyter labextension list 2>&1 | grep -ie "@plmbr/notebook-intelligence.*OK"
         python -m jupyterlab.browser_check
 
     - name: Run Python tests
@@ -100,7 +100,7 @@ jobs:
         jupyter server extension list 2>&1 | grep -ie "notebook_intelligence.*OK"
 
         jupyter labextension list
-        jupyter labextension list 2>&1 | grep -ie "@notebook-intelligence/notebook-intelligence.*OK"
+        jupyter labextension list 2>&1 | grep -ie "@plmbr/notebook-intelligence.*OK"
         python -m jupyterlab.browser_check --no-browser-test
 
 

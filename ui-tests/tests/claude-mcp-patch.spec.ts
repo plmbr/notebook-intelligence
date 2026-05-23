@@ -29,7 +29,7 @@ test.describe('claude-mcp workspace disable PATCH endpoint', () => {
     await page.evaluate(() => {
       const app = (window as any).jupyterapp;
       const ids: string[] = app?.listPlugins?.() ?? [];
-      if (!ids.some(id => id.startsWith('@notebook-intelligence/'))) {
+      if (!ids.some(id => id.startsWith('@plmbr/'))) {
         throw new Error('notebook-intelligence plugin did not load');
       }
     });

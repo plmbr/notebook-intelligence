@@ -155,7 +155,7 @@ jupyter server extension disable notebook_intelligence
 pip uninstall notebook_intelligence
 ```
 
-The `jupyter labextension develop` command leaves a symlink behind. Run `jupyter labextension list` to find the labextensions directory, then remove the `@notebook-intelligence/notebook-intelligence` symlink there.
+The `jupyter labextension develop` command leaves a symlink behind. Run `jupyter labextension list` to find the labextensions directory, then remove the `@plmbr/notebook-intelligence` symlink there.
 
 ## Running tests
 

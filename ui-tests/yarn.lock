@@ -1517,9 +1517,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@notebook-intelligence/ui-tests@workspace:.":
+"@plmbr/ui-tests@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@notebook-intelligence/ui-tests@workspace:."
+  resolution: "@plmbr/ui-tests@workspace:."
   dependencies:
     "@jupyterlab/galata": ^5.0.0
     "@playwright/test": ^1.40.0

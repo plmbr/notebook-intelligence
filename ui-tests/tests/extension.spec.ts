@@ -14,7 +14,7 @@ test.describe('notebook-intelligence extension', () => {
         return false;
       }
       const ids: string[] = app.listPlugins();
-      return ids.some((id: string) => id.startsWith('@notebook-intelligence/'));
+      return ids.some((id: string) => id.startsWith('@plmbr/'));
     });
     expect(installed).toBe(true);
   });

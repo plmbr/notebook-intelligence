@@ -790,7 +790,7 @@ function SettingsPanelComponentGeneral(props: any) {
               <div className="model-config-section-header access-token-config-header">
                 GitHub Copilot login{' '}
                 <a
-                  href="https://github.com/notebook-intelligence/notebook-intelligence/blob/main/README.md#remembering-github-copilot-login"
+                  href="https://github.com/plmbr/notebook-intelligence/blob/main/README.md#remembering-github-copilot-login"
                   target="_blank"
                 >
                   {' '}

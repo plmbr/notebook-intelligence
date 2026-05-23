@@ -1,5 +1,5 @@
 {
-  "name": "@notebook-intelligence/ui-tests",
+  "name": "@plmbr/ui-tests",
   "version": "1.0.0",
   "description": "Galata-based UI tests for the notebook-intelligence labextension.",
   "private": true,

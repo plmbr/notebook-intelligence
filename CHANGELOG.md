@@ -330,22 +330,22 @@ A multi-PR accessibility pass landed across most NBI surfaces. Together these ma
 - Settings UI restructured around Claude vs default mode.
 - WebSocket connection reliability improvements.
 
-[unreleased]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v5.0.0...HEAD
-[5.0.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.8.0...v5.0.0
-[4.8.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.7.0...v4.8.0
-[4.7.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.6.0...v4.7.0
-[4.6.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.5.0...v4.6.0
-[4.5.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.4.0...v4.5.0
-[4.4.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.3.2...v4.4.0
-[4.3.2]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.3.1...v4.3.2
-[4.3.1]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.3.0...v4.3.1
-[4.3.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.2.1...v4.3.0
-[4.2.1]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.2.0...v4.2.1
-[4.2.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.1.2...v4.2.0
-[4.1.2]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.1.1...v4.1.2
-[4.1.1]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.1.0...v4.1.1
-[4.1.0]: https://github.com/notebook-intelligence/notebook-intelligence/compare/v4.0.0...v4.1.0
-[4.0.0]: https://github.com/notebook-intelligence/notebook-intelligence/releases/tag/v4.0.0
+[unreleased]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.0...HEAD
+[5.0.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.8.0...v5.0.0
+[4.8.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.7.0...v4.8.0
+[4.7.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.6.0...v4.7.0
+[4.6.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.5.0...v4.6.0
+[4.5.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.4.0...v4.5.0
+[4.4.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.3.2...v4.4.0
+[4.3.2]: https://github.com/plmbr/notebook-intelligence/compare/v4.3.1...v4.3.2
+[4.3.1]: https://github.com/plmbr/notebook-intelligence/compare/v4.3.0...v4.3.1
+[4.3.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.2.1...v4.3.0
+[4.2.1]: https://github.com/plmbr/notebook-intelligence/compare/v4.2.0...v4.2.1
+[4.2.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.1.2...v4.2.0
+[4.1.2]: https://github.com/plmbr/notebook-intelligence/compare/v4.1.1...v4.1.2
+[4.1.1]: https://github.com/plmbr/notebook-intelligence/compare/v4.1.0...v4.1.1
+[4.1.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.0.0...v4.1.0
+[4.0.0]: https://github.com/plmbr/notebook-intelligence/releases/tag/v4.0.0
 
 ## Versioning policy
 

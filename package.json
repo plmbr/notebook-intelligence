@@ -1,5 +1,5 @@
 {
-    "name": "@notebook-intelligence/notebook-intelligence",
+    "name": "@plmbr/notebook-intelligence",
     "version": "5.0.0",
     "description": "AI coding assistant for JupyterLab",
     "keywords": [
@@ -10,9 +10,9 @@
         "jupyterlab",
         "jupyterlab-extension"
     ],
-    "homepage": "https://github.com/notebook-intelligence/notebook-intelligence",
+    "homepage": "https://github.com/plmbr/notebook-intelligence",
     "bugs": {
-        "url": "https://github.com/notebook-intelligence/notebook-intelligence/issues"
+        "url": "https://github.com/plmbr/notebook-intelligence/issues"
     },
     "license": "GPL-3.0",
     "author": {
@@ -30,7 +30,7 @@
     "style": "style/index.css",
     "repository": {
         "type": "git",
-        "url": "https://github.com/notebook-intelligence/notebook-intelligence.git"
+        "url": "https://github.com/plmbr/notebook-intelligence.git"
     },
     "scripts": {
         "build": "jlpm build:lib && jlpm build:labextension:dev",
@@ -144,7 +144,7 @@
         "schemaDir": "schema",
         "webpackConfig": "./webpack.config.js",
         "sharedPackages": {
-            "@notebook-intelligence/notebook-intelligence": {
+            "@plmbr/notebook-intelligence": {
                 "singleton": true
             }
         }
