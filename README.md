@@ -17,6 +17,7 @@ NBI is free and open-source. Connect it to a free or paid LLM provider of your c
   - [Chat interface](#chat-interface)
   - [Cell output actions](#cell-output-actions)
   - [Notebook toolbar generation](#notebook-toolbar-generation)
+  - [Reload open files when changed on disk](#reload-open-files-when-changed-on-disk)
 - [Configuration](#configuration)
   - [Configuration files](#configuration-files)
   - [Remembering GitHub Copilot login](#remembering-github-copilot-login)
@@ -91,7 +92,11 @@ If the Claude Code CLI is on `PATH`, NBI launches it automatically. To override 
 
 #### Resuming a previous Claude session
 
-When Claude mode is on, the chat sidebar shows a history icon next to the gear. Click it to list the Claude Code sessions recorded for the current working directory (the same transcripts the Claude Code CLI stores under `~/.claude/projects/`). Selecting a session reconnects via `resume`, so the next message you send continues that transcript with full prior context.
+When Claude mode is on, the chat sidebar shows a history icon next to the gear. Click it to list the Claude Code sessions recorded for the current working directory (the same transcripts the Claude Code CLI stores under `~/.claude/projects/`). Selecting a session reconnects via `resume`, so the next message you send continues that transcript with full prior context. A **New chat session** button next to the gear restarts the SDK client without typing `/clear`.
+
+Long Claude turns surface an elapsed-time counter, a heartbeat-driven pulse with a "may be slow" copy flip after 30 seconds, and inline tool-call narration so the sidebar reflects what the agent is doing rather than appearing stuck.
+
+In Claude mode, workspace files attached as chat context arrive as `@`-mention pointers rather than inlined file contents. Claude's Read tool fetches them on demand, which means images, large files, and notebooks (cell-aware) now work where the older content-injection path silently truncated or skipped them.
 
 #### Claude Code launcher tile
 
@@ -106,7 +111,7 @@ When any of the following CLIs are on `PATH`, the launcher adds a tile for each.
 - **GitHub Copilot CLI** (override path with `NBI_GITHUB_COPILOT_CLI_PATH`)
 - **OpenAI Codex** (override path with `NBI_CODEX_CLI_PATH`)
 
-Tiles add and remove themselves as CLIs become available or unavailable; they do not require Claude mode.
+Tiles add and remove themselves as CLIs become available or unavailable; they do not require Claude mode. Clicking any tile (or **New Session** from the Claude resume dialog) prompts for a start directory, so the terminal opens where you want rather than always at the file-browser cwd.
 
 ### Agent mode
 
@@ -147,6 +152,10 @@ Each is per-user toggleable from Settings (saved as `enable_explain_error`, `ena
 ### Notebook toolbar generation
 
 Active notebooks show a sparkle icon on the toolbar. Click it to open a popover that scopes the generation request to that specific notebook — handy for multi-notebook sessions where you don't want the chat sidebar to compete for context.
+
+### Reload open files when changed on disk
+
+NBI reloads open document tabs when their files change on disk, so edits an AI agent makes via its Read/Write tools appear in the editor without a manual refresh. Tabs with unsaved local edits are skipped so user work is never clobbered. Toggle via the **NBI Settings dialog → External changes → "Refresh open files when changed on disk"** (default on).
 
 ## Configuration
 
@@ -350,11 +359,11 @@ For full details, see [`docs/skills.md`](docs/skills.md).
 
 When Claude mode is enabled and the Claude CLI is available, the Settings panel exposes an **MCP Servers** tab that manages the user, project, and local-scope MCP entries Claude Code reads from `~/.claude.json` and the project's `.mcp.json`. This is a different tab from NBI's own MCP Servers tab (which manages the servers used by the non-Claude chat path); the two never appear together, and the Settings dialog shows whichever one applies to your current mode.
 
-Reads come from Claude's JSON config files directly. Writes (add and remove) shell out to `claude mcp add` and `claude mcp remove` so Claude remains the source of truth for any side effects (project-trust prompts, OAuth bookkeeping). Admins can lock the tab with `NBI_CLAUDE_MCP_MANAGEMENT_POLICY=force-off`.
+Reads come from Claude's JSON config files directly. Writes (add and remove) shell out to `claude mcp add` and `claude mcp remove` so Claude remains the source of truth for any side effects (project-trust prompts, OAuth bookkeeping). Each server entry can be toggled on or off per workspace without removing it, and the **Add MCP server** dialog accepts a JSON-paste path that takes a Claude / Cursor / VS Code MCP config blob and pre-fills the form after validating the shape. Admins can lock the tab with `NBI_CLAUDE_MCP_MANAGEMENT_POLICY=force-off`.
 
 ## Claude Plugins
 
-When Claude mode is enabled and the Claude CLI is available, the Settings panel exposes a **Plugins** tab wrapping `claude plugin` for install, uninstall, enable, disable, and marketplace add (for example: add a marketplace from a GitHub repo, then install plugins it publishes). Marketplaces hosted on GitHub reuse the same `GITHUB_TOKEN` / `GH_TOKEN` / `gh auth token` precedence as Skills imports; the token is passed via env to the subprocess and never appears in argv or DEBUG logs. See Anthropic's [plugin docs](https://code.claude.com/docs/en/plugins) for what a plugin is and how marketplaces work.
+When Claude mode is enabled and the Claude CLI is available, the Settings panel exposes a **Plugins** tab wrapping `claude plugin` for install, uninstall, enable, disable, and marketplace add (for example: add a marketplace from a GitHub repo, then install plugins it publishes). Each installed plugin's description, author, version, and source render inline, and the tab surfaces a per-plugin **Update** button when a newer version is available upstream. A marketplace picker lets you browse the configured marketplaces and install plugins directly from there. Marketplaces hosted on GitHub reuse the same `GITHUB_TOKEN` / `GH_TOKEN` / `gh auth token` precedence as Skills imports; the token is passed via env to the subprocess and never appears in argv or DEBUG logs. See Anthropic's [plugin docs](https://code.claude.com/docs/en/plugins) for what a plugin is and how marketplaces work.
 
 Admins can lock the entire tab with `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY=force-off`, or keep the tab and block only GitHub-sourced marketplaces with `NBI_ALLOW_GITHUB_PLUGIN_IMPORT=false`.
 
@@ -396,7 +405,7 @@ The feedback fires an in-process `telemetry` event. Nothing leaves the process b
 
 ## Roadmap
 
-NBI 4.x is stable. New features land in minor releases (4.5, 4.6, …); breaking changes are reserved for the next major (5.x) and will be announced in the [changelog](CHANGELOG.md).
+NBI 5.x is stable. New features land in minor releases (5.1, 5.2, …); breaking changes are reserved for the next major (6.x) and will be announced in the [changelog](CHANGELOG.md). Upgrading from 4.x? See the [5.0.0 migration note](CHANGELOG.md#migration-note) for the `fastmcp` → `mcp` dependency swap, the new path sandboxes, and the workspace-file-attach behavior change.
 
 ## License
 
