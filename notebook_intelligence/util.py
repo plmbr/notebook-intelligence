@@ -4,12 +4,13 @@ import os
 import base64
 import re
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 from typing import Optional, Set
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 import asyncio
 from tornado import ioloop
 
@@ -226,6 +227,122 @@ def split_csv(raw) -> list:
     if not isinstance(raw, str):
         return []
     return [token for token in (part.strip() for part in raw.split(",")) if token]
+
+
+_MACHINE_ID_PATHS: tuple[str, ...] = (
+    "/etc/machine-id",
+    "/var/lib/dbus/machine-id",
+)
+
+
+def _read_machine_id() -> str:
+    """Read the systemd / dbus machine ID. Empty string when unavailable.
+
+    The two standard paths are tried in priority order. Containers that
+    don't surface either file still produce a stable per-pod string from
+    the hostname fallback in ``_machine_user_secret``.
+    """
+    for path in _MACHINE_ID_PATHS:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                value = f.read().strip()
+                if value:
+                    return value
+        except OSError:
+            continue
+    return ""
+
+
+def _safe_getuid() -> str:
+    """``str(os.getuid())`` on POSIX, ``""`` on platforms without ``getuid``."""
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        return ""
+    try:
+        return str(getuid())
+    except OSError:
+        return ""
+
+
+def _machine_user_secret() -> str:
+    """Stable per-pod + per-user secret to mix into token KDF input.
+
+    Resolution order, first non-empty wins (the rest still contribute
+    to the concatenation, since stacking weakly-unique values can only
+    help isolation, never hurt):
+
+    1. ``NBI_POD_IDENTITY`` env var. Highest-priority because in a
+       multi-tenant K8s deployment ``/etc/machine-id`` is typically the
+       host node's value (shared across co-tenants) and POSIX uid
+       collapses to ``1000`` for every ``jovyan`` container. Admins
+       point this at a per-pod or per-user value (e.g., the JupyterHub
+       username, the spawn token) for real cross-tenant isolation.
+    2. ``/etc/machine-id`` or ``/var/lib/dbus/machine-id`` if mounted.
+    3. ``socket.gethostname()`` as a last resort; in K8s the hostname
+       equals the pod name, which differs across pods but is not a
+       confidential value.
+
+    POSIX uid is always included, but is not by itself sufficient on
+    a typical JupyterHub deployment (every tenant runs as uid 1000).
+    """
+    parts: list[str] = [_safe_getuid()]
+    explicit = os.environ.get("NBI_POD_IDENTITY", "").strip()
+    if explicit:
+        parts.append(explicit)
+    machine_id = _read_machine_id()
+    if machine_id:
+        parts.append(machine_id)
+    try:
+        hostname = socket.gethostname() or ""
+    except OSError:
+        hostname = ""
+    parts.append(hostname)
+    return "::".join(parts)
+
+
+def _derive_token_password(password: str) -> str:
+    """Combine the admin-supplied password with the machine/user secret.
+
+    The result is fed to ``encrypt_with_password`` / ``decrypt_with_password``
+    in place of the bare ``password``. The on-disk blob format is
+    unchanged; the change is purely in the KDF input.
+    """
+    return f"{_machine_user_secret()}::{password}"
+
+
+def encrypt_user_secret(password: str, data: bytes) -> bytes:
+    """Encrypt ``data`` with a password mixed with the per-pod secret.
+
+    The on-disk format is identical to ``encrypt_with_password`` so
+    callers writing through the existing read/write pipelines don't
+    need a schema bump; the change is purely in the KDF input.
+    """
+    return encrypt_with_password(_derive_token_password(password), data)
+
+
+def decrypt_user_secret(
+    password: str, ciphertext: bytes, *, allow_legacy: bool = True
+) -> tuple[bytes, bool]:
+    """Decrypt with the per-pod password; on failure, fall back to the
+    bare password for blobs written before this change rolled out.
+
+    Returns a (plaintext, was_legacy) tuple so the caller can re-encrypt
+    legacy blobs in place to upgrade them transparently. When
+    ``allow_legacy=False`` the bare-password fallback is skipped, useful
+    for tests that want to confirm a blob was written under v2.
+
+    Only ``InvalidToken`` falls through to the legacy path; other
+    exceptions (e.g. ``ValueError`` from a corrupted blob) propagate so
+    a programmer error or malformed-on-disk file isn't masked as a
+    legacy blob.
+    """
+    derived = _derive_token_password(password)
+    try:
+        return decrypt_with_password(derived, ciphertext), False
+    except InvalidToken:
+        if not allow_legacy:
+            raise
+        return decrypt_with_password(password, ciphertext), True
 
 
 def get_enabled_builtin_tools_in_env() -> Set[str]:

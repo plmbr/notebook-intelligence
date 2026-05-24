@@ -14,7 +14,7 @@ import datetime as dt
 import logging
 from notebook_intelligence.api import BackendMessageType, CancelToken, ChatResponse, CompletionContext, MarkdownData
 from notebook_intelligence.config import _atomic_write_json
-from notebook_intelligence.util import decrypt_with_password, encrypt_with_password, ThreadSafeWebSocketConnector
+from notebook_intelligence.util import decrypt_user_secret, encrypt_user_secret, ThreadSafeWebSocketConnector
 
 from ._version import __version__ as NBI_VERSION
 
@@ -121,7 +121,25 @@ def read_stored_github_access_token() -> str:
 
         if base64_access_token is not None:
             base64_bytes = base64.b64decode(base64_access_token.encode('utf-8'))
-            return decrypt_with_password(access_token_password, base64_bytes).decode('utf-8')
+            token_bytes, was_legacy = decrypt_user_secret(
+                access_token_password, base64_bytes
+            )
+            if was_legacy:
+                # Re-encrypt under the machine-derived KDF so subsequent
+                # reads no longer fall back to the bare-password path.
+                # Best-effort: if the rewrite fails the next read just
+                # takes the same legacy branch again.
+                log.info(
+                    "Upgrading stored GitHub access token to per-pod KDF"
+                )
+                try:
+                    write_github_access_token(token_bytes.decode('utf-8'))
+                except Exception as rewrite_exc:
+                    log.warning(
+                        "Token upgrade rewrite failed (will retry next read): %s",
+                        rewrite_exc,
+                    )
+            return token_bytes.decode('utf-8')
     except Exception as e:
         log.error(f"Failed to read GitHub access token: {e}")
 
@@ -142,7 +160,9 @@ def _save_user_data(user_data: dict) -> None:
 
 def write_github_access_token(access_token: str) -> bool:
     try:
-        encrypted_access_token = encrypt_with_password(access_token_password, access_token.encode())
+        encrypted_access_token = encrypt_user_secret(
+            access_token_password, access_token.encode()
+        )
         base64_bytes = base64.b64encode(encrypted_access_token)
         base64_access_token = base64_bytes.decode('utf-8')
 
