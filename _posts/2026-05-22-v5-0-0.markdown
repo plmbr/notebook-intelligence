@@ -1,0 +1,112 @@
+---
+layout: post
+title: "NBI 5.0.0 — three new Settings tabs, agent-aware UX, and a wide admin-policy surface"
+date: 2026-05-22 06:00:00 -0700
+permalink: /blog/v5-0-0/
+description: "Skills, Claude MCP, and Plugins each get their own Settings tab with admin policies. Five coding-agent launcher tiles. Real progress feedback. Terminal drag-drop. Wide accessibility and security passes. The official mcp SDK replaces fastmcp."
+---
+
+NBI 5.0.0 is a broad release. It promotes Skills out of the Claude-mode sub-tab into its own top-level Settings tab, adds two more (Claude MCP Servers, Claude Plugins), surfaces five coding-agent launcher tiles, hardens the chat sidebar's agent-aware UX, lands an accessibility pass across every NBI panel, swaps `fastmcp` for the official `mcp` SDK, and ships a stack of security work. Most existing config keeps working — the version bump reflects the size of the new admin-policy / env-var surface that operators will want to review.
+
+If you just want the upgrade command, jump to [Install](#install). The migration notes worth reading before upgrading are in the [release notes](https://github.com/plmbr/notebook-intelligence/blob/main/CHANGELOG.md#500---2026-05-22).
+
+## Three new Settings tabs
+
+The Settings dialog gains three top-level tabs. Each ships with an admin-policy gate.
+
+- **Skills.** Promoted from a Claude-mode sub-tab; visible in any mode, with a hint banner when Claude mode is off. New policy `NBI_SKILLS_MANAGEMENT_POLICY`. `force-off` hides the tab, 403s every `/notebook-intelligence/skills/*` route, and suppresses the managed-skills reconciler.
+- **Claude MCP Servers.** Manages the user, project, and local-scope MCP entries Claude Code reads from `~/.claude.json` and `<project>/.mcp.json`. Independent of the existing NBI MCP tab — the two never appear at the same time. New policy `NBI_CLAUDE_MCP_MANAGEMENT_POLICY`. Per-workspace toggle on/off without removing an entry. A JSON-paste path accepts Claude / Cursor / VS Code MCP config blobs.
+- **Claude Plugins.** Wraps `claude plugin` for install / uninstall / enable / disable / marketplace add. Marketplace picker shows source repo, version, and description. Per-plugin **Update** button when a newer version is available. New policies `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY` (whole tab) and `NBI_ALLOW_GITHUB_PLUGIN_IMPORT` (marketplace sources, mirroring 4.8.0's `NBI_ALLOW_GITHUB_SKILL_IMPORT`).
+
+GitHub-sourced marketplace adds reuse the Skills `GITHUB_TOKEN` / `GH_TOKEN` / `gh auth token` precedence; tokens go through the subprocess env, never argv.
+
+## Coding-agent launcher tiles
+
+The JupyterLab launcher gains tiles for every coding-agent CLI on `PATH`:
+
+- Claude Code (no longer gated by Claude chat mode being on)
+- opencode (`NBI_OPENCODE_CLI_PATH` override)
+- Pi (`NBI_PI_CLI_PATH`)
+- GitHub Copilot CLI (`NBI_GITHUB_COPILOT_CLI_PATH`)
+- OpenAI Codex (`NBI_CODEX_CLI_PATH`)
+
+Clicking a tile opens a terminal at the file-browser's current directory. The Claude tile additionally exposes a session picker for `~/.claude/projects/` transcripts. Each tile only appears when the corresponding binary is on `PATH`.
+
+Admins can hide tiles via `disabled_coding_agent_launchers` (traitlet, list-valued). Per-pod re-enable is available via `NBI_ENABLED_CODING_AGENT_LAUNCHERS` when `allow_enabling_coding_agent_launchers_with_env` is on, so a base image can disable launchers globally and specific pods can opt back in.
+
+## Agent-aware chat UX
+
+Long Claude turns no longer feel hung. The sidebar surfaces:
+
+- An elapsed-time counter that starts on first request and updates per second.
+- A heartbeat-driven pulse with a "may be slow" copy flip after 30 seconds.
+- Inline tool-call narration as the agent works.
+- A **New chat session** button next to the gear that restarts the SDK client — same effect as typing `/clear`, without typing.
+
+A first-run **chat-sidebar tour** highlights the gear, file-attach button, chat-mode dropdown, and (when available) the Claude session history icon. Replays from the command palette via "Show NBI tour". The tour is capability-aware: steps for unavailable CLIs are skipped automatically.
+
+## Refresh open files when changed on disk
+
+When Claude (or any external process) edits a file you have open, the tab reverts to the on-disk version automatically. Tabs with unsaved local edits are skipped so your work is never clobbered. Default on; toggle in the **NBI Settings dialog → External changes**. Admin pin via `NBI_REFRESH_OPEN_FILES_ON_DISK_CHANGE_POLICY` or the matching traitlet.
+
+This closes the "Claude edited the file but my tab still shows the old version" gap that was the most visible rough edge in agent-mode notebook work.
+
+## Workspace files attach as @-mention pointers in Claude mode
+
+In Claude mode, attaching a workspace file no longer reads its contents client-side and injects them as a fenced code block. Instead the backend emits an `@<workspace-relative-path>` pointer and Claude's Read tool fetches what it needs. This unblocks three categories that the content-injection path couldn't handle:
+
+- **Images.** Previously truncated to ASCII garbage.
+- **Large files.** Previously hit the prompt-token ceiling and got silently dropped.
+- **Notebooks.** Previously serialized as raw JSON; now cell-aware, so the agent reads cells one at a time.
+
+Notebook cell-pointer prose and text-selection line ranges are preserved so deictic references ("explain this cell", "why is this broken") still have a referent.
+
+## Terminal drag-drop file attach
+
+Drop a file onto a JupyterLab terminal to insert either an `@`-mention path (for chat consumption) or a shell-escaped raw path. A per-terminal toolbar toggle switches modes; Shift inverts for one drop. New admin policy `NBI_TERMINAL_DRAG_DROP_POLICY` (`force-off` for regulated tenants). Tunables `NBI_UPLOAD_MAX_MB` (default `50`) and `NBI_UPLOAD_RETENTION_HOURS` (default `24`) govern the shared upload-staging endpoint used by both terminal drops and chat-sidebar attachments.
+
+## Settings dialog gains a Workspace section
+
+Beyond the three new tabs, the General tab grows an **External changes** section with the open-files refresh toggle described above, and a **Choose start directory** picker on each coding-agent tile (and "New Session" on the Claude resume dialog).
+
+## Accessibility pass
+
+A multi-PR accessibility pass landed across most NBI surfaces:
+
+- Keyboard navigation works end-to-end in the chat sidebar, popovers, and Settings tabs.
+- Tab order is logical, focus traps inside dialogs, Escape closes correctly.
+- Screen-reader landmarks and live regions added for streaming chat output.
+- Audited under JupyterLab's light, dark, and high-contrast themes.
+- The "open notebook" link in chat responses is keyboard-reachable (was previously click-only).
+
+## Security hardening
+
+5.0.0 ships a stack of security work. The migration-impacting items:
+
+- **Shell tool's `working_directory` is sandboxed to `jupyter_root`.** An agent-supplied absolute path or `..` traversal is rejected.
+- **Claude UI-bridge tool paths sandboxed to `jupyter_root`.** `open_file_in_jupyter_ui` and `run_command_in_jupyter_terminal` route through `safe_jupyter_path`. The Claude Agent SDK subprocess is itself rooted at `jupyter_root` via its `cwd` option.
+- **Encrypted GitHub token file enforces mode 0o600 on every save.** An out-of-band `chmod` that widens permissions is undone on the next write.
+- **Process-env secrets scrubbed from shell-tool output.** The shell tool no longer leaks `API_KEY` / `TOKEN` / `SECRET`-like env values into captured stdout/stderr returned to the model.
+- **MCP user config shape validated before persisting.** Malformed JSON-paste entries are rejected server-side.
+- **Anchor URIs in chat messages filtered against an XSS allowlist.** `javascript:`, `data:`, `vbscript:`, and tab/NEL/bidi-override codepoint smuggling are blocked at render time.
+- **Copilot WebSocket upgrades authenticated and origin-checked.** Cross-origin and unauthenticated upgrade attempts are refused. Affects any custom client hitting `WebsocketCopilotHandler` directly.
+- **GitHub Enterprise host detection hardened** for marketplace add — `git.acme.example.com` correctly routes through the GHE token / API path instead of being misclassified as public GitHub.
+- **Runtime kill switch for the managed-skills reconciler** (`POST /notebook-intelligence/skills/reconciler/stop`) provides per-pod incident response without a server restart.
+
+## fastmcp → official mcp SDK
+
+NBI now uses the official Anthropic `mcp` SDK via a thin internal shim. `fastmcp` is no longer a dependency. The swap was driven by a `python-dotenv` pin conflict between `fastmcp>=1.1.0` and `litellm==1.0.1` that blocked installs on Python 3.14, plus CVE fixes via `urllib3>=2.7.0` (CVE-2026-44431 / CVE-2026-44432).
+
+**If your image pinned `fastmcp`** because prior docs recommended it, drop the pin. **If you have downstream Python code that imported `fastmcp` transitively via NBI,** declare it as a direct dependency in your own image — the transitive path no longer exists.
+
+## Dynamic GitHub Copilot model discovery
+
+NBI now queries `https://api.githubcopilot.com/models` on each Copilot token refresh and rebuilds the chat-model dropdown from the live response. Newer Copilot chat models appear in the dropdown as soon as GitHub publishes them; the hardcoded fallback list is used only on a transient `/models` fetch failure.
+
+## Install
+
+```bash
+pip install --upgrade notebook-intelligence
+```
+
+Then restart JupyterLab. Full release notes — including the migration note for shell-tool sandboxing, the Claude session inventory move, and the WebSocket origin-check — in the [v5.0.0 CHANGELOG](https://github.com/plmbr/notebook-intelligence/blob/main/CHANGELOG.md#500---2026-05-22).

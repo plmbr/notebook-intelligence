@@ -9,10 +9,15 @@ NBI's deepest integration is with [Claude Code](https://docs.claude.com/en/docs/
 
 ## What you get
 
-- **Session resume.** A Claude Code tile on the JupyterLab launcher opens a picker listing every session in `~/.claude/projects/`. Resume a transcript or start a new session scoped to the file browser's current directory.
+- **Session resume.** A Claude Code tile on the JupyterLab launcher opens a picker listing every session in `~/.claude/projects/`. Resume a transcript or start a new session scoped to a directory you pick. The tile is no longer gated by Claude chat mode — it appears whenever the `claude` CLI is on `PATH`.
 - **Agent-mode notebook editing.** The agent can create notebooks, add and edit cells, run them, read the output, and fix errors without leaving the document.
+- **Real progress feedback** during long Claude turns. An elapsed-time counter, a heartbeat-driven pulse with a "may be slow" copy flip after 30 seconds, and inline tool-call narration so the sidebar reflects what the agent is doing.
+- **Open files refresh on disk change.** When Claude edits a file you have open, the tab reverts to the disk version automatically. Tabs with unsaved local edits are skipped. Toggle in **NBI Settings → External changes**.
+- **Workspace files as @-mention pointers.** Attaching a file ships an `@<path>` pointer instead of inlining contents, so images, large files, and notebooks (cell-aware) all work where the older path silently truncated them.
 - **Tools, Skills, Plugins, MCP.** Everything the standalone Claude CLI can use is available from inside JupyterLab — see [Skills &amp; Plugins]({{ '/features/skills-plugins/' | relative_url }}) and [MCP servers]({{ '/features/mcp/' | relative_url }}).
 - **Cell output actions.** Right-click a cell output for **Explain**, **Ask**, or **Troubleshoot** quick actions that open the chat with the output already attached as context.
+- **Terminal drag-drop file attach** with `@`-mention or shell-escaped raw modes. Shift inverts the mode for one drop.
+- **New chat session** button next to the gear restarts the SDK client without typing `/clear`.
 - **AGENTS.md support.** When a project root contains an `AGENTS.md`, NBI appends it under the system prompt's "Additional Guidelines" alongside the existing ruleset injection.
 
 ## Setup
