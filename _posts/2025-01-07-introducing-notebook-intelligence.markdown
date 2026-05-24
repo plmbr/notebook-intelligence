@@ -8,7 +8,7 @@ redirect_from:
   - /blog/2025/01/07/introducing-notebook-intelligence.html
   - /blog/introducing-notebook-intelligence/
 ---
-I am thrilled to announce the release of [Notebook Intelligence](https://github.com/notebook-intelligence/notebook-intelligence){:target="_blank"} (NBI)! NBI is an AI coding assistant and extensible AI framework for JupyterLab. It uses [GitHub Copilot](https://github.com/features/copilot){:target="_blank"} under the hood and is inspired by its design principles. NBI greatly boosts the productivity of JupyterLab users with AI assistance powered by GitHub Copilot.
+I am thrilled to announce the release of [Notebook Intelligence](https://github.com/plmbr/notebook-intelligence){:target="_blank"} (NBI)! NBI is an AI coding assistant and extensible AI framework for JupyterLab. It uses [GitHub Copilot](https://github.com/features/copilot){:target="_blank"} under the hood and is inspired by its design principles. NBI greatly boosts the productivity of JupyterLab users with AI assistance powered by GitHub Copilot.
 
 ![Generate code](/notebook-intelligence/assets/images/generate-code.gif)
 
@@ -93,7 +93,7 @@ Notebook Intelligence provides APIs to let developers extend its capabilities. Y
 
 ## Try it out and share your feedback!
 
-[Notebook Intelligence](https://github.com/notebook-intelligence/notebook-intelligence){:target="_blank"} is currently in beta and designed for Python (support for more languages coming soon). Please try it out and share your feedback and any feature requests using project's [GitHub issues](https://github.com/notebook-intelligence/notebook-intelligence/issues){:target="_blank"}. User feedback from the community will shape the project's roadmap.
+[Notebook Intelligence](https://github.com/plmbr/notebook-intelligence){:target="_blank"} is currently in beta and designed for Python (support for more languages coming soon). Please try it out and share your feedback and any feature requests using project's [GitHub issues](https://github.com/plmbr/notebook-intelligence/issues){:target="_blank"}. User feedback from the community will shape the project's roadmap.
 
 ## About the Author
 

@@ -13,4 +13,4 @@ The extension is built to be extended. Connect [Model Context Protocol](https://
 
 For administrators, NBI ships policy controls that lock specific providers, models, and endpoints via environment variables. A platform team can decide what a managed JupyterHub allows before anyone signs in — each capability has a `force-on` / `force-off` / `user-choice` triad with a matching `NBI_*_POLICY` env var.
 
-NBI is open source and BSD-licensed. It is maintained by [Mehmet Bektaş](https://github.com/mbektas) and a growing group of contributors from the Jupyter community. The codebase lives at [github.com/notebook-intelligence/notebook-intelligence](https://github.com/notebook-intelligence/notebook-intelligence).
+NBI is open source and BSD-licensed. It is maintained by [Mehmet Bektaş](https://github.com/mbektas) and a growing group of contributors from the Jupyter community. The codebase lives at [github.com/plmbr/notebook-intelligence](https://github.com/plmbr/notebook-intelligence).

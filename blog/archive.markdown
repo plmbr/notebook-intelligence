@@ -7,7 +7,7 @@ permalink: /blog/archive/
 
 <div class="callout callout--warn">
   <p class="callout__title">These posts are historical.</p>
-  <p>The product they describe — single-provider, Copilot-only NBI — is several major releases behind. For current information, see the <a href="{{ '/' | relative_url }}">home page</a> or the <a href="https://github.com/notebook-intelligence/notebook-intelligence/blob/main/CHANGELOG.md">CHANGELOG</a>.</p>
+  <p>The product they describe — single-provider, Copilot-only NBI — is several major releases behind. For current information, see the <a href="{{ '/' | relative_url }}">home page</a> or the <a href="https://github.com/plmbr/notebook-intelligence/blob/main/CHANGELOG.md">CHANGELOG</a>.</p>
 </div>
 
 <ul class="post-list">

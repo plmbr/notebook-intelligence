@@ -29,20 +29,20 @@ skills:
 
 Point `NBI_SKILLS_MANIFEST` at the manifest's URL or filesystem path. NBI's reconciler installs every Skill at startup and re-syncs every 24h (`NBI_SKILLS_MANIFEST_INTERVAL` overrides). Managed Skills are read-only in the UI — users can't edit, rename, or delete them, and the reconciler restores any that disappear from disk.
 
-Full reference: [docs/skills.md](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/skills.md).
+Full reference: [docs/skills.md](https://github.com/plmbr/notebook-intelligence/blob/main/docs/skills.md).
 
 ## Restructured documentation
 
 The README has been rewritten with a table of contents and a concept glossary. Reference content moved out of the README and into focused docs:
 
-- [`SECURITY.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/SECURITY.md) — private disclosure, threat model, supply-chain posture.
-- [`PRIVACY.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/PRIVACY.md) — what NBI sends where.
-- [`docs/admin-guide.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/admin-guide.md) — every `NBI_*` env var and policy.
-- [`docs/rulesets.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/rulesets.md) — markdown-based prompt injection.
-- [`docs/skills.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/skills.md) — Skills authoring, importing, and the manifest reconciler.
-- [`docs/troubleshooting.md`](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/troubleshooting.md) — common issues with copy-pasteable fixes.
+- [`SECURITY.md`](https://github.com/plmbr/notebook-intelligence/blob/main/SECURITY.md) — private disclosure, threat model, supply-chain posture.
+- [`PRIVACY.md`](https://github.com/plmbr/notebook-intelligence/blob/main/PRIVACY.md) — what NBI sends where.
+- [`docs/admin-guide.md`](https://github.com/plmbr/notebook-intelligence/blob/main/docs/admin-guide.md) — every `NBI_*` env var and policy.
+- [`docs/rulesets.md`](https://github.com/plmbr/notebook-intelligence/blob/main/docs/rulesets.md) — markdown-based prompt injection.
+- [`docs/skills.md`](https://github.com/plmbr/notebook-intelligence/blob/main/docs/skills.md) — Skills authoring, importing, and the manifest reconciler.
+- [`docs/troubleshooting.md`](https://github.com/plmbr/notebook-intelligence/blob/main/docs/troubleshooting.md) — common issues with copy-pasteable fixes.
 
-If you've been linking deep into the README from internal wikis, the new home for each section is documented in the [migration table at the top of the README](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/README.md).
+If you've been linking deep into the README from internal wikis, the new home for each section is documented in the [migration table at the top of the README](https://github.com/plmbr/notebook-intelligence/blob/main/README.md).
 
 ## Windows Claude mode reliability
 
@@ -69,4 +69,4 @@ Skill imports from GitHub reject tarball entries containing absolute paths or `.
 pip install --upgrade notebook-intelligence
 ```
 
-Then restart JupyterLab. Full changes in the [CHANGELOG](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/CHANGELOG.md#460--2026-04-29).
+Then restart JupyterLab. Full changes in the [CHANGELOG](https://github.com/plmbr/notebook-intelligence/blob/main/CHANGELOG.md#460--2026-04-29).

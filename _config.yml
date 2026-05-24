@@ -18,7 +18,7 @@ author:
 social:
   name: Notebook Intelligence
   links:
-    - https://github.com/notebook-intelligence/notebook-intelligence
+    - https://github.com/plmbr/notebook-intelligence
     - https://twitter.com/mbektash
 
 # Default Open Graph image. Per-post overrides via front-matter `image:`.

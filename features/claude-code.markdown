@@ -44,7 +44,7 @@ Or via environment variables for managed deployments — see [admin policies]({{
 ## Reference
 
 - [Claude Code documentation](https://docs.claude.com/en/docs/claude-code) (Anthropic)
-- [NBI Claude mode reference](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/README.md#claude-mode)
-- [Skills documentation](https://github.com/notebook-intelligence/notebook-intelligence/blob/main/docs/skills.md)
+- [NBI Claude mode reference](https://github.com/plmbr/notebook-intelligence/blob/main/README.md#claude-mode)
+- [Skills documentation](https://github.com/plmbr/notebook-intelligence/blob/main/docs/skills.md)
 
 <p style="margin-top: var(--space-10);"><a class="btn btn--primary" href="{{ '/install/' | relative_url }}">Install NBI</a></p>
