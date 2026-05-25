@@ -2182,9 +2182,6 @@ class WebsocketCopilotHandler(APIHandler, WebSocketMixin, websocket.WebSocketHan
         ai_service_manager.websocket_connector = ws_connector
         github_copilot.websocket_connector = ws_connector
 
-    def check_origin(self, origin=None):
-        return True
-
     def _run_request_thread(self, coro, message_id):
         """Worker-thread entrypoint that pops the messageId from
         `_messageCallbackHandlers` on completion (success or failure).
