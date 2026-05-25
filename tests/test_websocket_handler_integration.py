@@ -345,7 +345,7 @@ class TestWebsocketHandlerIntegration:
     @patch('notebook_intelligence.extension.NotebookIntelligence')
     @patch('notebook_intelligence.extension.threading.Thread')
     def test_on_message_claude_mode_image_branch_unchanged(
-        self, mock_thread, mock_nb_intel, mock_ai_manager
+        self, mock_thread, mock_nb_intel, mock_ai_manager, tmp_path
     ):
         """Pasted images in Claude mode keep the existing path-based
         message format. The new @-mention branch must not shadow the
@@ -368,6 +368,9 @@ class TestWebsocketHandlerIntegration:
                 context_factory=mock_factory
             )
 
+        upload_root = tmp_path / "nbi-uploads"
+        upload_root.mkdir()
+        uploaded_image = upload_root / "pasted.png"
         message = {
             'id': 'test-message-id',
             'type': 'chat-request',
@@ -380,7 +383,7 @@ class TestWebsocketHandlerIntegration:
                 'toolSelections': {},
                 'additionalContext': [
                     {
-                        'filePath': '/tmp/nbi-uploads-xyz/pasted.png',
+                        'filePath': str(uploaded_image),
                         'content': '',
                         'currentCellContents': None,
                         'startLine': 1,
@@ -393,15 +396,16 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
+            handler.on_message(json.dumps(message))
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
         context_message = chat_request.chat_history[0]["content"]
         assert "The user pasted an image" in context_message
-        assert "/tmp/nbi-uploads-xyz/pasted.png" in context_message
+        assert str(uploaded_image) in context_message
         # Sanity-check the new @-mention branch didn't intercept this case.
-        assert "@/tmp/nbi-uploads-xyz/pasted.png" not in context_message
+        assert f"@{uploaded_image}" not in context_message
 
     @patch('notebook_intelligence.extension.ai_service_manager')
     @patch('notebook_intelligence.extension.NotebookIntelligence')
@@ -463,7 +467,7 @@ class TestWebsocketHandlerIntegration:
     @patch('notebook_intelligence.extension.NotebookIntelligence')
     @patch('notebook_intelligence.extension.threading.Thread')
     def test_on_message_claude_mode_upload_non_image_uses_absolute_path(
-        self, mock_thread, mock_nb_intel, mock_ai_manager
+        self, mock_thread, mock_nb_intel, mock_ai_manager, tmp_path
     ):
         """Uploaded text/binary files (non-image) reach the @-mention
         branch with an absolute path; the relpath-against-workspace
@@ -485,6 +489,9 @@ class TestWebsocketHandlerIntegration:
                 context_factory=mock_factory
             )
 
+        upload_root = tmp_path / "nbi-uploads"
+        upload_root.mkdir()
+        uploaded_file = upload_root / "report.pdf"
         message = {
             'id': 'test-message-id',
             'type': 'chat-request',
@@ -497,7 +504,7 @@ class TestWebsocketHandlerIntegration:
                 'toolSelections': {},
                 'additionalContext': [
                     {
-                        'filePath': '/tmp/nbi-uploads-abc/report.pdf',
+                        'filePath': str(uploaded_file),
                         'content': '',
                         'currentCellContents': None,
                         'startLine': 1,
@@ -508,19 +515,75 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
+            handler.on_message(json.dumps(message))
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
         context_message = chat_request.chat_history[0]["content"]
-        assert "@/tmp/nbi-uploads-abc/report.pdf" in context_message
+        assert f"@{uploaded_file}" in context_message
         assert "Read it if relevant" in context_message
 
     @patch('notebook_intelligence.extension.ai_service_manager')
     @patch('notebook_intelligence.extension.NotebookIntelligence')
     @patch('notebook_intelligence.extension.threading.Thread')
+    def test_on_message_rejects_forged_upload_path_outside_upload_dir(
+        self, mock_thread, mock_nb_intel, mock_ai_manager, tmp_path
+    ):
+        mock_nb_intel.root_dir = "/workspace"
+        mock_ai_manager.handle_chat_request = Mock()
+        mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.chat_model = Mock()
+        mock_ai_manager.chat_model.context_window = 4096
+
+        mock_factory = Mock(spec=RuleContextFactory)
+        mock_factory.create.return_value = Mock(spec=RuleContext)
+
+        with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            handler = WebsocketCopilotHandler(
+                self._create_mock_application(),
+                self._create_mock_request(),
+                context_factory=mock_factory
+            )
+
+        upload_root = tmp_path / "nbi-uploads"
+        upload_root.mkdir()
+        outside_upload_root = tmp_path / "outside-secret.txt"
+        outside_upload_root.write_text("secret")
+        message = {
+            'id': 'test-message-id',
+            'type': 'chat-request',
+            'data': {
+                'chatId': 'test-chat-id',
+                'prompt': 'Read this upload',
+                'language': 'python',
+                'filename': 'notebook.ipynb',
+                'chatMode': 'ask',
+                'toolSelections': {},
+                'additionalContext': [
+                    {
+                        'filePath': str(outside_upload_root),
+                        'content': '',
+                        'currentCellContents': None,
+                        'startLine': 1,
+                        'endLine': 1,
+                        'isUpload': True
+                    }
+                ]
+            }
+        }
+
+        with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
+            handler.on_message(json.dumps(message))
+
+        chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
+        assert chat_request.chat_history == []
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
     def test_on_message_claude_mode_rejects_control_char_filename(
-        self, mock_thread, mock_nb_intel, mock_ai_manager
+        self, mock_thread, mock_nb_intel, mock_ai_manager, tmp_path
     ):
         """A filename containing newlines / bidi-override controls /
         other text-rendering hazards is dropped before being embedded
@@ -543,14 +606,16 @@ class TestWebsocketHandlerIntegration:
                 context_factory=mock_factory
             )
 
+        upload_root = tmp_path / "nbi-uploads"
+        upload_root.mkdir()
         # Upload path keeps the raw frontend-supplied filePath, so we
         # don't have to fight the workspace sandbox to exercise the
         # codepoint guard. Try newline, line-separator, and a bidi
         # override in sequence; all three must be rejected.
         hazardous_paths = [
-            "/tmp/nbi-uploads-abc/bad\nname.pdf",
-            "/tmp/nbi-uploads-abc/bad name.pdf",
-            "/tmp/nbi-uploads-abc/bad‮name.pdf",
+            str(upload_root / "bad\nname.pdf"),
+            str(upload_root / "bad name.pdf"),
+            str(upload_root / "bad‮name.pdf"),
         ]
         for hazardous in hazardous_paths:
             mock_ai_manager.handle_chat_request.reset_mock()
@@ -577,7 +642,8 @@ class TestWebsocketHandlerIntegration:
                 }
             }
 
-            handler.on_message(json.dumps(message))
+            with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
+                handler.on_message(json.dumps(message))
 
             chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
             assert chat_request.chat_history == [], (

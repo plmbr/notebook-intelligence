@@ -10,8 +10,10 @@ Covers the backend image branch added to WebsocketCopilotHandler.on_message:
 """
 
 import base64
+from contextlib import nullcontext
 import json
 import logging
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tornado.httputil import HTTPServerRequest
@@ -56,7 +58,19 @@ def _on_message(handler, additional_context, prompt="hello"):
             "additionalContext": additional_context,
         }
     })
-    handler.on_message(msg)
+    upload_paths = [
+        Path(c["filePath"]) for c in additional_context if c.get("isUpload")
+    ]
+    upload_dir_patch = (
+        patch(
+            "notebook_intelligence.extension._upload_dir",
+            str(upload_paths[0].parent),
+        )
+        if upload_paths
+        else nullcontext()
+    )
+    with upload_dir_patch:
+        handler.on_message(msg)
     return handler.chat_history.messages[CHAT_ID]
 
 

@@ -1571,6 +1571,18 @@ def _get_upload_dir() -> str:
     return _upload_dir
 
 
+def _resolve_upload_path(file_path: str) -> str | None:
+    """Return a real upload path only when it stays under NBI's upload root."""
+    upload_root = os.path.realpath(_get_upload_dir())
+    resolved = os.path.realpath(file_path)
+    try:
+        if os.path.commonpath([resolved, upload_root]) != upload_root:
+            return None
+    except ValueError:
+        return None
+    return resolved
+
+
 def _sweep_upload_dir(retention_hours: int) -> None:
     """Best-effort removal of upload subdirs past the retention window.
 
@@ -2219,7 +2231,16 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
                 is_upload = context.get("isUpload", False)
                 is_image = context.get("isImage", False)
                 file_path = context["filePath"]
-                if not is_upload:
+                if is_upload:
+                    resolved_upload_path = _resolve_upload_path(file_path)
+                    if resolved_upload_path is None:
+                        log.warning(
+                            "Rejecting out-of-upload-dir context path: %r",
+                            context["filePath"],
+                        )
+                        continue
+                    file_path = resolved_upload_path
+                else:
                     # Workspace-relative paths arrive verbatim from the
                     # frontend (file browser drag, @-mention picker, ...).
                     # path.join silently passes through absolute paths and
