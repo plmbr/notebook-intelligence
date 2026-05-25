@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
@@ -29,6 +30,16 @@ class TestWebsocketHandlerIntegration:
         request = Mock(spec=HTTPServerRequest)
         request.connection = Mock()
         return request
+
+    def _run_on_message(self, handler, message):
+        # `on_message` is async; tests need to drive it to completion so
+        # the context factory and request-building side effects actually
+        # happen before assertions.
+        handler._jupyter_current_user = "test-user"
+        chat_id = message.get("data", {}).get("chatId")
+        if chat_id is not None:
+            handler.chat_history.messages[chat_id] = []
+        asyncio.run(handler.on_message(json.dumps(message)))
     
     def test_init_with_default_context_factory(self):
         """Test WebsocketCopilotHandler initialization with default context factory."""
@@ -94,7 +105,7 @@ class TestWebsocketHandlerIntegration:
         }
         
         # Call on_message
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
         
         # Verify context factory was called
         mock_factory.create.assert_called_once_with(
@@ -152,7 +163,7 @@ class TestWebsocketHandlerIntegration:
         }
         
         # Call on_message
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
         
         # Verify context factory was called
         mock_factory.create.assert_called_once_with(
@@ -205,7 +216,7 @@ class TestWebsocketHandlerIntegration:
         }
         
         # Call on_message
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
         
         # Verify context factory was called with agent mode
         mock_factory.create.assert_called_once_with(
@@ -261,7 +272,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         mock_ai_manager.handle_chat_request.assert_called_once()
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
@@ -327,7 +338,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         mock_ai_manager.handle_chat_request.assert_called_once()
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
@@ -393,7 +404,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -452,7 +463,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         # No context message produced; the sandbox rejected the path
@@ -508,7 +519,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -577,7 +588,7 @@ class TestWebsocketHandlerIntegration:
                 }
             }
 
-            handler.on_message(json.dumps(message))
+            self._run_on_message(handler, message)
 
             chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
             assert chat_request.chat_history == [], (
@@ -639,7 +650,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -705,7 +716,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -765,7 +776,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1

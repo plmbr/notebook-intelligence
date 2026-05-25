@@ -142,6 +142,8 @@ class ChatRequest:
     cancel_token: CancelToken = None
     # NEW: Add context for rule evaluation
     rule_context: Optional[RuleContext] = None
+    # NEW: Internal conversation id for logging
+    conversation_id: str = None
 
 @dataclass
 class ResponseStreamData:
@@ -633,6 +635,13 @@ class ChatParticipant:
                     if message.get('tool_calls', None) is not None:
                         for tool_call in message['tool_calls']:
                             tool_call_rounds.append(tool_call)
+                        
+                        # MySQL logging: Log assistant message with tool calls
+                        if request.conversation_id:
+                            msg_id = str(uuid.uuid4())
+                            request.host.mysql_manager.add_message(
+                                msg_id, request.conversation_id, "assistant", content, reasoning, message['tool_calls']
+                            )
 
                     messages.append(message)
 
@@ -662,6 +671,12 @@ class ChatParticipant:
                         args = tool_call['function']['arguments']
                     else:
                         args = fuzzy_json_loads(tool_call['function']['arguments'])
+                    
+                    # MySQL logging: Log tool execution START (initial record)
+                    if request.conversation_id:
+                        request.host.mysql_manager.log_tool_execution(
+                            tool_call['id'], request.conversation_id, tool_name, args, ""
+                        )
 
                     tool_properties = tool_to_call.schema["function"]["parameters"]["properties"]
                     if type(args) is str:
@@ -688,6 +703,17 @@ class ChatParticipant:
                                 return
 
                     tool_call_response = await tool_to_call.handle_tool_call(request, response, tool_context, args)
+                    
+                    # MySQL logging: Update tool execution with result
+                    if request.conversation_id:
+                        request.host.mysql_manager.log_tool_execution(
+                            tool_call['id'], request.conversation_id, tool_name, args, str(tool_call_response)
+                        )
+                        # Also log the tool message itself
+                        msg_id = str(uuid.uuid4())
+                        request.host.mysql_manager.add_message(
+                            msg_id, request.conversation_id, "tool", str(tool_call_response), tool_call_id=tool_call['id']
+                        )
 
                     function_call_result_message = {
                         "role": "tool",
@@ -945,6 +971,10 @@ class Host:
     @property
     def websocket_connector(self) -> ThreadSafeWebSocketConnector:
         raise NotImplementedError
+    
+    @property
+    def mysql_manager(self) -> Any:
+        return NotImplementedError
     
 
 class NotebookIntelligenceExtension:

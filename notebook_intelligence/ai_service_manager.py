@@ -12,6 +12,7 @@ from notebook_intelligence import github_copilot
 from notebook_intelligence.api import ButtonData, ChatModel, EmbeddingModel, InlineCompletionModel, LLMProvider, ChatParticipant, ChatRequest, ChatResponse, CompletionContext, ContextRequest, Host, CompletionContextProvider, MCPPrompt, MCPServer, MarkdownData, NotebookIntelligenceExtension, RegistrationError, TelemetryEvent, TelemetryListener, Tool, Toolset
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
 from notebook_intelligence.config import NBIConfig
+from notebook_intelligence.mysql_manager import MySQLManager
 from notebook_intelligence.github_copilot_chat_participant import GithubCopilotChatParticipant
 from notebook_intelligence.claude import CLAUDE_CODE_CHAT_PARTICIPANT_ID, ClaudeCodeChatParticipant, ClaudeCodeInlineCompletionModel, fetch_claude_models, get_claude_models
 from notebook_intelligence.llm_providers.github_copilot_llm_provider import GitHubCopilotLLMProvider
@@ -61,6 +62,7 @@ class AIServiceManager(Host):
             self._options.get("feature_policies") or {},
             self._options.get("string_overrides") or {},
         )
+        self._mysql_manager = MySQLManager(self._nbi_config.mysql_config)
         self._openai_compatible_llm_provider = OpenAICompatibleLLMProvider()
         self._litellm_compatible_llm_provider = LiteLLMCompatibleLLMProvider()
         self._ollama_llm_provider = OllamaLLMProvider()
@@ -92,6 +94,14 @@ class AIServiceManager(Host):
     @property
     def nbi_config(self) -> NBIConfig:
         return self._nbi_config
+    
+    @property
+    def mysql_manager(self) -> MySQLManager:
+        return self._mysql_manager
+
+    def update_mysql_manager(self):
+        """Refresh MySQL manager instance from current config."""
+        self._mysql_manager = MySQLManager(self._nbi_config.mysql_config)
     
     @property
     def ollama_llm_provider(self) -> OllamaLLMProvider:

@@ -9,6 +9,7 @@ spawn a subprocess outside `jupyter_root_dir`. These tests pin the
 """
 
 import asyncio
+import io
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,6 +30,24 @@ def jupyter_root(tmp_path, monkeypatch):
 
 
 _SHELL_TOOL_CMD = ["echo", "hi"]
+
+
+class _FakePopenProcess:
+    """Minimal subprocess stand-in with concrete process-like attributes.
+
+    A bare MagicMock leaks mock-valued ``pid``/streams into background
+    asyncio waitpid helpers, which can explode with ``expected_pid > 0``
+    type checks. Keep this fake small but process-shaped.
+    """
+
+    def __init__(self, returncode=0, stdout_text="", stderr_text=""):
+        self.pid = 12345
+        self.returncode = returncode
+        self.stdout = io.StringIO(stdout_text)
+        self.stderr = io.StringIO(stderr_text)
+
+    def wait(self):
+        return self.returncode
 
 
 def _shell_tool_calls(popen_spy):
@@ -56,7 +75,7 @@ def _invoke(working_directory: str):
     # SimpleTool wraps the original async callable as `_tool_function`.
     tool = toolsets.run_command_in_embedded_terminal._tool_function
     response = MagicMock()
-    popen_spy = MagicMock()
+    popen_spy = MagicMock(return_value=_FakePopenProcess(stdout_text="hi\n"))
     with patch("notebook_intelligence.built_in_toolsets.subprocess.Popen", popen_spy):
         result = asyncio.run(
             tool(command="echo hi", working_directory=working_directory, response=response)

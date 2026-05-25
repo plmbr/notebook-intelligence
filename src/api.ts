@@ -388,6 +388,28 @@ export class NBIConfig {
     return this.capabilities.claude_settings;
   }
 
+  get mysqlConfig(): any {
+    return (
+      this.capabilities.mysql_config ?? {
+        enabled: false,
+        host: 'localhost',
+        port: 3306,
+        user: '',
+        password: '',
+        database: 'notebook_intelligence'
+      }
+    );
+  }
+
+  get historyConfig(): any {
+    return (
+      this.capabilities.history_config ?? {
+        mode: 'local',
+        local_max_messages: 10
+      }
+    );
+  }
+
   get claudeModels(): IClaudeModelInfo[] {
     return (this.capabilities.claude_models ?? []).map(claudeModelFromWire);
   }
@@ -755,16 +777,17 @@ export class NBIAPI {
     });
   }
 
-  static async setConfig(config: any) {
-    requestAPI<any>('config', {
+  static async setConfig(config: any): Promise<any> {
+    return requestAPI<any>('config', {
       method: 'POST',
       body: JSON.stringify(config)
     })
       .then(data => {
-        NBIAPI.fetchCapabilities();
+        return NBIAPI.fetchCapabilities().then(() => data);
       })
       .catch(reason => {
         console.error(`Failed to set NBI config.\n${reason}`);
+        throw reason;
       });
   }
 
@@ -1417,6 +1440,32 @@ export class NBIAPI {
         })
         .catch(reason => {
           console.error(`Failed to emit telemetry event.\n${reason}`);
+          reject(reason);
+        });
+    });
+  }
+
+  static async fetchChatHistory(chatId: string): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      requestAPI<any>(`history?chatId=${chatId}`, { method: 'GET' })
+        .then(data => {
+          resolve(data.messages);
+        })
+        .catch(reason => {
+          console.error(`Failed to fetch chat history.\n${reason}`);
+          reject(reason);
+        });
+    });
+  }
+
+  static async fetchRecentConversations(): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      requestAPI<any>('conversations', { method: 'GET' })
+        .then(data => {
+          resolve(data.conversations);
+        })
+        .catch(reason => {
+          console.error(`Failed to fetch recent conversations.\n${reason}`);
           reject(reason);
         });
     });
