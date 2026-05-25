@@ -5,7 +5,7 @@
 import base64
 from dataclasses import dataclass
 from enum import Enum
-import os, json, time, requests, threading
+import os, json, stat, time, requests, threading
 from typing import Any
 import uuid
 import secrets
@@ -114,9 +114,98 @@ def get_login_status():
 
 deprecated_user_data_file = os.path.join(os.path.expanduser('~'), ".jupyter", "nbi-data.json")
 user_data_file = os.path.join(os.path.expanduser('~'), ".jupyter", "nbi", "user-data.json")
-access_token_password = os.getenv("NBI_GH_ACCESS_TOKEN_PASSWORD", "nbi-access-token-password")
+DEFAULT_ACCESS_TOKEN_PASSWORD = "nbi-access-token-password"
+access_token_password = os.getenv("NBI_GH_ACCESS_TOKEN_PASSWORD", DEFAULT_ACCESS_TOKEN_PASSWORD)
+
+
+def _is_default_token_password() -> bool:
+    return access_token_password == DEFAULT_ACCESS_TOKEN_PASSWORD
+
+
+# Shared vocab matches _resolve_bool_with_env in extension.py so admins
+# don't have to remember a different set of "yes" tokens for this env.
+_BOOL_TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _BOOL_TRUE_VALUES
+
+
+def _user_data_dir_is_shared() -> bool:
+    """Return True when the directory that holds user-data.json is
+    readable or writable by group or other.
+
+    POSIX-only; on Windows the helper returns False (ACL semantics
+    don't map onto S_IRGRP/S_IROTH and the deployment threat model is
+    different). A True return means at least one read or write bit
+    beyond owner is set, so another tenant on a shared filesystem
+    could read the file once written, or plant a token by replacing
+    the file via a writable parent dir.
+    """
+    if os.name != "posix":
+        return False
+    target_dir = os.path.dirname(user_data_file)
+    try:
+        st = os.stat(target_dir)
+    except OSError:
+        return False
+    risky_bits = stat.S_IRGRP | stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH
+    return bool(st.st_mode & risky_bits)
+
+
+_default_password_warned = False
+
+
+def _warn_default_password_once() -> None:
+    """Emit the default-password WARNING at most once per process.
+
+    The audit recommends a startup warning on every server boot until
+    the password is overridden, but a hot endpoint that calls the
+    read/write helpers on every request would spam the log. Once per
+    process is the right cadence; operators see it on boot and on
+    log rotation.
+    """
+    global _default_password_warned
+    if _default_password_warned or not _is_default_token_password():
+        return
+    _default_password_warned = True
+    if _user_data_dir_is_shared():
+        log.warning(
+            "Storing the GitHub Copilot token under the default "
+            "NBI_GH_ACCESS_TOKEN_PASSWORD on a directory that is "
+            "readable by group or other (%s). Set a per-user "
+            "NBI_GH_ACCESS_TOKEN_PASSWORD, or set "
+            "NBI_ALLOW_DEFAULT_TOKEN_PASSWORD=1 to acknowledge the "
+            "risk explicitly.",
+            os.path.dirname(user_data_file),
+        )
+    else:
+        log.warning(
+            "Storing the GitHub Copilot token under the default "
+            "NBI_GH_ACCESS_TOKEN_PASSWORD. Set a per-user password "
+            "in multi-tenant deployments."
+        )
+
+
+def _refuse_write_on_shared_default() -> bool:
+    """Return True when the write should be refused.
+
+    Refusal is opt-in (``NBI_REFUSE_DEFAULT_TOKEN_PASSWORD_ON_SHARED_FS=1``)
+    because flipping the default to refuse would break existing
+    single-user deployments where the directory's mode is incidental.
+    Once a deployment opts in, the refusal triggers only when both the
+    password is the documented default AND the target directory is
+    group/other accessible; an admin who knowingly relaxed perms can
+    still opt out with ``NBI_ALLOW_DEFAULT_TOKEN_PASSWORD=1``.
+    """
+    if _env_truthy("NBI_ALLOW_DEFAULT_TOKEN_PASSWORD"):
+        return False
+    if not _env_truthy("NBI_REFUSE_DEFAULT_TOKEN_PASSWORD_ON_SHARED_FS"):
+        return False
+    return _is_default_token_password() and _user_data_dir_is_shared()
 
 def read_stored_github_access_token() -> str:
+    _warn_default_password_once()
     try:
         if os.path.exists(user_data_file):
             with open(user_data_file, 'r') as file:
@@ -151,6 +240,18 @@ def _save_user_data(user_data: dict) -> None:
 
 
 def write_github_access_token(access_token: str) -> bool:
+    _warn_default_password_once()
+    if _refuse_write_on_shared_default():
+        log.error(
+            "Refusing to write %s: the default NBI_GH_ACCESS_TOKEN_PASSWORD "
+            "is in use on a directory that is readable by group or other, "
+            "and NBI_REFUSE_DEFAULT_TOKEN_PASSWORD_ON_SHARED_FS is set. "
+            "Set NBI_GH_ACCESS_TOKEN_PASSWORD to a per-user secret, "
+            "tighten the directory mode, or set "
+            "NBI_ALLOW_DEFAULT_TOKEN_PASSWORD=1 to opt out.",
+            user_data_file,
+        )
+        return False
     try:
         encrypted_access_token = encrypt_with_password(access_token_password, access_token.encode())
         base64_bytes = base64.b64encode(encrypted_access_token)

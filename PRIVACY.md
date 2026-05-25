@@ -58,7 +58,7 @@ For air-gapped or egress-restricted environments, see [`docs/admin-guide.md`](do
 
 > Treat `~/.jupyter/nbi/config.json` and `~/.jupyter/nbi/user-data.json` as secrets. They contain your API keys and (encrypted) GitHub token. Do not commit them to git, share them, or sync them across users. If a key leaks, rotate it at the provider immediately.
 
-The encrypted GitHub token uses a default password (`nbi-access-token-password`) unless you set `NBI_GH_ACCESS_TOKEN_PASSWORD`. The default is **shared across installs** and provides obfuscation, not real protection. Set a custom password before enabling "remember login" on any shared or multi-tenant system.
+The encrypted GitHub token uses a default password (`nbi-access-token-password`) unless you set `NBI_GH_ACCESS_TOKEN_PASSWORD`. The default is **shared across installs** and provides obfuscation, not real protection. Set a custom password before enabling "remember login" on any shared or multi-tenant system. NBI logs a per-process WARNING when the default is in use and escalates the message when `~/.jupyter/nbi/` is group/other-accessible. Operators on shared filesystems can set `NBI_REFUSE_DEFAULT_TOKEN_PASSWORD_ON_SHARED_FS=1` to refuse the write entirely until a per-user password is configured, with `NBI_ALLOW_DEFAULT_TOKEN_PASSWORD=1` available as an explicit per-pod opt-out during a rollout.
 
 ## Telemetry
 
