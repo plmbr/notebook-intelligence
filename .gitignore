@@ -142,3 +142,8 @@ ui-tests/.tsbuild/
 _site/
 Gemfile.lock
 
+
+# Benchmark results (may contain cost data and environment details)
+benchmarks/claude_perf/results.json
+benchmarks/claude_perf/__pycache__/
+benchmarks/claude_perf/screenshots/
