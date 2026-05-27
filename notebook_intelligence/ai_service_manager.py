@@ -114,6 +114,15 @@ class AIServiceManager(Host):
         """Get the managed-skills reconciler, if one is configured."""
         return self._skill_reconciler
 
+    def get_mcp_stdio_command_allowlist(self) -> list[str]:
+        """Return the merged MCP stdio-command regex allowlist (traitlet + env).
+
+        Empty list means no enforcement. Handlers that construct a
+        ``ClaudeMCPManager`` per request read this so the gate stays
+        consistent with the in-process ``MCPManager``.
+        """
+        return list(self._options.get("mcp_stdio_command_allowlist") or [])
+
     @property
     def websocket_connector(self) -> ThreadSafeWebSocketConnector:
         return self._websocket_connector
@@ -131,7 +140,10 @@ class AIServiceManager(Host):
         self.register_llm_provider(self._openai_compatible_llm_provider)
         self.register_llm_provider(self._litellm_compatible_llm_provider)
         self.register_llm_provider(self._ollama_llm_provider)
-        self._mcp_manager = MCPManager(self.nbi_config.mcp)
+        self._mcp_manager = MCPManager(
+            self.nbi_config.mcp,
+            stdio_command_allowlist=self._options.get("mcp_stdio_command_allowlist") or [],
+        )
         for participant in self._mcp_manager.get_mcp_participants():
             # A duplicate / reserved id from one MCP server should not block
             # the rest from registering — log and continue rather than crash

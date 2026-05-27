@@ -32,6 +32,10 @@ from notebook_intelligence._claude_cli import (
     validate_scope,
 )
 from notebook_intelligence.config import _atomic_write_json
+from notebook_intelligence.mcp_policy import (
+    reject_dangerous_env_keys,
+    validate_mcp_stdio_command,
+)
 
 log = logging.getLogger(__name__)
 
@@ -131,9 +135,18 @@ class ClaudeMCPManager:
     # two in-flight `add`s from the same NBI server can clobber.
     _write_lock = asyncio.Lock()
 
-    def __init__(self, working_dir: Optional[str] = None):
+    def __init__(
+        self,
+        working_dir: Optional[str] = None,
+        *,
+        stdio_command_allowlist: Optional[Iterable[str]] = None,
+    ):
         self._working_dir = Path(working_dir) if working_dir else Path.cwd()
         self._user_config_path = Path.home() / ".claude.json"
+        # An empty allowlist means "no enforcement"; the default keeps
+        # per-user deployments permissive. Admins thread their pinned
+        # regex list in via ``stdio_command_allowlist``.
+        self._stdio_command_allowlist: list[str] = list(stdio_command_allowlist or [])
 
     # --- reads ---------------------------------------------------------
 
@@ -201,6 +214,16 @@ class ClaudeMCPManager:
             raise ValueError("Missing command or URL")
         reject_flag_smuggling("name", name)
         reject_flag_smuggling("command_or_url", command_or_url)
+        # Admin-configured allowlist gates the stdio binary against an
+        # opt-in regex list. Default is empty (no enforcement) so existing
+        # single-user deployments stay permissive. URL transports skip the
+        # gate because they don't fork a local process. The env-key check
+        # runs unconditionally because PATH / LD_PRELOAD style bypasses
+        # would otherwise convert a binary-name allowlist into a false
+        # sense of security regardless of whether the allowlist is set.
+        if transport == "stdio":
+            validate_mcp_stdio_command(command_or_url, self._stdio_command_allowlist)
+            reject_dangerous_env_keys(env)
         # For network transports, require HTTPS — `http://`/`file://`/etc.
         # would let a user point Claude at internal endpoints (SSRF) or
         # exfil credentials in plaintext. Stdio is a subprocess, not a URL.

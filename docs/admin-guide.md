@@ -105,6 +105,8 @@ The full surface, in one table.
 | `NBI_UPLOAD_MAX_MB`                              | int  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `upload_retention_hours`                         | Int  | `24`                        | traitlet                           | How long staged uploads survive in the temp directory before the next upload sweeps them. `0` keeps only the atexit purge (uploads survive the session).                                                                                                                                                                                                                                                                                                                 |
 | `NBI_UPLOAD_RETENTION_HOURS`                     | int  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `mcp_stdio_command_allowlist`                    | List | `[]`                        | traitlet                           | Regex allowlist for the stdio MCP server `command` field. Empty list (default) means no enforcement; non-empty list rejects any stdio MCP server whose command does not match. Matched with `re.search`; anchor (`^...$`) for literal equality. Applies at both Claude `mcp add` and `mcp.json` load. See [Restricting MCP stdio commands](#restricting-mcp-stdio-commands).                                                                                             |
+| `NBI_MCP_STDIO_COMMAND_ALLOWLIST`                | csv  | unset                       | env (appends to traitlet)          | Comma-separated regex patterns added to the traitlet at startup. Per-pod additions on an org baseline.                                                                                                                                                                                                                                                                                                                                                                   |
 | `tour_config_path`                               | str  | `""`                        | traitlet                           | Filesystem path to a YAML/JSON file with admin overrides for the first-run sidebar tour copy. See [`docs/admin-tour-config.md`](admin-tour-config.md).                                                                                                                                                                                                                                                                                                                   |
 | `NBI_TOUR_CONFIG_PATH`                           | str  | unset                       | env (overrides traitlet)           | Same as above; env takes precedence.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `NBI_GH_ACCESS_TOKEN_PASSWORD`                   | str  | `nbi-access-token-password` | env                                | Password used to encrypt the stored Copilot token in `user-data.json`. **Change in multi-tenant deployments.**                                                                                                                                                                                                                                                                                                                                                           |
@@ -140,7 +142,7 @@ NBI runs entirely inside the user's Jupyter Server process. There is no privileg
   - `nbi-command-execute` runs arbitrary shell commands.
   - `nbi-file-edit` and `nbi-file-read` read and write any file the user can.
   - `nbi-notebook-edit` and `nbi-notebook-execute` modify and run notebooks.
-- **MCP stdio servers** are launched as user subprocesses with the user's environment. NBI does not sandbox them.
+- **MCP stdio servers** are launched as user subprocesses with the user's environment. NBI does not sandbox them; the optional [`mcp_stdio_command_allowlist`](#restricting-mcp-stdio-commands) gates the binary name and refuses `PATH`/`LD_PRELOAD` style env overrides, but does not validate `args` and does not contain the spawned process.
 - **Claude Code CLI** inherits the user's environment, including filesystem permissions and any auth tokens in `~/.claude/`.
 
 For regulated tenants:
@@ -474,7 +476,33 @@ Reads come from Claude's JSON config files directly (fast, no health checks). Wr
 
 > **Blast radius.** Force-off only kills the _management UI_ — MCP servers already configured in `~/.claude.json` or `<cwd>/.mcp.json` keep loading inside Claude Code sessions because Claude's MCP loader doesn't consult NBI's policy. To stop existing servers, remove them on disk (or via the `claude mcp remove` CLI) before flipping the policy.
 
-> **Trust model.** MCP servers run as subprocesses (stdio transport) or accept arbitrary URLs (sse/http transport) inside Claude Code sessions; NBI does not validate or sandbox the command, environment, or network endpoint beyond rejecting CLI flag-smuggling. For multi-tenant or regulated deployments, default to `claude_mcp_management_policy = force-off` and ship a curated set of servers via `~/.claude/settings.json` instead.
+> **Trust model.** MCP servers run as subprocesses (stdio transport) or accept arbitrary URLs (sse/http transport) inside Claude Code sessions. Beyond CLI flag-smuggling rejection and HTTPS-required URL transports, NBI validates only the binary name against the optional [`mcp_stdio_command_allowlist`](#restricting-mcp-stdio-commands) and refuses a handful of env-key bypasses (`PATH`, `LD_PRELOAD`, `PYTHONPATH`, `NODE_OPTIONS`, etc.) when the gate is engaged. `args` and the spawned process are not contained. For multi-tenant or regulated deployments, prefer `claude_mcp_management_policy = force-off` plus a curated set of servers via `~/.claude/settings.json`.
+
+### Restricting MCP stdio commands
+
+When `mcp_stdio_command_allowlist` is non-empty, every stdio MCP server (whether added via the Claude-mode UI or loaded from `~/.jupyter/nbi/mcp.json`) must match at least one pattern in the list. Empty list (the default) means no enforcement.
+
+```python
+c.NotebookIntelligence.mcp_stdio_command_allowlist = [
+    "^/usr/local/bin/uv$",
+    "^/usr/local/bin/uvx$",
+    "^/usr/local/bin/npx$",
+]
+```
+
+Or via env (appends to the traitlet, useful for per-pod adds on an org baseline):
+
+```
+NBI_MCP_STDIO_COMMAND_ALLOWLIST=^/usr/local/bin/uv$,^/usr/local/bin/uvx$
+```
+
+Patterns use `re.search`, so anchor with `^...$` for literal equality. `"uv"` matches both `uv` and `uvtool`; `"^uv$"` matches only `uv`.
+
+Whenever the gate engages on a stdio server, NBI additionally refuses dangerous env keys (`PATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, `DYLD_*`, `PYTHONPATH`, `PYTHONSTARTUP`, `PYTHONHOME`, `NODE_OPTIONS`, `NODE_PATH`, `BASH_ENV`, `ENV`) regardless of whether the allowlist is set. This closes the bypass where a poisoned `PATH` resolves an allowlisted binary name to attacker-controlled code, or where a `LD_PRELOAD` injects a shared object into the process before its entry point.
+
+**Scope.** The gate matches the `command` field only. `args` flow through unchecked, so an allowlist that permits `npx` will still accept `args: ['-y', 'evil-pkg']`. If you need argv-level control, point `command` at a wrapper script you own that bakes the safe argv in.
+
+**Behavior on rejection.** Claude-mode `mcp add` returns HTTP 400 with the policy error message so the user sees it in the Settings UI. The `mcp.json` loader logs a warning naming the server and skips it; the rest of the MCP list keeps loading.
 
 ### Disabling the Plugins tab
 

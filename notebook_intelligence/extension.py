@@ -49,6 +49,10 @@ from notebook_intelligence.mcp_config_validation import (
     MCPConfigValidationError,
     validate_mcp_config,
 )
+from notebook_intelligence.mcp_policy import (
+    reject_dangerous_env_keys,
+    validate_mcp_stdio_command,
+)
 from notebook_intelligence.claude import ClaudeCodeChatParticipant, fetch_claude_models
 from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
 from notebook_intelligence.plugin_manager import PluginManager
@@ -733,11 +737,32 @@ class MCPConfigFileHandler(APIHandler):
             self.finish(json.dumps({"status": "error", "message": str(exc)}))
             return
         try:
+            # Validate stdio entries against the same admin allowlist
+            # that the in-process loader uses, so a rejected entry
+            # cannot persist to disk and re-trigger the load-time warn
+            # on every restart. Apply the same env-key denylist that
+            # blocks PATH / LD_PRELOAD / etc. bypasses.
+            allowlist = ai_service_manager.get_mcp_stdio_command_allowlist()
+            servers = data.get("mcpServers") if isinstance(data, dict) else None
+            if isinstance(servers, dict):
+                for name, server in servers.items():
+                    if not isinstance(server, dict) or "command" not in server:
+                        continue
+                    validate_mcp_stdio_command(server.get("command", ""), allowlist)
+                    reject_dangerous_env_keys(server.get("env"))
             ai_service_manager.nbi_config.user_mcp = data
             ai_service_manager.nbi_config.save()
             ai_service_manager.nbi_config.load()
             ai_service_manager.update_mcp_servers()
             self.finish(json.dumps({"status": "ok"}))
+        except ValueError as exc:
+            # Policy rejection: surface as HTTP 400 so the Settings UI
+            # shows the operator's policy message instead of a generic
+            # 500. The body still uses the {status, message} envelope
+            # the frontend already parses.
+            self.set_status(400)
+            self.finish(json.dumps({"status": "error", "message": str(exc)}))
+            return
         except Exception as e:
             self.set_status(500)
             self.finish(json.dumps({"status": "error", "message": str(e)}))
@@ -952,10 +977,16 @@ class ClaudeMCPBaseHandler(PolicyGatedHandler):
         FileNotFoundError: 404,
         TimeoutError: 504,
     }
+    # Set once at startup from the merged (traitlet + env) admin allowlist.
+    # Empty list means no enforcement; consult ``AIServiceManager``.
+    mcp_stdio_command_allowlist: list = []
 
     @property
     def manager(self) -> "ClaudeMCPManager":
-        return ClaudeMCPManager(working_dir=get_jupyter_root_dir() or None)
+        return ClaudeMCPManager(
+            working_dir=get_jupyter_root_dir() or None,
+            stdio_command_allowlist=self.mcp_stdio_command_allowlist,
+        )
 
 
 class ClaudeMCPListHandler(ClaudeMCPBaseHandler):
@@ -2560,6 +2591,40 @@ class NotebookIntelligence(ExtensionApp):
         config=True,
     )
 
+    mcp_stdio_command_allowlist = List(
+        trait=Unicode(),
+        default_value=None,
+        help="""
+        Regex allowlist for the stdio MCP server `command` field. When
+        non-empty, every stdio MCP server (added via Claude `mcp add`
+        and loaded from `mcp.json`) must match at least one pattern;
+        otherwise the admin gate rejects the server. Empty list (the
+        default) means no enforcement.
+
+        Patterns are matched with `re.search`. Anchor with `^...$` to
+        require an exact binary, otherwise `'uv'` matches both `uv` and
+        `uvtool`. Anchor on an absolute path (`'^/usr/local/bin/uv$'`)
+        if you want to defeat PATH-poisoning that points at a different
+        binary with the same basename. The complementary `env` denylist
+        (PATH, LD_PRELOAD, PYTHONPATH, NODE_OPTIONS, etc.) is always
+        applied to stdio servers regardless of this setting.
+
+        Patterns can be added per pod via the
+        `NBI_MCP_STDIO_COMMAND_ALLOWLIST` environment variable (CSV;
+        appends to this list).
+
+        Scope: this gate validates the binary `command` only. `args`
+        flow through unchecked, so an allowlist that permits `npx` will
+        still accept `args: ['-y', 'evil-pkg']`. Admins who need
+        argv-level control should point `command` at a wrapper script
+        they own that bakes the safe argv in.
+
+        Example: ['^uv$', '^uvx$', '^npx$', '^/usr/local/bin/.*']
+        """,
+        allow_none=True,
+        config=True,
+    )
+
     allow_enabling_coding_agent_launchers_with_env = Bool(
         default_value=False,
         help="""
@@ -2971,6 +3036,10 @@ class NotebookIntelligence(ExtensionApp):
                 log.warning(
                     "Ignoring invalid NBI_SKILLS_MANIFEST_INTERVAL=%r", interval_env
                 )
+        mcp_command_allowlist = _resolve_csv_appended(
+            "NBI_MCP_STDIO_COMMAND_ALLOWLIST",
+            self.mcp_stdio_command_allowlist,
+        )
         ai_service_manager = AIServiceManager({
             "server_root_dir": server_root_dir,
             "skills_manifest_sources": manifest_sources,
@@ -2978,6 +3047,7 @@ class NotebookIntelligence(ExtensionApp):
             "managed_skills_token": managed_token,
             "feature_policies": feature_policies,
             "string_overrides": string_overrides,
+            "mcp_stdio_command_allowlist": mcp_command_allowlist,
         })
 
     def initialize_templates(self):
@@ -3099,6 +3169,9 @@ class NotebookIntelligence(ExtensionApp):
         )
         ClaudeMCPBaseHandler.claude_mcp_management_enabled = not is_force_off(
             feature_policies, "claude_mcp_management"
+        )
+        ClaudeMCPBaseHandler.mcp_stdio_command_allowlist = (
+            ai_service_manager.get_mcp_stdio_command_allowlist()
         )
         PluginsBaseHandler.claude_plugins_management_enabled = not is_force_off(
             feature_policies, "claude_plugins_management"

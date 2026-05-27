@@ -26,6 +26,10 @@ from ._version import __version__ as NBI_VERSION
 EDITOR_VERSION = f"NotebookIntelligence/{NBI_VERSION}"
 
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, _emit
+from notebook_intelligence.mcp_policy import (
+    reject_dangerous_env_keys,
+    validate_mcp_stdio_command,
+)
 
 log = logging.getLogger(__name__)
 
@@ -513,10 +517,14 @@ class MCPChatParticipant(BaseChatParticipant):
             await self.handle_chat_request_with_tools(request, response, options)
 
 class MCPManager:
-    def __init__(self, mcp_config: dict):
+    def __init__(self, mcp_config: dict, stdio_command_allowlist: Optional[list[str]] = None):
         self._websocket_connector: ThreadSafeWebSocketConnector = None
         self._mcp_participants: list[MCPChatParticipant] = []
         self._mcp_servers: list[MCPServer] = []
+        # Admin-configured regex allowlist. Empty list means no enforcement
+        # (the default), matching ClaudeMCPManager so the two MCP entry
+        # points stay consistent.
+        self._stdio_command_allowlist: list[str] = list(stdio_command_allowlist or [])
         self.update_mcp_servers(mcp_config)
 
     @property
@@ -593,6 +601,22 @@ class MCPManager:
             command = server_config["command"]
             args = server_config.get("args", [])
             env = server_config.get("env", None)
+            try:
+                validate_mcp_stdio_command(command, self._stdio_command_allowlist)
+                reject_dangerous_env_keys(env)
+            except ValueError as exc:
+                # Log and skip rather than aborting the whole reconcile so
+                # one bad entry can't take the others offline. The session
+                # logs make it clear which server was rejected; the user
+                # sees the missing server in the MCP panel. Warning (not
+                # error) because the policy is working as designed; the
+                # operator triages by checking which server name is named.
+                log.warning(
+                    "MCP server '%s' rejected by admin policy: %s",
+                    server_name,
+                    exc,
+                )
+                return None
             server_env = None
             if env is not None:
                 server_env = mcp_get_default_environment()
