@@ -9,11 +9,11 @@ redirect_from:
   - /blog/building-ai-agents-for-jupyterlab/
 ---
 
-[Notebook Intelligence](https://github.com/plmbr/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({{site.baseurl}}{% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
+[Notebook Intelligence](https://github.com/plmbr/notebook-intelligence) (NBI) is an AI coding assistant and extensible AI framework for JupyterLab. (*For an introduction to NBI see [Introducing Notebook Intelligence]({% post_url 2025-01-07-introducing-notebook-intelligence %}) and for basics of extending NBI see [Building AI Extensions for JupyterLab]({% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %}) blog posts.*)
 
 GitHub Copilot and other AI coding assistants are great at generating code and answering coding related questions. But they can do a lot more than generating text and code thanks to LLM features such as tool calling and AI agents. NBI provides an extensible AI framework to integrate tool calling and AI agents into JupyterLab Copilot Chat.
 
-![AI Agent demo](/notebook-intelligence/assets/images/ai-agent-blog/nb-ai-agent-demo.gif)
+![AI Agent demo](/assets/images/ai-agent-blog/nb-ai-agent-demo.gif)
 
 ## What is tool calling and an AI Agent?
 
@@ -88,7 +88,7 @@ class GeoCoordinateLookupTool(Tool):
         return {"latitude": location.latitude, "longitude": location.longitude}
 ```
 
-![Geo coordinates lookup tool](/notebook-intelligence/assets/images/ai-agent-blog/ai-agent-geo-coords.png)
+![Geo coordinates lookup tool](/assets/images/ai-agent-blog/ai-agent-geo-coords.png)
 
 ### Map Response Generator Tool
 
@@ -119,7 +119,7 @@ class MapResponseGeneratorTool(Tool):
 
 Below is an example prompt showing map centered at "Golden Gate Bridge, San Francisco". Note that an address was provided to Copilot as the input but Map Response Generator Tool accepts only geo-coordinates as input. This is where LLM automatically decided that it needs to first call the Geo Coordinates Lookup Tool to get geo-coordinates for this address and then it called the Map Response Generator Tool with the geo-coordinates. LLM automatically chained multiple tools and NBI handled this chaining to get the correct response for the user's prompt.
 
-![Show map response tool](/notebook-intelligence/assets/images/ai-agent-blog/ai-agent-show-map.png)
+![Show map response tool](/assets/images/ai-agent-blog/ai-agent-show-map.png)
 
 ### Map Notebook Creator Tool
 
@@ -171,7 +171,7 @@ class MapNotebookCreatorTool(Tool):
         return {"result": "I created and opened the map notebook"}
 ```
 
-![Create map notebook tool](/notebook-intelligence/assets/images/ai-agent-blog/ai-agent-create-notebook.png)
+![Create map notebook tool](/assets/images/ai-agent-blog/ai-agent-create-notebook.png)
 
 ### Notebook Share Tool
 
@@ -201,7 +201,7 @@ class NotebookShareTool(Tool):
         return {"result": f"Notebook '{file_name}' has been shared at: {share_url}"}
 ```
 
-![Share notebook publicly](/notebook-intelligence/assets/images/ai-agent-blog/ai-agent-share.gif)
+![Share notebook publicly](/assets/images/ai-agent-blog/ai-agent-share.gif)
 
 ## Tool call schema definitions
 
@@ -217,7 +217,7 @@ Notice that in this extension example MapResponseGeneratorTool and MapNotebookCr
 
 ## Chat Participant
 
-In NBI AI framework, AI Agents are defined as chat participants and tools are tied to specific chat participants. For our extension we create `AIAgentChatParticipant` as our participant (for more details on NBI extensions and chat participants see [this blog]({{site.baseurl}}{% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %})). Our chat participant returns list of tools it defines from the `tools` property.
+In NBI AI framework, AI Agents are defined as chat participants and tools are tied to specific chat participants. For our extension we create `AIAgentChatParticipant` as our participant (for more details on NBI extensions and chat participants see [this blog]({% post_url 2025-02-04-building-ai-extensions-for-jupyterlab %})). Our chat participant returns list of tools it defines from the `tools` property.
 
 In `handle_chat_request` method our chat participant passes the request to the base `ChatParticipant` class to handle tool calling for us.
 
