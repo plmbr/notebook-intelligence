@@ -32,7 +32,7 @@ NBI has two halves:
   - `notebook_intelligence/ai_service_manager.py` — composes LLM providers, MCP, skills, and rules into the request pipeline.
   - `notebook_intelligence/llm_providers/` — provider adapters (GitHub Copilot, OpenAI-compatible, LiteLLM-compatible, Ollama).
   - `notebook_intelligence/claude.py` + `notebook_intelligence/claude_sessions.py` — Claude Code integration via [`claude-agent-sdk`](https://pypi.org/project/claude-agent-sdk/).
-  - `notebook_intelligence/mcp_manager.py` — MCP server management via [`fastmcp`](https://pypi.org/project/fastmcp/).
+  - `notebook_intelligence/mcp_manager.py`: MCP server management via the official [`mcp`](https://pypi.org/project/mcp/) SDK (replaced `fastmcp` in 5.0.0).
   - `notebook_intelligence/skill_manager.py`, `skill_github_import.py`, `skill_manifest.py`, `skill_reconciler.py`, `skillset.py` — Claude Skills storage, GitHub import, and managed-manifest reconciliation.
   - `notebook_intelligence/rule_manager.py`, `rule_injector.py`, `ruleset.py` — ruleset discovery and prompt injection.
   - `notebook_intelligence/built_in_toolsets.py` — built-in tool implementations (`nbi-notebook-edit`, `nbi-command-execute`, etc.).
