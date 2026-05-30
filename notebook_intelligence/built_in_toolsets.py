@@ -24,6 +24,52 @@ _get_safe_path = safe_jupyter_path
 
 log = logging.getLogger(__name__)
 
+APPROX_BYTES_PER_OUTPUT_TOKEN = 4
+DEFAULT_READ_FILE_MAX_OUTPUT_TOKENS = 10_000
+READ_FILE_TRUNCATION_MARKER = "\n[output truncated]"
+
+
+def _truncate_utf8_to_byte_budget(text: str, byte_budget: int) -> str:
+    """Trim text to a UTF-8 byte budget without returning invalid Unicode."""
+    if byte_budget <= 0 or not text:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= byte_budget:
+        return text
+    return encoded[:byte_budget].decode("utf-8", errors="ignore")
+
+
+def _truncate_read_file_output(
+    prefix: str,
+    content: str,
+    max_output_tokens: int,
+) -> str:
+    """Apply the read-file output cap using the 4 UTF-8 bytes ~= 1 token rule."""
+    byte_budget = max(0, max_output_tokens) * APPROX_BYTES_PER_OUTPUT_TOKEN
+    prefix_bytes = len(prefix.encode("utf-8"))
+    content_bytes = len(content.encode("utf-8"))
+
+    if prefix_bytes + content_bytes <= byte_budget:
+        return prefix + content
+
+    marker_bytes = len(READ_FILE_TRUNCATION_MARKER.encode("utf-8"))
+    if byte_budget <= prefix_bytes:
+        if byte_budget <= marker_bytes:
+            return _truncate_utf8_to_byte_budget(
+                READ_FILE_TRUNCATION_MARKER,
+                byte_budget,
+            )
+        truncated_prefix = _truncate_utf8_to_byte_budget(
+            prefix,
+            max(0, byte_budget - marker_bytes),
+        )
+        return truncated_prefix + READ_FILE_TRUNCATION_MARKER
+
+    content_budget = max(0, byte_budget - prefix_bytes - marker_bytes)
+    truncated_content = _truncate_utf8_to_byte_budget(content, content_budget)
+    return prefix + truncated_content + READ_FILE_TRUNCATION_MARKER
+
+
 @nbapi.auto_approve
 @nbapi.tool
 async def create_new_notebook(**args) -> str:
@@ -400,13 +446,21 @@ async def list_files(
         return f"Error listing files: {str(e)}"
 
 @nbapi.tool
-async def read_file(file_path: str, start_line: int = 1, end_line: int = -1, **args) -> str:
+async def read_file(
+    file_path: str,
+    start_line: int = 1,
+    end_line: int = -1,
+    max_output_tokens: int = DEFAULT_READ_FILE_MAX_OUTPUT_TOKENS,
+    **args,
+) -> str:
     """Read lines from a file within jupyter_root_dir between start_line and end_line (inclusive).
     
     Args:
         file_path: Path to the file (relative to jupyter_root_dir)
         start_line: 1-based line number to start reading from (default = 1)
         end_line: 1-based line number to stop reading at (inclusive, default = -1 for end of file)
+        max_output_tokens: Approximate output cap. Uses 4 UTF-8 bytes ~= 1 token
+            and defaults to 10000. Truncated output ends with [output truncated].
     """
     try:
         target_file = _get_safe_path(file_path)
@@ -429,7 +483,8 @@ async def read_file(file_path: str, start_line: int = 1, end_line: int = -1, **a
         # Slice lines based on user input (start_line and end_line are 1-based and inclusive)
         content_lines = lines[start_line-1:end_line]
         content = "".join(content_lines)
-        return f"Content of '{file_path}' (lines {start_line}-{end_line}):\n{content}"
+        prefix = f"Content of '{file_path}' (lines {start_line}-{end_line}):\n"
+        return _truncate_read_file_output(prefix, content, max_output_tokens)
     except UnicodeDecodeError:
         return f"Error: File '{file_path}' is not a text file or uses an unsupported encoding"
     except Exception as e:
