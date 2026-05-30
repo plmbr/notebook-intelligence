@@ -1734,7 +1734,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           source: args.source as string
         });
 
-        return true;
+        return { cellIndex: newCellIndex };
       }
     });
 
@@ -1755,7 +1755,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           source: args.source as string
         });
 
-        return true;
+        return { cellIndex: newCellIndex };
       }
     });
 

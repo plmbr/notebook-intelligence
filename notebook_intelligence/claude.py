@@ -995,7 +995,9 @@ async def add_markdown_cell(args) -> str:
     """
     response = get_current_response()
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:add-markdown-cell-to-active-notebook', {'source': args['source']})
-
+    cell_index = ui_cmd_response.get("cellIndex") if isinstance(ui_cmd_response, dict) else None
+    if isinstance(cell_index, int):
+        return tool_text_response(f"Added markdown cell at index {cell_index}")
     return tool_text_response(f"Added markdown cell to notebook")
 
 @tool("add-code-cell", "Adds a code cell to the notebook.", {"source": str})
@@ -1006,7 +1008,9 @@ async def add_code_cell(args) -> str:
     """
     response = get_current_response()
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:add-code-cell-to-active-notebook', {'source': args['source']})
-
+    cell_index = ui_cmd_response.get("cellIndex") if isinstance(ui_cmd_response, dict) else None
+    if isinstance(cell_index, int):
+        return tool_text_response(f"Added code cell at index {cell_index}")
     return tool_text_response(f"Added code cell to notebook")
 
 @tool("get-number-of-cells", "Gets the number of cells in the notebook.", {})
