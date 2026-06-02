@@ -11,7 +11,7 @@ import os
 import shutil
 import tempfile
 import time
-from typing import Union
+from typing import Optional, Union
 import uuid
 import threading
 import logging
@@ -423,8 +423,7 @@ def _scrub_credentials_for_wire(claude_settings: dict, string_overrides: dict) -
     return result
 
 
-def _read_claude_spinner_verbs():
-    import json
+def _read_claude_spinner_verbs() -> Optional[dict]:
     settings_path = os.path.join(
         os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(os.path.expanduser('~'), '.claude'),
         'settings.json'
@@ -432,7 +431,16 @@ def _read_claude_spinner_verbs():
     try:
         with open(settings_path) as f:
             data = json.load(f)
-        return data.get('spinnerVerbs') or None
+        sv = data.get('spinnerVerbs')
+        if (
+            isinstance(sv, dict)
+            and sv.get('mode') == 'replace'
+            and isinstance(sv.get('verbs'), list)
+            and sv['verbs']
+            and all(isinstance(v, str) for v in sv['verbs'])
+        ):
+            return sv
+        return None
     except Exception:
         return None
 

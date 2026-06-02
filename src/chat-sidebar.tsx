@@ -542,7 +542,11 @@ function ChatResponse(props: any) {
       const j = Math.floor(Math.random() * (i + 1));
       [order[i], order[j]] = [order[j], order[i]];
     }
-    if (avoidFirst !== undefined && order[0] === avoidFirst && order.length > 1) {
+    if (
+      avoidFirst !== undefined &&
+      order[0] === avoidFirst &&
+      order.length > 1
+    ) {
       [order[0], order[1]] = [order[1], order[0]];
     }
     return order;
@@ -555,7 +559,12 @@ function ChatResponse(props: any) {
     const sv = NBIAPI.config.isInClaudeCodeMode
       ? (NBIAPI.config.spinnerVerbs ?? null)
       : null;
-    if (!sv || sv.mode !== 'replace' || !Array.isArray(sv.verbs) || sv.verbs.length === 0) {
+    if (
+      !sv ||
+      sv.mode !== 'replace' ||
+      !Array.isArray(sv.verbs) ||
+      sv.verbs.length === 0
+    ) {
       return 0;
     }
     const order = shuffleVerbs(sv.verbs);
@@ -565,7 +574,9 @@ function ChatResponse(props: any) {
   });
 
   useEffect(() => {
-    if (!props.showGenerating || !hasCustomVerbs) return;
+    if (!props.showGenerating || !hasCustomVerbs) {
+      return;
+    }
 
     const verbs = _spinnerVerbs!.verbs;
 
@@ -584,7 +595,8 @@ function ChatResponse(props: any) {
       id = setTimeout(() => {
         shufflePos.current++;
         if (shufflePos.current >= shuffledOrder.current.length) {
-          const lastShown = shuffledOrder.current[shuffledOrder.current.length - 1];
+          const lastShown =
+            shuffledOrder.current[shuffledOrder.current.length - 1];
           shuffledOrder.current = shuffleVerbs(verbs, lastShown);
           shufflePos.current = 0;
         }
@@ -799,11 +811,7 @@ function ChatResponse(props: any) {
             {/* aria-live region contains only the verb — no elapsed suffix —
                 so screen readers announce only on verb changes, not on every
                 elapsed-seconds tick. */}
-            <div
-              className="nbi-sr-only"
-              aria-live="polite"
-              aria-atomic="true"
-            >
+            <div className="nbi-sr-only" aria-live="polite" aria-atomic="true">
               {props.isStalled
                 ? 'Still working, server may be slow'
                 : hasCustomVerbs
