@@ -780,12 +780,15 @@ pre:has(.code-block-header) {
   margin-top: 2px;
 }
 
+.nbi-tool-call-wrapper {
+  margin: 2px 0;
+}
+
 .nbi-tool-call {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 3px 6px;
-  margin: 2px 0;
   border-radius: 4px;
   background-color: var(--jp-layout-color2);
   font-size: var(--jp-ui-font-size1);
@@ -835,6 +838,105 @@ pre:has(.code-block-header) {
   .nbi-tool-call-in-progress .nbi-tool-call-status-icon {
     animation: none;
   }
+}
+
+.nbi-tool-call-diff-toggle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--jp-ui-font-color2);
+  cursor: pointer;
+}
+
+.nbi-tool-call-diffs {
+  margin: 2px 0 2px 18px;
+  padding-left: 6px;
+  border-left: 2px solid var(--jp-border-color2);
+}
+
+.nbi-tool-call-diff + .nbi-tool-call-diff {
+  margin-top: 4px;
+}
+
+.nbi-tool-call-diff-path {
+  overflow: hidden;
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nbi-tool-call-diff-body {
+  margin: 2px 0;
+  overflow-x: auto;
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  line-height: 1.4;
+}
+
+.nbi-tool-call-diff-line {
+  display: flex;
+}
+
+.nbi-diff-gutter {
+  flex-shrink: 0;
+  width: 1ch;
+  user-select: none;
+  text-align: center;
+}
+
+.nbi-diff-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nbi-diff-add {
+  background-color: var(--jp-success-color3);
+}
+
+.nbi-diff-remove {
+  background-color: var(--jp-error-color3);
+}
+
+.nbi-diff-context {
+  color: var(--jp-ui-font-color2);
+}
+
+.nbi-tool-call-diff-truncated {
+  font-size: var(--jp-ui-font-size0);
+  font-style: italic;
+  color: var(--jp-ui-font-color2);
+}
+
+.nbi-tool-call-group {
+  margin: 2px 0;
+}
+
+.nbi-tool-call-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nbi-tool-call-group-summary {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nbi-tool-call-group-body {
+  margin-left: 6px;
 }
 
 .user-input-autocomplete,

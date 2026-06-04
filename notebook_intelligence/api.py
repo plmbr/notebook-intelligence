@@ -230,6 +230,8 @@ class ToolCallData(ResponseStreamData):
     title: str = ''
     kind: str = 'other'
     status: str = 'in_progress'
+    # Inline before/after edits for file-edit tools; empty/None otherwise.
+    diffs: list = None
 
     @property
     def data_type(self) -> ResponseStreamDataType:

@@ -1,6 +1,7 @@
 # Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
 import json
+import difflib
 import os
 import sys
 import asyncio
@@ -9,7 +10,7 @@ from pathlib import Path
 from queue import Queue
 import threading
 import time
-from typing import Any
+from typing import Any, Optional
 import uuid
 import re
 from anyio.abc import Process
@@ -90,41 +91,61 @@ CLAUDE_AGENT_CLIENT_UPDATE_WAIT_TIME = float(os.getenv("NBI_CLAUDE_AGENT_CLIENT_
 CLAUDE_AGENT_CONNECT_TIMEOUT = float(os.getenv("NBI_CLAUDE_AGENT_CONNECT_TIMEOUT", "15"))
 CLAUDE_AGENT_HEARTBEAT_INTERVAL = float(os.getenv("NBI_CLAUDE_AGENT_HEARTBEAT_INTERVAL", "20"))
 
-# Human-readable labels for tool calls surfaced through the chat sidebar's
-# progress indicator. The keys are the SDK tool names — NBI's MCP tools
-# use the kebab-case @tool decorator names; Claude's built-ins keep their
-# CamelCase identifiers. Unknown names fall through `humanize_claude_tool_name`
-# to a generic kebab→sentence conversion rather than masking the raw name.
-_CLAUDE_TOOL_LABELS: dict[str, str] = {
+# Single source of truth for tool-call presentation: SDK tool name ->
+# (label, kind). `label` is the short human-readable progress label; `kind`
+# is the coarse card-icon category (read / edit / execute / other). NBI's MCP
+# tools use the kebab-case @tool decorator names; Claude's built-ins keep
+# their CamelCase identifiers. Unknown names fall through to a sentence-case
+# label and a keyword-heuristic kind rather than masking the raw name.
+_CLAUDE_TOOLS: dict[str, tuple[str, str]] = {
     # NBI's MCP toolset (defined in this file via @tool(...))
-    "create-new-notebook": "Creating notebook",
-    "rename-notebook": "Renaming notebook",
-    "add-markdown-cell": "Adding markdown cell",
-    "add-code-cell": "Adding code cell",
-    "get-number-of-cells": "Reading notebook",
-    "get-cell-type-and-source": "Reading cell",
-    "get-cell-output": "Reading cell output",
-    "set-cell-type-and-source": "Editing cell",
-    "delete-cell": "Deleting cell",
-    "insert-cell": "Inserting cell",
-    "run-cell": "Running cell",
-    "save-notebook": "Saving notebook",
-    "run-command-in-jupyter-terminal": "Running shell command",
-    "open-file-in-jupyter-ui": "Opening file",
+    "create-new-notebook": ("Creating notebook", "edit"),
+    "rename-notebook": ("Renaming notebook", "edit"),
+    "add-markdown-cell": ("Adding markdown cell", "edit"),
+    "add-code-cell": ("Adding code cell", "edit"),
+    "get-number-of-cells": ("Reading notebook", "read"),
+    "get-cell-type-and-source": ("Reading cell", "read"),
+    "get-cell-output": ("Reading cell output", "read"),
+    "set-cell-type-and-source": ("Editing cell", "edit"),
+    "delete-cell": ("Deleting cell", "edit"),
+    "insert-cell": ("Inserting cell", "edit"),
+    "run-cell": ("Running cell", "execute"),
+    "save-notebook": ("Saving notebook", "edit"),
+    "run-command-in-jupyter-terminal": ("Running shell command", "execute"),
+    "open-file-in-jupyter-ui": ("Opening file", "read"),
     # Claude's built-in toolset
-    "Bash": "Running shell command",
-    "Read": "Reading file",
-    "Write": "Writing file",
-    "Edit": "Editing file",
-    "MultiEdit": "Editing file",
-    "NotebookEdit": "Editing notebook cell",
-    "Glob": "Searching files",
-    "Grep": "Searching contents",
-    "WebFetch": "Fetching URL",
-    "WebSearch": "Searching web",
-    "Task": "Spawning subagent",
-    "TodoWrite": "Updating task list",
+    "Bash": ("Running shell command", "execute"),
+    "Read": ("Reading file", "read"),
+    "Write": ("Writing file", "edit"),
+    "Edit": ("Editing file", "edit"),
+    "MultiEdit": ("Editing file", "edit"),
+    "NotebookEdit": ("Editing notebook cell", "edit"),
+    "Glob": ("Searching files", "read"),
+    "Grep": ("Searching contents", "read"),
+    "WebFetch": ("Fetching URL", "read"),
+    "WebSearch": ("Searching web", "read"),
+    "Task": ("Spawning subagent", "other"),
+    "TodoWrite": ("Updating task list", "other"),
 }
+
+
+def _inner_tool_name(name: str) -> str:
+    """Unwrap an MCP tool name (``mcp__<server>__<tool>``) to its inner tool."""
+    if name.startswith("mcp__"):
+        parts = name.split("__")
+        if len(parts) >= 3:
+            return parts[-1]
+    return name
+
+
+def _lookup_tool(name: str) -> Optional[tuple[str, str]]:
+    """Return (label, kind) for a known tool, unwrapping MCP names; else None."""
+    if name in _CLAUDE_TOOLS:
+        return _CLAUDE_TOOLS[name]
+    inner = _inner_tool_name(name)
+    if inner != name and inner in _CLAUDE_TOOLS:
+        return _CLAUDE_TOOLS[inner]
+    return None
 
 
 def humanize_claude_tool_name(name: str) -> str:
@@ -134,73 +155,29 @@ def humanize_claude_tool_name(name: str) -> str:
     tools still surface something the user can read rather than a bare
     kebab-case identifier.
     """
-    if name in _CLAUDE_TOOL_LABELS:
-        return _CLAUDE_TOOL_LABELS[name]
-    # MCP server tools come through as `mcp__<server>__<tool>` — strip
-    # the wrapper before falling back so we don't surface protocol noise.
-    inner = name
-    if name.startswith("mcp__"):
-        parts = name.split("__")
-        if len(parts) >= 3:
-            inner = parts[-1]
-            if inner in _CLAUDE_TOOL_LABELS:
-                return _CLAUDE_TOOL_LABELS[inner]
-    pretty = inner.replace("-", " ").replace("_", " ").strip()
+    entry = _lookup_tool(name)
+    if entry is not None:
+        return entry[0]
+    pretty = _inner_tool_name(name).replace("-", " ").replace("_", " ").strip()
     if not pretty:
         return name
     return pretty[:1].upper() + pretty[1:]
-
-
-# Coarse category per tool, used only to pick a tool-call card icon.
-_CLAUDE_TOOL_KINDS: dict[str, str] = {
-    "create-new-notebook": "edit",
-    "rename-notebook": "edit",
-    "add-markdown-cell": "edit",
-    "add-code-cell": "edit",
-    "get-number-of-cells": "read",
-    "get-cell-type-and-source": "read",
-    "get-cell-output": "read",
-    "set-cell-type-and-source": "edit",
-    "delete-cell": "edit",
-    "insert-cell": "edit",
-    "run-cell": "execute",
-    "save-notebook": "edit",
-    "run-command-in-jupyter-terminal": "execute",
-    "open-file-in-jupyter-ui": "read",
-    "Bash": "execute",
-    "Read": "read",
-    "Write": "edit",
-    "Edit": "edit",
-    "MultiEdit": "edit",
-    "NotebookEdit": "edit",
-    "Glob": "read",
-    "Grep": "read",
-    "WebFetch": "read",
-    "WebSearch": "read",
-    "Task": "other",
-    "TodoWrite": "other",
-}
 
 
 def claude_tool_kind(name: str) -> str:
     """Coarse category for a tool call (``read`` / ``edit`` / ``execute`` /
     ``other``), used only to choose a card icon.
 
-    Mirrors ``humanize_claude_tool_name``: known names map directly,
-    ``mcp__server__tool`` unwraps to its inner name, and anything left over
-    falls back to a keyword heuristic so unfamiliar MCP tools still get a
-    sensible icon rather than always landing on ``other``.
+    Known names map directly (unwrapping ``mcp__server__tool``); anything left
+    over falls back to a whole-token keyword heuristic so unfamiliar MCP tools
+    still get a sensible icon rather than always landing on ``other``.
     """
-    inner = name
-    if name.startswith("mcp__"):
-        parts = name.split("__")
-        if len(parts) >= 3:
-            inner = parts[-1]
-    if inner in _CLAUDE_TOOL_KINDS:
-        return _CLAUDE_TOOL_KINDS[inner]
+    entry = _lookup_tool(name)
+    if entry is not None:
+        return entry[1]
     # Tokenize so a verb is matched as a whole word, not a substring: "widget"
     # must not read as "get", and "command" must not read as "and".
-    tokens = {t for t in re.split(r"[^a-z0-9]+", inner.lower()) if t}
+    tokens = {t for t in re.split(r"[^a-z0-9]+", _inner_tool_name(name).lower()) if t}
     if tokens & {"bash", "run", "exec", "execute", "shell", "terminal", "command"}:
         return "execute"
     if tokens & {"write", "edit", "create", "add", "insert", "delete", "remove",
@@ -210,6 +187,83 @@ def claude_tool_kind(name: str) -> str:
                  "view", "open", "show", "find"}:
         return "read"
     return "other"
+
+
+# Cap the diff lines surfaced per tool-call card so a large edit doesn't bloat
+# the transcript or the wire payload.
+_MAX_DIFF_LINES = 60
+
+
+def _diff_lines(old: str, new: str, max_lines: int = _MAX_DIFF_LINES) -> tuple[list[dict], bool]:
+    """Line-level diff of ``old`` -> ``new`` as typed lines for a card.
+
+    Returns ``(lines, truncated)``. Each line is
+    ``{"type": "add"|"remove"|"context", "content": str}``; the list is capped
+    at ``max_lines`` so a huge edit stays compact.
+    """
+    old_lines = (old or "").splitlines()
+    new_lines = (new or "").splitlines()
+    lines: list[dict] = []
+    for raw in difflib.unified_diff(old_lines, new_lines, lineterm="", n=1):
+        if raw.startswith(("---", "+++", "@@")):
+            continue
+        if raw.startswith("+"):
+            lines.append({"type": "add", "content": raw[1:]})
+        elif raw.startswith("-"):
+            lines.append({"type": "remove", "content": raw[1:]})
+        else:
+            lines.append({"type": "context", "content": raw[1:] if raw[:1] == " " else raw})
+    truncated = len(lines) > max(0, max_lines)
+    return lines[: max(0, max_lines)], truncated
+
+
+def extract_tool_diffs(name: str, tool_input: Any) -> list[dict]:
+    """Extract inline diffs from a file-edit tool's input.
+
+    Handles Claude's Edit / Write / MultiEdit (including MCP-wrapped names).
+    Returns a list of ``{"path", "lines", "truncated"}`` entries; empty for
+    tools that aren't file edits or whose input lacks the expected fields.
+    """
+    if not isinstance(tool_input, dict):
+        return []
+    inner = _inner_tool_name(name)
+    raw_diffs: list[tuple[str, str, str]] = []  # (path, old, new)
+    if inner == "Edit":
+        raw_diffs.append((
+            tool_input.get("file_path", ""),
+            tool_input.get("old_string", ""),
+            tool_input.get("new_string", ""),
+        ))
+    elif inner == "Write":
+        raw_diffs.append((
+            tool_input.get("file_path", ""),
+            "",
+            tool_input.get("content", ""),
+        ))
+    elif inner == "MultiEdit":
+        path = tool_input.get("file_path", "")
+        for edit in tool_input.get("edits", []) or []:
+            if isinstance(edit, dict):
+                raw_diffs.append((
+                    path,
+                    edit.get("old_string", ""),
+                    edit.get("new_string", ""),
+                ))
+
+    # Budget the line cap across ALL diffs in the card, not per diff, so a
+    # MultiEdit with many edits can't blow up the payload.
+    out: list[dict] = []
+    remaining = _MAX_DIFF_LINES
+    for path, old, new in raw_diffs:
+        if remaining <= 0:
+            if out:
+                out[-1]["truncated"] = True
+            break
+        lines, truncated = _diff_lines(old, new, max_lines=remaining)
+        if lines:
+            out.append({"path": path, "lines": lines, "truncated": truncated})
+            remaining -= len(lines)
+    return out
 
 
 _current_request = None
@@ -759,7 +813,7 @@ class ClaudeCodeClient():
                                 # back can re-emit the same card with a final
                                 # status. Lifetime is one query — pops entries
                                 # on completion so the dict stays bounded.
-                                in_flight_tools: dict[str, tuple[str, str]] = {}
+                                in_flight_tools: dict[str, tuple[str, str, list]] = {}
                                 async for message in client.receive_response():
                                     if request.cancel_token.is_cancel_requested:
                                         # Stop iterating once the user cancels — we'd
@@ -774,12 +828,14 @@ class ClaudeCodeClient():
                                             elif isinstance(block, ToolUseBlock):
                                                 title = humanize_claude_tool_name(block.name)
                                                 kind = claude_tool_kind(block.name)
-                                                in_flight_tools[block.id] = (title, kind)
+                                                diffs = extract_tool_diffs(block.name, block.input)
+                                                in_flight_tools[block.id] = (title, kind, diffs)
                                                 response.stream(ToolCallData(
                                                     id=block.id,
                                                     title=title,
                                                     kind=kind,
                                                     status='in_progress',
+                                                    diffs=diffs,
                                                 ))
                                     elif isinstance(message, UserMessage):
                                         if isinstance(message.content, str):
@@ -807,13 +863,14 @@ class ClaudeCodeClient():
                                                     )
                                                     if entry is None:
                                                         continue
-                                                    title, kind = entry
+                                                    title, kind, diffs = entry
                                                     status = 'failed' if block.is_error else 'completed'
                                                     response.stream(ToolCallData(
                                                         id=block.tool_use_id,
                                                         title=title,
                                                         kind=kind,
                                                         status=status,
+                                                        diffs=diffs,
                                                     ))
                                     else:
                                         pass
@@ -826,12 +883,13 @@ class ClaudeCodeClient():
                                 # 'cancelled' rather than leaving a perpetual
                                 # spinner in the transcript.
                                 if request.cancel_token.is_cancel_requested and in_flight_tools:
-                                    for tool_id, (title, kind) in in_flight_tools.items():
+                                    for tool_id, (title, kind, diffs) in in_flight_tools.items():
                                         response.stream(ToolCallData(
                                             id=tool_id,
                                             title=title,
                                             kind=kind,
                                             status='cancelled',
+                                            diffs=diffs,
                                         ))
                                     in_flight_tools.clear()
                         except Exception as e:

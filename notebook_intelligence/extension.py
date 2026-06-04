@@ -2040,7 +2040,8 @@ class WebsocketCopilotResponseEmitter(ChatResponse):
                                     "id": data.id,
                                     "title": data.title,
                                     "kind": data.kind,
-                                    "status": data.status
+                                    "status": data.status,
+                                    "diffs": data.diffs or []
                                 }
                             },
                             "content": "",

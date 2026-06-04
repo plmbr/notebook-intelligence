@@ -80,7 +80,7 @@ import { mcpServerSettingsToEnabledState } from './components/mcp-util';
 import claudeSvgStr from '../style/icons/claude.svg';
 import { AskUserQuestion } from './components/ask-user-question';
 import { ClaudeSessionPicker } from './components/claude-session-picker';
-import { ToolCallCard } from './components/tool-call-card';
+import { ToolCallGroup } from './components/tool-call-group';
 import { upsertToolCallContent } from './tool-call-stream';
 import { TourOverlay } from './tour/tour-overlay';
 import { TOUR_ANCHOR } from './tour/tour-anchors';
@@ -718,6 +718,19 @@ function ChatResponse(props: any) {
       if (item.reasoningFinished) {
         lastItem.reasoningFinished = true;
       }
+    } else if (
+      item.type === ResponseStreamDataType.ToolCall &&
+      lastItemType === ResponseStreamDataType.ToolCall
+    ) {
+      // Bundle a run of consecutive tool calls into one group item so the
+      // renderer can collapse them; ToolCallGroup unwraps content.toolCalls.
+      const lastItem = groupedContents[groupedContents.length - 1];
+      lastItem.content.toolCalls.push(structuredClone(item.content));
+    } else if (item.type === ResponseStreamDataType.ToolCall) {
+      const grouped = structuredClone(item);
+      grouped.content = { toolCalls: [structuredClone(item.content)] };
+      groupedContents.push(grouped);
+      lastItemType = item.type;
     } else {
       groupedContents.push(structuredClone(item));
       lastItemType = item.type;
@@ -955,11 +968,14 @@ function ChatResponse(props: any) {
               ) : null;
             case ResponseStreamDataType.ToolCall:
               // Unlike Progress, tool-call cards persist after the turn ends,
-              // so they render regardless of `showGenerating`. The backend
-              // re-emits each call under the same id to flip its status, and
-              // the stream handler merges by id, so one card shows here.
+              // so they render regardless of `showGenerating`. The grouping
+              // pass bundled this run's calls into content.toolCalls; the
+              // group renders a single card or a collapsible group.
               return (
-                <ToolCallCard key={`key-${index}`} toolCall={item.content} />
+                <ToolCallGroup
+                  key={`key-${index}`}
+                  toolCalls={item.content.toolCalls}
+                />
               );
             case ResponseStreamDataType.Confirmation:
               return answeredForms.get(item.id) ===
