@@ -480,18 +480,24 @@ describe('shellSingleQuote', () => {
 describe('buildResumeCommand', () => {
   it('wraps cd around the resume invocation when cwd is provided', () => {
     expect(buildResumeCommand('/tmp/proj', 'abc-123')).toBe(
-      "cd '/tmp/proj' && claude --resume abc-123"
+      "cd '/tmp/proj' && claude --resume 'abc-123'"
     );
   });
 
   it('quotes paths with spaces correctly', () => {
     expect(buildResumeCommand('/Users/me/My Project', 'xyz')).toBe(
-      "cd '/Users/me/My Project' && claude --resume xyz"
+      "cd '/Users/me/My Project' && claude --resume 'xyz'"
+    );
+  });
+
+  it('quotes session ids before shell interpolation', () => {
+    expect(buildResumeCommand('/tmp/proj', "abc'; touch /tmp/pwned; '")).toBe(
+      "cd '/tmp/proj' && claude --resume 'abc'\\''; touch /tmp/pwned; '\\'''"
     );
   });
 
   it('falls back to a bare resume when cwd is empty', () => {
-    expect(buildResumeCommand('', 'abc-123')).toBe('claude --resume abc-123');
+    expect(buildResumeCommand('', 'abc-123')).toBe("claude --resume 'abc-123'");
   });
 });
 

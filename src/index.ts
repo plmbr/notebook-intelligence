@@ -106,6 +106,7 @@ import {
   cellOutputHasError,
   chooseWorkspaceDirectory,
   compareSelections,
+  buildResumeCommand,
   extractLLMGeneratedCode,
   getSelectionInEditor,
   getTokenCount,
@@ -1403,10 +1404,9 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
             return React.createElement(LauncherPicker, {
               onSessionSelected: (session: IClaudeSessionInfo) => {
                 dialog.close();
-                const cmd = session.cwd
-                  ? `cd ${session.cwd} && claude --resume ${session.session_id}`
-                  : `claude --resume ${session.session_id}`;
-                launchCliInTerminal(cmd);
+                launchCliInTerminal(
+                  buildResumeCommand(session.cwd ?? '', session.session_id)
+                );
               }
             });
           }

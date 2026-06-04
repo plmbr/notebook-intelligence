@@ -407,10 +407,11 @@ export function safeAnchorUri(uri: string | undefined | null): string | null {
  * user happens to be in the JupyterLab working directory.
  */
 export function buildResumeCommand(cwd: string, sessionId: string): string {
+  const quotedSessionId = shellSingleQuote(sessionId);
   if (!cwd) {
-    return `claude --resume ${sessionId}`;
+    return `claude --resume ${quotedSessionId}`;
   }
-  return `cd ${shellSingleQuote(cwd)} && claude --resume ${sessionId}`;
+  return `cd ${shellSingleQuote(cwd)} && claude --resume ${quotedSessionId}`;
 }
 
 /**
