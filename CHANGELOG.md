@@ -10,6 +10,19 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-05-24
+
+A patch release: one provider-compatibility fix, one chat-rendering fix, and the npm package-scope rename. No traitlet, env-var, REST route, or on-disk-format changes; no migration steps beyond the 5.0.0 note.
+
+### Changed
+
+- **GitHub Copilot Codex chat models route through the `/responses` endpoint** (#341). Codex-family models (e.g. `gpt-5.3-codex`) are served only by Copilot's OpenAI Responses API mirror and return HTTP 400 on the standard `/chat/completions` path, so selecting one in the chat-model dropdown previously failed. NBI now picks the endpoint per model from the `/models` catalog's `supported_endpoints` field (with a `codex` substring fallback for offline sessions), translates the request and streaming events to the Responses shape, and surfaces `response.failed` / `response.error` / `response.incomplete` / `error` events instead of an empty turn. No new settings; the dispatch is internal to the GitHub Copilot provider.
+- **npm package scope renamed to `@plmbr/notebook-intelligence`** (#342), following the GitHub org rename from `notebook-intelligence` to `plmbr`. The labextension is now listed as `@plmbr/notebook-intelligence` in `jupyter labextension list`; the pip package name (`notebook-intelligence`) is unchanged, so `pip install notebook-intelligence` still works.
+
+### Fixed
+
+- **AI-generated links in the chat sidebar open in a new tab instead of replacing the JupyterLab UI** (#347). Markdown links emitted by the model previously navigated the top-level document and unloaded the whole Lab session on click. External links (`http` / `https` / `mailto`) now open with `target="_blank" rel="noopener noreferrer"`; workspace-relative paths open the referenced file through JupyterLab's document manager; fragment-only links render as inert text; and disallowed schemes (`javascript:`, traversal-escaping paths, dangerous codepoints) are blocked.
+
 ## [5.0.0] - 2026-05-22
 
 5.0.0 is a major release built on top of 4.8.0, gathering a large surface of new admin policies, accessibility work across the chat sidebar / popovers / settings tabs, several security hardening passes, and three new agent-aware UI surfaces. Most existing configuration continues to work; the version bump reflects the breadth of new admin-policy / env-var surface that operators should review, plus the dependency swap from `fastmcp` to the official `mcp` SDK.
@@ -330,7 +343,8 @@ A multi-PR accessibility pass landed across most NBI surfaces. Together these ma
 - Settings UI restructured around Claude vs default mode.
 - WebSocket connection reliability improvements.
 
-[unreleased]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.0...HEAD
+[unreleased]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.1...HEAD
+[5.0.1]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.8.0...v5.0.0
 [4.8.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.7.0...v4.8.0
 [4.7.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.6.0...v4.7.0
