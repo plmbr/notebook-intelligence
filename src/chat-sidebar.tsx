@@ -971,9 +971,16 @@ function ChatResponse(props: any) {
               // so they render regardless of `showGenerating`. The grouping
               // pass bundled this run's calls into content.toolCalls; the
               // group renders a single card or a collapsible group.
+              //
+              // Key by the group item's own id (assigned once when the run's
+              // first call streamed in) so the group's identity follows its
+              // content, not its array position. An index key would remount the
+              // group (re-running its collapse heuristic) if anything were ever
+              // inserted ahead of it; belt-and-suspenders with the stable
+              // message key that is the primary #363 fix.
               return (
                 <ToolCallGroup
-                  key={`key-${index}`}
+                  key={item.id}
                   toolCalls={item.content.toolCalls}
                 />
               );
@@ -2929,6 +2936,12 @@ function SidebarComponent(props: any) {
       : null;
     const extractedPrompt = submitPrompt;
     const contents: IChatMessageContent[] = [];
+    // One id for this turn's response message, reused on every streamed delta.
+    // setChatMessages rebuilds the message object per delta; a fresh id each
+    // time changes its React key and remounts the whole response subtree,
+    // which re-runs ToolCallGroup's collapse heuristic and flickers the group
+    // open/closed as calls stream in (issue #363).
+    const responseMessageId = UUID.uuid4();
     const app = props.getApp();
     const additionalContext: IContextItem[] = [];
     let currentFileUsesWholeDocument = false;
@@ -3152,7 +3165,7 @@ function SidebarComponent(props: any) {
           setChatMessages([
             ...newList,
             {
-              id: UUID.uuid4(),
+              id: responseMessageId,
               date: new Date(),
               from: 'copilot',
               contents: contents,
@@ -3480,6 +3493,10 @@ function SidebarComponent(props: any) {
       }
 
       const contents: IChatMessageContent[] = [];
+      // Stable id for this turn's response message; see the matching note in
+      // handleUserInputSubmit. Reused on every delta so the message keeps one
+      // React key and the response subtree is not remounted each chunk (#363).
+      const responseMessageId = UUID.uuid4();
 
       submitCompletionRequest(request, {
         emit: async response => {
@@ -3589,11 +3606,10 @@ function SidebarComponent(props: any) {
           if (hideInChat) {
             return;
           }
-          const messageId = UUID.uuid4();
           setChatMessages([
             ...newList,
             {
-              id: messageId,
+              id: responseMessageId,
               date: new Date(),
               from: 'copilot',
               contents: contents,

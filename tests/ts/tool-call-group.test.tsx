@@ -65,6 +65,26 @@ describe('ToolCallGroup', () => {
     expect(container.querySelectorAll('.nbi-tool-call')).toHaveLength(4);
   });
 
+  it('stays expanded when its calls settle on a persistent instance (no self-collapse)', () => {
+    // Guards the component contract the #363 fix relies on: a group that
+    // mounted expanded must not collapse itself when its calls later settle
+    // (the collapsed-default heuristic runs only at mount, never on update).
+    // The remount that actually caused the flicker is fixed in the sidebar
+    // render (stable message and group keys) and is verified live, not here --
+    // rerender keeps this same instance mounted, the post-fix steady state.
+    const live = [...calls(3, 'completed'), ...calls(1, 'in_progress')].map(
+      (c, i) => ({ ...c, id: `s${i}` })
+    );
+    const { container, rerender } = render(<ToolCallGroup toolCalls={live} />);
+    expect(container.querySelectorAll('.nbi-tool-call')).toHaveLength(4);
+
+    const settled = live.map(c => ({ ...c, status: 'completed' }));
+    rerender(<ToolCallGroup toolCalls={settled} />);
+    // 4 settled calls (> threshold) would start collapsed on a fresh mount;
+    // this instance mounted expanded and must not collapse itself.
+    expect(container.querySelectorAll('.nbi-tool-call')).toHaveLength(4);
+  });
+
   it('starts expanded when a large group still has an in-progress call', () => {
     const live = [...calls(4, 'completed'), ...calls(1, 'in_progress')].map(
       (c, i) => ({ ...c, id: `u${i}` })
