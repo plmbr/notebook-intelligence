@@ -4,10 +4,12 @@
 
 Claude Code persists each conversation as a line-delimited JSON file at::
 
-    ~/.claude/projects/<cwd-encoded>/<session-id>.jsonl
+    <claude-config-dir>/projects/<cwd-encoded>/<session-id>.jsonl
 
-where ``<cwd-encoded>`` is the session cwd with path separators replaced by
-dashes (e.g. ``/Users/me/proj`` -> ``-Users-me-proj``).
+where ``<claude-config-dir>`` is ``~/.claude`` unless the CLI's
+``CLAUDE_CONFIG_DIR`` env var overrides it, and ``<cwd-encoded>`` is the
+session cwd with path separators replaced by dashes (e.g.
+``/Users/me/proj`` -> ``-Users-me-proj``).
 
 This module reads those files for the current Jupyter working directory and
 returns lightweight metadata (id, timestamps, first user message preview) so
@@ -31,6 +33,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from notebook_intelligence.util import get_claude_config_dir
 
 log = logging.getLogger(__name__)
 
@@ -104,10 +108,10 @@ def encode_cwd(cwd: str) -> str:
 def get_sessions_dir(cwd: str, claude_home: Optional[str] = None) -> Path:
     """Return the directory containing session transcripts for ``cwd``.
 
-    ``claude_home`` defaults to ``~/.claude`` but can be overridden (useful
-    for tests and for the ``CLAUDE_CONFIG_DIR`` convention).
+    ``claude_home`` defaults to the CLI's own config dir (``CLAUDE_CONFIG_DIR``
+    when set, else ``~/.claude``) but can be overridden, mainly for tests.
     """
-    home = Path(claude_home) if claude_home else Path.home() / ".claude"
+    home = Path(claude_home) if claude_home else Path(get_claude_config_dir())
     return home / "projects" / encode_cwd(cwd)
 
 
@@ -393,8 +397,8 @@ def list_all_sessions(
 ) -> list[ClaudeSessionInfo]:
     """List every resumable Claude session on disk, newest first.
 
-    Walks ``~/.claude/projects/*/`` directly so the result is the same
-    set of sessions ``claude --resume`` can recover. ``history.jsonl`` is
+    Walks ``<claude-config-dir>/projects/*/`` directly so the result is the
+    same set of sessions ``claude --resume`` can recover. ``history.jsonl`` is
     NOT used as a gating source because recent Claude Code versions don't
     reliably populate it (notably for SDK-driven invocations), and
     history-first lookups silently dropped real, on-disk sessions.
@@ -412,7 +416,7 @@ def list_all_sessions(
     activity. Per-transcript parse results are mtime-cached so repeated
     calls don't reparse every file.
     """
-    home = Path(claude_home) if claude_home else Path.home() / ".claude"
+    home = Path(claude_home) if claude_home else Path(get_claude_config_dir())
     projects_dir = home / "projects"
 
     sessions: list[ClaudeSessionInfo] = []

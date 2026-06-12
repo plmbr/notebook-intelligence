@@ -8,6 +8,7 @@ import sys
 import tempfile
 from typing import Optional
 
+from notebook_intelligence.util import get_claude_config_dir
 from notebook_intelligence.feature_flags import (
     CHAT_MODEL_OVERRIDES,
     CLAUDE_SETTINGS_OVERRIDES,
@@ -219,8 +220,7 @@ class NBIConfig:
     def user_skills_directory(self) -> str:
         # Mirrors Claude's own CLAUDE_CONFIG_DIR override so the extension picks up
         # skills from the same directory Claude is using.
-        base = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.join(os.path.expanduser('~'), '.claude')
-        return os.path.join(base, 'skills')
+        return os.path.join(get_claude_config_dir(), 'skills')
 
     def project_skills_directory(self, project_root: str) -> str:
         return os.path.join(project_root, '.claude', 'skills')

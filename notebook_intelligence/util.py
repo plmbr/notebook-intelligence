@@ -95,6 +95,19 @@ def safe_jupyter_path(path: str) -> Path:
     return target_path
 
 
+def get_claude_config_dir() -> str:
+    """Claude Code's config dir: CLAUDE_CONFIG_DIR when set, else ``~/.claude``.
+
+    Mirrors the CLI's own override so every surface that reads CLI-owned
+    state (session transcripts, skills, settings.json) looks where the CLI
+    actually writes. Read per call rather than memoized: it's a dict lookup,
+    and tests toggle the env var between cases.
+    """
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(
+        os.path.expanduser("~"), ".claude"
+    )
+
+
 _cached_cli_paths: dict[str, Optional[str]] = {}
 
 

@@ -14,6 +14,10 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 - **Provider SDKs load on first use instead of at module import** (#370). `import notebook_intelligence` no longer imports `litellm`, `openai`, `ollama`, or the `anthropic` SDK; `litellm`, `openai`, and `anthropic` load the first time their provider is actually used (for Claude mode that includes the client construction and model refresh NBI runs at startup), while `ollama` still loads during extension startup when the provider enumerates local models. This roughly halves the server-extension import time (a cost the Jupyter server pays on every start), with the biggest effect on Windows machines where antivirus scanning amplifies the many-small-file SDK imports (#368). When NBI does load litellm, it now defaults `LITELLM_LOCAL_MODEL_COST_MAP=true` so litellm reads its bundled model-cost map rather than fetching it over HTTP at import; set the env var to `false` to restore the fetch.
 
+### Fixed
+
+- **Session history follows `CLAUDE_CONFIG_DIR`** (#373). The chat-sidebar resume picker and the launcher tile's session list always read transcripts from `~/.claude/projects`, so both came up empty when the Claude CLI was configured with `CLAUDE_CONFIG_DIR` and wrote its transcripts elsewhere. The session listing now resolves the CLI's config dir the same way the skills and spinner-verbs paths already did.
+
 ## [5.1.0] - UNRELEASED
 
 5.1.0 builds on 5.0.x with a focus on Claude-mode agent visibility. Tool calls the agent runs now render as persistent status cards with inline diffs and collapsible grouping, the generating indicator can cycle custom verbs, and cancelling a turn tears down the whole process tree the agent spawned instead of leaking it. It also adds two opt-in security guardrails (an MCP stdio-command allowlist and a default-token-password check on shared filesystems) and an always-visible mode for chat feedback. No traitlet, env-var, REST route, or on-disk-format renames or removals; every new admin surface is opt-in and listed below.

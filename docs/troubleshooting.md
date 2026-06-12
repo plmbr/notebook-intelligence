@@ -112,6 +112,8 @@ ls ~/.claude/skills/             # Claude skills
 ls ~/.claude/projects/           # Claude session transcripts
 ```
 
+If `CLAUDE_CONFIG_DIR` is set, the Claude CLI keeps its skills and session transcripts under `$CLAUDE_CONFIG_DIR` instead of `~/.claude`, and NBI reads from the same place.
+
 > Do not share the contents of `~/.jupyter/nbi/config.json` or `~/.jupyter/nbi/user-data.json` — they contain API keys or your encrypted GitHub token.
 
 ## "Skills reloaded" banner keeps appearing

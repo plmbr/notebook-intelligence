@@ -974,3 +974,64 @@ class TestCrossSurfaceConsistency:
         second = list_all_sessions(claude_home=str(fake_claude_home))
         assert len(second) == 1
         assert call_count["n"] == 0  # served from cache
+
+
+class TestClaudeConfigDirDefault:
+    """The claude_home default must follow CLAUDE_CONFIG_DIR (issue #373).
+
+    The CLI writes transcripts under $CLAUDE_CONFIG_DIR/projects when the
+    env var is set; the handler calls list_all_sessions without a
+    claude_home, so the default is what production traffic exercises.
+    """
+
+    def test_get_sessions_dir_honors_claude_config_dir(
+        self, monkeypatch, tmp_path
+    ):
+        override = tmp_path / "workspace" / ".claude"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(override))
+        result = get_sessions_dir("/some/cwd")
+        assert result == override / "projects" / encode_cwd("/some/cwd")
+
+    def test_get_sessions_dir_defaults_to_home_claude(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        result = get_sessions_dir("/some/cwd")
+        assert result == tmp_path / ".claude" / "projects" / encode_cwd(
+            "/some/cwd"
+        )
+
+    def test_list_all_sessions_reads_claude_config_dir(
+        self, monkeypatch, tmp_path
+    ):
+        override = tmp_path / "workspace" / ".claude"
+        cwd = str(tmp_path / "proj")
+        _write_jsonl(
+            override / "projects" / encode_cwd(cwd) / "abc.jsonl",
+            [_user_line("abc", "hello from the override dir", cwd=cwd)],
+        )
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(override))
+
+        sessions = list_all_sessions()
+
+        assert [s.session_id for s in sessions] == ["abc"]
+        assert sessions[0].preview == "hello from the override dir"
+
+    def test_list_all_sessions_ignores_home_claude_when_overridden(
+        self, monkeypatch, tmp_path
+    ):
+        home = tmp_path / "home"
+        cwd = str(tmp_path / "proj")
+        _write_jsonl(
+            home / ".claude" / "projects" / encode_cwd(cwd) / "old.jsonl",
+            [_user_line("old", "stale home transcript", cwd=cwd)],
+        )
+        override = tmp_path / "workspace" / ".claude"
+        override.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(override))
+
+        assert list_all_sessions() == []

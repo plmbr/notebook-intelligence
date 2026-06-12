@@ -46,16 +46,16 @@ Manual edits to `config.json` while JupyterLab is running require a JupyterLab r
 
 ## Persistent-volume layout
 
-| Path                                      | Persist?    | Notes                                                                                                                           |
-| ----------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.jupyter/nbi/config.json`              | Yes         | User's chosen provider, models, MCP servers, plus plaintext API keys. Treat as a secret.                                        |
-| `~/.jupyter/nbi/user-data.json`           | Yes         | Encrypted GitHub Copilot access token, written when "remember login" is enabled. Encrypted with `NBI_GH_ACCESS_TOKEN_PASSWORD`. |
-| `~/.jupyter/nbi/rules/`                   | Yes         | User's ruleset markdown files.                                                                                                  |
-| `~/.jupyter/nbi/mcp.json`                 | Yes         | User's MCP server config (alternative to managing via the Settings dialog).                                                     |
-| `~/.claude/skills/`                       | Yes         | User-scope Claude skills (including managed skills).                                                                            |
-| `~/.claude/projects/`                     | Yes         | Claude Code session transcripts. Required for "Resume previous Claude session". Managed by Claude CLI, not NBI.                 |
-| `<env-prefix>/share/jupyter/nbi/`         | No (image)  | Org-wide base config. Bake into your container image.                                                                           |
-| Project-scope `<project>/.claude/skills/` | Per project | Lives in the user's working directory. Persists if the working directory does.                                                  |
+| Path                                      | Persist?    | Notes                                                                                                                                                                                                                                               |
+| ----------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `~/.jupyter/nbi/config.json`              | Yes         | User's chosen provider, models, MCP servers, plus plaintext API keys. Treat as a secret.                                                                                                                                                            |
+| `~/.jupyter/nbi/user-data.json`           | Yes         | Encrypted GitHub Copilot access token, written when "remember login" is enabled. Encrypted with `NBI_GH_ACCESS_TOKEN_PASSWORD`.                                                                                                                     |
+| `~/.jupyter/nbi/rules/`                   | Yes         | User's ruleset markdown files.                                                                                                                                                                                                                      |
+| `~/.jupyter/nbi/mcp.json`                 | Yes         | User's MCP server config (alternative to managing via the Settings dialog).                                                                                                                                                                         |
+| `~/.claude/skills/`                       | Yes         | User-scope Claude skills (including managed skills).                                                                                                                                                                                                |
+| `~/.claude/projects/`                     | Yes         | Claude Code session transcripts. Required for "Resume previous Claude session". Managed by Claude CLI, not NBI. When `CLAUDE_CONFIG_DIR` is set, this (and `~/.claude/skills/`) lives under `$CLAUDE_CONFIG_DIR` instead; NBI follows the override. |
+| `<env-prefix>/share/jupyter/nbi/`         | No (image)  | Org-wide base config. Bake into your container image.                                                                                                                                                                                               |
+| Project-scope `<project>/.claude/skills/` | Per project | Lives in the user's working directory. Persists if the working directory does.                                                                                                                                                                      |
 
 For Kubeflow or KubeSpawner: mount the user's home directory on a PVC and ensure `~/.jupyter` and `~/.claude` are inside that mount. Anything else (`/tmp`, `~/.cache`) can be ephemeral.
 
