@@ -10,6 +10,10 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 ## [Unreleased]
 
+### Added
+
+- **Claude permission-mode selector in the chat input** (#359). A dropdown next to the send button switches between Default, Accept Edits, and Plan; the selected mode rides each request and takes effect immediately, replacing the `/enter-plan-mode` and `/exit-plan-mode` slash commands (still working as hidden aliases for one release, but no longer autocompleted). "Bypass Permissions", which skips NBI's tool-call confirmation entirely, is gated behind the new `claude_bypass_permissions_policy` traitlet / `NBI_CLAUDE_BYPASS_PERMISSIONS_POLICY` env var defaulting to `force-off` (the only policy that does); when an admin sets `user-choice`, the option appears but must be armed through an explicit confirm step, shows a persistent red indicator while armed, and never survives a new session (it resets to default on `/clear` and on a fresh SDK client). The mode is clamped server-side on every request, and NBI defers to Claude Code's enterprise managed settings: `permissions.disableBypassPermissionsMode` refuses bypass regardless of the NBI policy, and `permissions.defaultMode` seeds the selector's starting mode (bypass excepted).
+
 ## [5.1.0] - UNRELEASED
 
 5.1.0 builds on 5.0.x with a focus on Claude-mode agent visibility. Tool calls the agent runs now render as persistent status cards with inline diffs and collapsible grouping, the generating indicator can cycle custom verbs, and cancelling a turn tears down the whole process tree the agent spawned instead of leaking it. It also adds two opt-in security guardrails (an MCP stdio-command allowlist and a default-token-password check on shared filesystems) and an always-visible mode for chat feedback. No traitlet, env-var, REST route, or on-disk-format renames or removals; every new admin surface is opt-in and listed below.

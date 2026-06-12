@@ -46,6 +46,7 @@ class BackendMessageType(str, Enum):
     MCPServerStatusChange = 'mcp-server-status-change'
     ClaudeCodeStatusChange = 'claude-code-status-change'
     ClaudeCodeHeartbeat = 'claude-code-heartbeat'
+    ClaudePermissionModeChange = 'claude-permission-mode-change'
     SkillsReloaded = 'skills-reloaded'
 
 class ResponseStreamDataType(str, Enum):
@@ -143,6 +144,9 @@ class ChatRequest:
     cancel_token: CancelToken = None
     # NEW: Add context for rule evaluation
     rule_context: Optional[RuleContext] = None
+    # Claude-mode permission mode, already clamped server-side against the
+    # bypass policy and managed settings at the websocket boundary.
+    permission_mode: str = 'default'
 
 @dataclass
 class ResponseStreamData:

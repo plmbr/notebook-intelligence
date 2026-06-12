@@ -53,7 +53,15 @@ from notebook_intelligence.mcp_policy import (
     reject_dangerous_env_keys,
     validate_mcp_stdio_command,
 )
-from notebook_intelligence.claude import ClaudeCodeChatParticipant, fetch_claude_models
+from notebook_intelligence.claude import (
+    CLAUDE_BYPASS_PERMISSION_MODE,
+    ClaudeCodeChatParticipant,
+    DEFAULT_PERMISSION_MODE,
+    claude_bypass_disabled_by_managed_settings,
+    claude_managed_default_permission_mode,
+    fetch_claude_models,
+    resolve_permission_mode,
+)
 from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
 from notebook_intelligence.plugin_manager import PluginManager
 from notebook_intelligence.tour_config import load_tour_config
@@ -329,6 +337,11 @@ FEATURE_POLICY_SPEC = (
         "claude_plugins_management_policy",
     ),
     (
+        "claude_bypass_permissions",
+        "NBI_CLAUDE_BYPASS_PERMISSIONS_POLICY",
+        "claude_bypass_permissions_policy",
+    ),
+    (
         "terminal_drag_drop",
         "NBI_TERMINAL_DRAG_DROP_POLICY",
         "terminal_drag_drop_policy",
@@ -340,6 +353,12 @@ FEATURE_POLICY_SPEC = (
     ),
 )
 FEATURE_POLICY_NAMES = tuple(name for name, _, _ in FEATURE_POLICY_SPEC)
+
+# Fallback used when a policies dict hasn't been populated (handler classes
+# before _setup_handlers, direct construction in tests). Everything defaults
+# to user-choice except bypass, which must fail closed.
+FEATURE_POLICY_DEFAULTS = {name: POLICY_USER_CHOICE for name in FEATURE_POLICY_NAMES}
+FEATURE_POLICY_DEFAULTS["claude_bypass_permissions"] = POLICY_FORCE_OFF
 
 # ``(setting_lock_name, env_var)`` pairs for the value-presence-locks. The
 # claude_api_key entry maps to ANTHROPIC_API_KEY (the SDK's native convention)
@@ -388,6 +407,12 @@ def _build_feature_policies_response(policies: dict, nbi_config) -> dict:
         "skills_management": True,
         "claude_mcp_management": True,
         "claude_plugins_management": True,
+        # Gates only whether the Bypass Permissions option is offered in
+        # the permission-mode selector; the user still arms it per
+        # session. force-on grants the same availability as user-choice
+        # and never auto-arms bypass. Defaults to force-off, the only
+        # policy with a non-user-choice default.
+        "claude_bypass_permissions": True,
         "terminal_drag_drop": True,
         "refresh_open_files_on_disk_change": nbi_config.refresh_open_files_on_disk_change,
     }
@@ -395,10 +420,31 @@ def _build_feature_policies_response(policies: dict, nbi_config) -> dict:
     response = {}
     for name in FEATURE_POLICY_NAMES:
         enabled, locked = resolve_feature_flag(
-            policies.get(name, POLICY_USER_CHOICE), user_values[name]
+            policies.get(name, FEATURE_POLICY_DEFAULTS[name]), user_values[name]
         )
         response[name] = {"enabled": enabled, "locked": locked}
+
+    # Defense in depth: Claude Code's enterprise managed settings can
+    # disable bypass independently of the NBI policy. Fold that into the
+    # one answer the frontend reads so the selector and the server's
+    # request clamp can't disagree.
+    if claude_bypass_disabled_by_managed_settings():
+        response["claude_bypass_permissions"] = {"enabled": False, "locked": True}
     return response
+
+
+def _resolve_default_permission_mode() -> str:
+    """Starting permission mode for the selector in a new Claude session.
+
+    Honors managed settings' ``permissions.defaultMode`` except for bypass,
+    which never applies without the user arming it explicitly, no matter
+    who asks; a managed default of bypass collapses to default the same
+    way the reconnect reset does.
+    """
+    managed_default = claude_managed_default_permission_mode()
+    if managed_default is None or managed_default == CLAUDE_BYPASS_PERMISSION_MODE:
+        return DEFAULT_PERMISSION_MODE
+    return managed_default
 
 
 def _build_setting_locks_response(string_overrides: dict) -> dict:
@@ -580,6 +626,11 @@ class GetCapabilitiesHandler(APIHandler):
                 self.feature_policies, nbi_config
             ),
             "setting_locks": _build_setting_locks_response(self.string_overrides),
+            # Starting mode for the permission-mode selector: managed
+            # settings' permissions.defaultMode when present and valid,
+            # else "default". Bypass never starts armed regardless of
+            # managed settings or policy, so it collapses to "default".
+            "claude_permission_default_mode": _resolve_default_permission_mode(),
         }
         for participant_id in ai_service_manager.chat_participants:
             participant = ai_service_manager.chat_participants[participant_id]
@@ -2183,6 +2234,10 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
     # leaving the default 10 MiB headroom for memory amplification.
     max_message_size = 4 * 1024 * 1024
 
+    # Resolved from the claude_bypass_permissions policy in _setup_handlers;
+    # False (fail closed) until then.
+    claude_bypass_permissions_allowed = False
+
     # Inheritance matches Jupyter's first-party WS handlers (e.g.
     # KernelWebsocketHandler): ``WebSocketMixin`` adds ping/pong
     # keepalive plus a ``prepare`` that routes through Jupyter's
@@ -2254,6 +2309,12 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
                 built_in_toolsets=toolSelections.get('builtinToolsets', []),
                 mcp_server_tools=toolSelections.get('mcpServers', {}),
                 extension_tools=toolSelections.get('extensions', {})
+            )
+            # Clamp at the boundary so a hand-rolled request can't reach
+            # bypass when the policy or managed settings forbid it.
+            permission_mode = resolve_permission_mode(
+                data.get('permissionMode', DEFAULT_PERMISSION_MODE),
+                self.claude_bypass_permissions_allowed,
             )
 
             is_claude_code_mode = ai_service_manager.is_claude_code_mode
@@ -2496,7 +2557,7 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
 
             # last prompt is added later
             request_chat_history = chat_history[chat_history_initial_size:-1] if is_claude_code_mode else chat_history[:-1]
-            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, tool_selection=tool_selection, prompt=prompt, chat_history=request_chat_history, cancel_token=cancel_token, rule_context=rule_context), response_emitter)
+            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, tool_selection=tool_selection, prompt=prompt, chat_history=request_chat_history, cancel_token=cancel_token, rule_context=rule_context, permission_mode=permission_mode), response_emitter)
             thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId))
             thread.start()
         elif messageType == RequestDataType.GenerateCode:
@@ -2923,6 +2984,24 @@ class NotebookIntelligence(ExtensionApp):
         config=True,
     )
 
+    claude_bypass_permissions_policy = TraitletEnum(
+        list(VALID_POLICIES),
+        default_value=POLICY_FORCE_OFF,
+        help="""
+        Org-wide policy for offering "Bypass Permissions" in the Claude
+        permission-mode selector. "force-off" (the default; the only
+        policy that doesn't default to user-choice) hides the option and
+        the server rejects bypass requests. "user-choice" exposes the
+        option; the user still has to arm it explicitly per session.
+        "force-on" grants the same availability as user-choice and never
+        auto-arms bypass. Independent of this policy, bypass is refused
+        whenever Claude Code's enterprise managed settings set
+        permissions.disableBypassPermissionsMode. Overridden by the
+        NBI_CLAUDE_BYPASS_PERMISSIONS_POLICY env var.
+        """,
+        config=True,
+    )
+
     terminal_drag_drop_policy = TraitletEnum(
         list(VALID_POLICIES),
         default_value=POLICY_USER_CHOICE,
@@ -3257,6 +3336,9 @@ class NotebookIntelligence(ExtensionApp):
         )
         PluginsBaseHandler.claude_plugins_management_enabled = not is_force_off(
             feature_policies, "claude_plugins_management"
+        )
+        WebsocketCopilotHandler.claude_bypass_permissions_allowed = not is_force_off(
+            feature_policies, "claude_bypass_permissions"
         )
         PluginsBaseHandler.allow_github_plugin_import = _resolve_bool_with_env(
             "NBI_ALLOW_GITHUB_PLUGIN_IMPORT", self.allow_github_plugin_import

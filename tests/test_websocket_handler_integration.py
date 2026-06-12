@@ -839,3 +839,112 @@ class TestWebsocketHandlerIntegration:
         assert "@src/foo.py" in context_message
         assert "lines" not in context_message
         assert "selection" not in context_message
+
+
+class TestPermissionModeClamp:
+    """The websocket boundary is the sole arbiter for bypass (issue #359).
+
+    Hiding the option in the UI is convenience; a hand-rolled request must
+    still be clamped server-side against the resolved bypass policy.
+    """
+
+    def _create_mock_application(self):
+        app = Mock(spec=Application)
+        app.settings = {"jinja2_env": None, "headers": {}}
+        app.ui_methods = {}
+        app.ui_modules = {}
+        app.transforms = []
+        return app
+
+    def _create_mock_request(self):
+        request = Mock(spec=HTTPServerRequest)
+        request.connection = Mock()
+        return request
+
+    def _handler(self, *, bypass_allowed):
+        mock_factory = Mock(spec=RuleContextFactory)
+        mock_factory.create.return_value = Mock(spec=RuleContext)
+        with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            handler = WebsocketCopilotHandler(
+                self._create_mock_application(),
+                self._create_mock_request(),
+                context_factory=mock_factory,
+            )
+        handler.claude_bypass_permissions_allowed = bypass_allowed
+        return handler
+
+    def _send(self, handler, mock_ai_manager, mock_nb_intel, mode):
+        mock_nb_intel.root_dir = "/workspace"
+        mock_ai_manager.handle_chat_request = Mock()
+        data = {
+            'chatId': 'c',
+            'prompt': 'hi',
+            'language': 'python',
+            'filename': 'x.ipynb',
+            'chatMode': 'ask',
+            'toolSelections': {},
+            'additionalContext': [],
+        }
+        if mode is not None:
+            data['permissionMode'] = mode
+        message = {'id': 'm', 'type': 'chat-request', 'data': data}
+        handler.on_message(json.dumps(message))
+        return mock_ai_manager.handle_chat_request.call_args[0][0]
+
+    def test_class_default_fails_closed(self):
+        # Before _setup_handlers runs, the gate must be closed.
+        assert WebsocketCopilotHandler.claude_bypass_permissions_allowed is False
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
+    def test_bypass_clamped_to_default_when_policy_forbids(
+        self, mock_thread, mock_nb_intel, mock_ai_manager
+    ):
+        handler = self._handler(bypass_allowed=False)
+        req = self._send(
+            handler, mock_ai_manager, mock_nb_intel, 'bypassPermissions'
+        )
+        assert req.permission_mode == 'default'
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
+    def test_bypass_passes_through_when_policy_allows(
+        self, mock_thread, mock_nb_intel, mock_ai_manager
+    ):
+        handler = self._handler(bypass_allowed=True)
+        req = self._send(
+            handler, mock_ai_manager, mock_nb_intel, 'bypassPermissions'
+        )
+        assert req.permission_mode == 'bypassPermissions'
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
+    def test_normal_mode_passes_through(
+        self, mock_thread, mock_nb_intel, mock_ai_manager
+    ):
+        handler = self._handler(bypass_allowed=False)
+        req = self._send(handler, mock_ai_manager, mock_nb_intel, 'plan')
+        assert req.permission_mode == 'plan'
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
+    def test_unknown_mode_clamped_to_default(
+        self, mock_thread, mock_nb_intel, mock_ai_manager
+    ):
+        handler = self._handler(bypass_allowed=True)
+        req = self._send(handler, mock_ai_manager, mock_nb_intel, 'dontAsk')
+        assert req.permission_mode == 'default'
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
+    def test_missing_mode_defaults(
+        self, mock_thread, mock_nb_intel, mock_ai_manager
+    ):
+        handler = self._handler(bypass_allowed=True)
+        req = self._send(handler, mock_ai_manager, mock_nb_intel, None)
+        assert req.permission_mode == 'default'

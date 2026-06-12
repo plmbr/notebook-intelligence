@@ -36,6 +36,7 @@ export enum BackendMessageType {
   MCPServerStatusChange = 'mcp-server-status-change',
   ClaudeCodeStatusChange = 'claude-code-status-change',
   ClaudeCodeHeartbeat = 'claude-code-heartbeat',
+  ClaudePermissionModeChange = 'claude-permission-mode-change',
   SkillsReloaded = 'skills-reloaded'
 }
 

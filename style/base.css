@@ -344,6 +344,95 @@
   outline: none;
 }
 
+.permission-mode-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* The armed-bypass color must out-specify the shared footer-button
+   :hover and :focus-visible rules (the button takes focus after arming),
+   so each state is listed explicitly. */
+.permission-mode-button.permission-mode-button-bypass,
+.permission-mode-button.permission-mode-button-bypass:hover,
+.permission-mode-button.permission-mode-button-bypass:focus-visible {
+  color: var(--jp-error-color1);
+}
+
+.permission-mode-menu {
+  position: absolute;
+  bottom: 32px;
+  right: 0;
+  z-index: 100;
+  min-width: 160px;
+  padding: 4px;
+  background-color: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+}
+
+.permission-mode-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size1);
+  border-radius: 2px;
+}
+
+.permission-mode-menu-item:hover,
+.permission-mode-menu-item:focus-visible {
+  background-color: var(--jp-layout-color2);
+  outline: none;
+}
+
+.permission-mode-menu-item-bypass {
+  color: var(--jp-error-color1);
+}
+
+.permission-mode-menu-check {
+  display: inline-flex;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.permission-mode-confirm {
+  position: absolute;
+  bottom: 32px;
+  right: 0;
+  z-index: 100;
+
+  /* width capped so the dialog stays inside a narrow docked sidebar. */
+  width: 280px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 10px;
+  background-color: var(--jp-layout-color1);
+  border: 1px solid var(--jp-error-color1);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+}
+
+.permission-mode-confirm-message {
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size1);
+  margin-bottom: 8px;
+}
+
+.permission-mode-confirm-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .user-input-footer-button {
   width: 24px;
   height: 24px;

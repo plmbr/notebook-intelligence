@@ -54,6 +54,7 @@ export const VscPassFilled = asIcon(Vsc.VscPassFilled);
 export const VscRefresh = asIcon(Vsc.VscRefresh);
 export const VscSend = asIcon(Vsc.VscSend);
 export const VscSettingsGear = asIcon(Vsc.VscSettingsGear);
+export const VscShield = asIcon(Vsc.VscShield);
 export const VscSparkle = asIcon(Vsc.VscSparkle);
 export const VscStopCircle = asIcon(Vsc.VscStopCircle);
 export const VscSync = asIcon(Vsc.VscSync);

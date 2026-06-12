@@ -80,6 +80,10 @@ import { mcpServerSettingsToEnabledState } from './components/mcp-util';
 import claudeSvgStr from '../style/icons/claude.svg';
 import { AskUserQuestion } from './components/ask-user-question';
 import { ClaudeSessionPicker } from './components/claude-session-picker';
+import {
+  BYPASS_PERMISSIONS_MODE,
+  PermissionModeSelect
+} from './components/permission-mode-select';
 import { ToolCallGroup } from './components/tool-call-group';
 import { upsertToolCallContent } from './tool-call-stream';
 import { TourOverlay } from './tour/tour-overlay';
@@ -114,6 +118,7 @@ export interface IRunChatCompletionRequest {
   additionalContext?: IContextItem[];
   chatMode: string;
   toolSelections?: IToolSelections;
+  permissionMode?: string;
   // Optional id used by external listeners (e.g. the notebook toolbar
   // generation popover) to track progress when the chat sidebar is hidden.
   externalRequestId?: string;
@@ -1187,7 +1192,8 @@ async function submitCompletionRequest(
         request.additionalContext || [],
         request.chatMode,
         request.toolSelections || {},
-        responseEmitter
+        responseEmitter,
+        request.permissionMode || 'default'
       );
     case RunChatCompletionType.ExplainThis:
     case RunChatCompletionType.FixThis: {
@@ -1394,6 +1400,15 @@ function SidebarComponent(props: any) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const telemetryEmitter: ITelemetryEmitter = props.getTelemetryEmitter();
   const [chatMode, setChatMode] = useState(NBIAPI.config.defaultChatMode);
+  const [permissionMode, setPermissionMode] = useState(
+    NBIAPI.config.claudePermissionDefaultMode
+  );
+  const [bypassPermissionsAllowed, setBypassPermissionsAllowed] = useState(
+    NBIAPI.config.featurePolicies.claude_bypass_permissions.enabled
+  );
+  // Ref mirror so memoized request handlers read the live mode without
+  // adding it to their dependency arrays.
+  const permissionModeRef = useRef(permissionMode);
 
   const [toolSelectionTitle, setToolSelectionTitle] =
     useState('Tool selection');
@@ -2321,6 +2336,36 @@ function SidebarComponent(props: any) {
     };
   }, []);
 
+  useEffect(() => {
+    permissionModeRef.current = permissionMode;
+  }, [permissionMode]);
+
+  // Track the bypass policy across capability refreshes (an armed mode must
+  // not outlive a policy flip) and follow server-driven mode changes (plan
+  // approval, the hidden plan-mode slash aliases, client restart) so the
+  // selector always shows what the next turn will use.
+  useEffect(() => {
+    const configHandler = () => {
+      const allowed =
+        NBIAPI.config.featurePolicies.claude_bypass_permissions.enabled;
+      setBypassPermissionsAllowed(allowed);
+      if (!allowed) {
+        setPermissionMode(mode =>
+          mode === BYPASS_PERMISSIONS_MODE ? 'default' : mode
+        );
+      }
+    };
+    const modeHandler = (_: unknown, mode: string) => {
+      setPermissionMode(mode);
+    };
+    NBIAPI.configChanged.connect(configHandler);
+    NBIAPI.claudePermissionModeChanged.connect(modeHandler);
+    return () => {
+      NBIAPI.configChanged.disconnect(configHandler);
+      NBIAPI.claudePermissionModeChanged.disconnect(modeHandler);
+    };
+  }, []);
+
   // Drive the elapsed-time counter while a request is in flight. The same
   // interval re-evaluates whether the heartbeat has gone stale so the
   // indicator copy can swap to "Still working..." without a second timer.
@@ -2701,8 +2746,9 @@ function SidebarComponent(props: any) {
           prefixes.push(`/${command}`);
         }
       }
-      prefixes.push('/enter-plan-mode');
-      prefixes.push('/exit-plan-mode');
+      // /enter-plan-mode and /exit-plan-mode were replaced by the
+      // permission-mode selector; they still work when typed (hidden
+      // aliases, one-release deprecation) but no longer autocomplete.
     } else {
       if (chatMode === 'ask') {
         const chatParticipants = NBIAPI.config.chatParticipants;
@@ -3041,7 +3087,8 @@ function SidebarComponent(props: any) {
         filename: activeDocInfo.filePath,
         additionalContext,
         chatMode,
-        toolSelections: toolSelections
+        toolSelections: toolSelections,
+        permissionMode: permissionModeRef.current
       },
       {
         emit: async response => {
@@ -3278,6 +3325,7 @@ function SidebarComponent(props: any) {
     resetPrefixSuggestions();
     setPromptHistory([]);
     setPromptHistoryIndex(0);
+    setPermissionMode(NBIAPI.config.claudePermissionDefaultMode);
   };
 
   const onPromptKeyDown = async (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -3410,6 +3458,9 @@ function SidebarComponent(props: any) {
     (eventData: any) => {
       const request: IRunChatCompletionRequest = eventData.detail;
       request.chatId = chatId;
+      // Consolidated here so every entrypoint (sidebar input, toolbar
+      // popovers, extension-fired prompts) uses the selector's mode.
+      request.permissionMode = permissionModeRef.current;
       let message = '';
       switch (request.type) {
         case RunChatCompletionType.ExplainThis:
@@ -4336,6 +4387,13 @@ function SidebarComponent(props: any) {
                   <VscTools />
                   {selectedToolCount > 0 && <>{selectedToolCount}</>}
                 </button>
+              )}
+              {NBIAPI.config.isInClaudeCodeMode && (
+                <PermissionModeSelect
+                  value={permissionMode}
+                  bypassAllowed={bypassPermissionsAllowed}
+                  onModeChange={setPermissionMode}
+                />
               )}
               {NBIAPI.config.isInClaudeCodeMode && (
                 <span

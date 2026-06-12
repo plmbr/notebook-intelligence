@@ -10,6 +10,22 @@ from notebook_intelligence.ruleset import RuleContext
 from notebook_intelligence.config import NBIConfig
 
 
+@pytest.fixture(autouse=True)
+def _no_real_managed_settings(monkeypatch):
+    """Stop the Claude managed-settings probe from reading real OS paths.
+
+    ``_build_feature_policies_response`` and ``resolve_permission_mode`` now
+    consult Claude Code's enterprise managed-settings files (issue #359). On
+    a developer machine or CI image that actually has one installed, that
+    would couple unrelated capabilities/policy tests to the host. Default
+    every test to "unmanaged" (empty path tuple); the permission-mode tests
+    re-point this to their own tmp file where they need a managed file.
+    """
+    import notebook_intelligence.claude as claude_module
+
+    monkeypatch.setattr(claude_module, "_MANAGED_SETTINGS_PATHS", ())
+
+
 def stub_claude_subprocess(
     monkeypatch,
     *,
