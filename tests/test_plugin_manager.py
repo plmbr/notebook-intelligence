@@ -15,6 +15,7 @@ from notebook_intelligence.extension import (
 from notebook_intelligence._claude_cli import redact_argv_for_log
 from notebook_intelligence.plugin_manager import (
     PluginManager,
+    _claude_plugins_root,
     is_acceptable_marketplace_source,
     is_github_marketplace_source,
 )
@@ -1241,3 +1242,29 @@ class TestRedactArgvForLog:
 # Per-family policy-gate coverage lives in `tests/test_policy_gate.py`,
 # parametrized across SkillsBaseHandler / ClaudeMCPBaseHandler /
 # PluginsBaseHandler.
+
+
+class TestClaudePluginsRoot:
+    """The plugins-root fallback must follow CLAUDE_CONFIG_DIR (issue #375).
+
+    The CLI keeps its plugin cache under the config dir, so when
+    CLAUDE_CONFIG_DIR is set (and no explicit cache-dir override exists)
+    the root is $CLAUDE_CONFIG_DIR/plugins, not ~/.claude/plugins.
+    """
+
+    def test_falls_back_to_claude_config_dir(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", raising=False)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        assert _claude_plugins_root() == tmp_path / "cfg" / "plugins"
+
+    def test_explicit_cache_dir_wins_over_config_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        assert _claude_plugins_root() == tmp_path / "cache"
+
+    def test_defaults_to_home_claude_plugins(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", raising=False)
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        assert _claude_plugins_root() == tmp_path / ".claude" / "plugins"

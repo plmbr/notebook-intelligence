@@ -57,7 +57,7 @@ Manual edits to `config.json` while JupyterLab is running require a JupyterLab r
 | `<env-prefix>/share/jupyter/nbi/`         | No (image)  | Org-wide base config. Bake into your container image.                                                                                                                                                                                               |
 | Project-scope `<project>/.claude/skills/` | Per project | Lives in the user's working directory. Persists if the working directory does.                                                                                                                                                                      |
 
-For Kubeflow or KubeSpawner: mount the user's home directory on a PVC and ensure `~/.jupyter` and `~/.claude` are inside that mount. Anything else (`/tmp`, `~/.cache`) can be ephemeral.
+For Kubeflow or KubeSpawner: mount the user's home directory on a PVC and ensure `~/.jupyter` and `~/.claude` are inside that mount (or `$CLAUDE_CONFIG_DIR`, if you point the Claude CLI elsewhere). Anything else (`/tmp`, `~/.cache`) can be ephemeral.
 
 ---
 
@@ -474,7 +474,7 @@ Force-off:
 - Hides the Claude-mode **MCP Servers** tab in the Settings panel (visible only when Claude mode is on and the `claude` CLI is available).
 - Returns HTTP 403 from every `/notebook-intelligence/claude-mcp/*` route.
 
-The Claude-mode tab is **independent** of the existing non-Claude **MCP Servers** tab. The former wraps Claude Code's own config (`~/.claude.json` and project `.mcp.json`); the latter manages NBI's own MCP servers used by the non-Claude chat path. They never appear at the same time — the non-Claude tab is hidden when Claude mode is on, and the Claude-mode tab is hidden when it's off.
+The Claude-mode tab is **independent** of the existing non-Claude **MCP Servers** tab. The former wraps Claude Code's own config (`~/.claude.json`, relocated to `$CLAUDE_CONFIG_DIR/.claude.json` when that env var is set, and project `.mcp.json`); the latter manages NBI's own MCP servers used by the non-Claude chat path. They never appear at the same time; the non-Claude tab is hidden when Claude mode is on, and the Claude-mode tab is hidden when it's off.
 
 Reads come from Claude's JSON config files directly (fast, no health checks). Writes (add / remove) shell out to `claude mcp add` / `claude mcp remove` so Claude remains the source of truth for any side effects (project-trust prompts, OAuth bookkeeping).
 
@@ -516,7 +516,7 @@ c.NotebookIntelligence.claude_plugins_management_policy = "force-off"
 
 Or via env: `NBI_CLAUDE_PLUGINS_MANAGEMENT_POLICY=force-off`.
 
-Force-off hides the **Plugins** tab and returns 403 from every `/notebook-intelligence/plugins/*` route. The tab is otherwise visible only when Claude mode is on and the `claude` CLI is available. Both reads (`claude plugin list --json`) and writes (`claude plugin install` / `uninstall` / `enable` / `disable` / `marketplace add` / `marketplace remove`) shell out to the Claude CLI; Claude owns the plugin state under `~/.claude/plugins/`.
+Force-off hides the **Plugins** tab and returns 403 from every `/notebook-intelligence/plugins/*` route. The tab is otherwise visible only when Claude mode is on and the `claude` CLI is available. Both reads (`claude plugin list --json`) and writes (`claude plugin install` / `uninstall` / `enable` / `disable` / `marketplace add` / `marketplace remove`) shell out to the Claude CLI; Claude owns the plugin state under `~/.claude/plugins/` (`$CLAUDE_CONFIG_DIR/plugins/` when that env var is set); NBI reads the same location.
 
 > **Blast radius.** Force-off only kills the _management UI_ — already-installed plugins keep loading inside Claude Code sessions because Claude's plugin loader doesn't consult NBI's policy. To stop existing plugins from loading, you'd need to remove them on disk or disable them via the `claude plugin disable` CLI before flipping the policy. Force-off prevents user-driven add/remove/enable/disable through NBI; that's the contract.
 

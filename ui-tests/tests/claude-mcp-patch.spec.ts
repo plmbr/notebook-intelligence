@@ -12,7 +12,9 @@
  * Requires HOME to point at an isolated directory the test owns; otherwise
  * the PATCH would mutate the user's real ~/.claude.json. The runner sets
  * HOME=/tmp/... before invoking jlpm playwright, and the seed file is
- * placed by the test itself before each run.
+ * placed by the test itself before each run. CLAUDE_CONFIG_DIR must not
+ * leak into the server env (the server follows the override, bypassing
+ * the HOME seam); playwright.config.ts drops it from the webServer env.
  */
 import { expect, test } from '@jupyterlab/galata';
 

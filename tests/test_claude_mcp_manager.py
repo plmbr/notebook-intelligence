@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +29,9 @@ def claude_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    # A developer's exported CLAUDE_CONFIG_DIR would otherwise bypass the
+    # Path.home seam now that the manager honors the override.
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     return home
 
 
@@ -832,12 +836,20 @@ class TestPatchEndpointDispatches(AsyncHTTPTestCase):
             Path, "home", classmethod(lambda cls: self._home)
         )
         self._home_patcher.start()
+        # unittest-style classes don't get the claude_home fixture's delenv;
+        # without this, an exported CLAUDE_CONFIG_DIR bypasses the Path.home
+        # seam and the PATCH writes into the developer's real relocated
+        # .claude.json.
+        self._env_patcher = patch.dict(os.environ)
+        self._env_patcher.start()
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
         self._cwd_patcher = patch.object(
             ext_module, "get_jupyter_root_dir", lambda: str(self._cwd)
         )
         self._cwd_patcher.start()
 
     def tearDown(self):
+        self._env_patcher.stop()
         self._home_patcher.stop()
         self._cwd_patcher.stop()
         import shutil
@@ -896,3 +908,56 @@ class TestPatchEndpointDispatches(AsyncHTTPTestCase):
         response = self._fetch_patch("/claude-mcp/user/voicemode", {})
         assert response.code == 400
         assert b"Missing" in response.body
+
+
+class TestClaudeUserConfigPath:
+    """`.claude.json` must follow CLAUDE_CONFIG_DIR (issue #375).
+
+    The CLI keeps the file at $HOME/.claude.json by default but relocates
+    it to $CLAUDE_CONFIG_DIR/.claude.json when the override is set, so a
+    manager reading the home path on an override deployment sees stale or
+    missing user-scope servers.
+    """
+
+    def test_reads_relocated_config_when_override_set(
+        self, tmp_path, working_dir, monkeypatch
+    ):
+        override = tmp_path / "workspace" / ".claude"
+        override.mkdir(parents=True)
+        (override / ".claude.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "relocated": {
+                            "type": "http",
+                            "url": "https://example.com/mcp",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(override))
+
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+
+        assert [s.name for s in manager.list_servers()] == ["relocated"]
+
+    def test_override_wins_over_home_config(
+        self, claude_home, working_dir, monkeypatch, tmp_path
+    ):
+        _write_claude_json(
+            claude_home,
+            {"mcpServers": {"home-srv": {"type": "http", "url": "https://h"}}},
+        )
+        override = tmp_path / "workspace" / ".claude"
+        override.mkdir(parents=True)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(override))
+
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+
+        assert manager.list_servers() == []
+
+    def test_defaults_to_home_when_unset(self, claude_home, working_dir):
+        manager = ClaudeMCPManager(working_dir=str(working_dir))
+        assert manager._user_config_path == claude_home / ".claude.json"

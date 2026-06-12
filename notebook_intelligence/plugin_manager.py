@@ -2,7 +2,8 @@
 
 """Wrapper around Claude Code's `claude plugin` CLI.
 
-Plugin state is owned by Claude Code itself (under `~/.claude/plugins/`).
+Plugin state is owned by Claude Code itself (under `~/.claude/plugins/`,
+or `$CLAUDE_CONFIG_DIR/plugins/` when that env var is set).
 NBI shells out for both reads and writes:
 
   - `claude plugin list --json` → JSON array of installed plugins
@@ -35,7 +36,7 @@ from notebook_intelligence._claude_cli import (
     run_claude_cli,
     validate_scope,
 )
-from notebook_intelligence.util import resolve_github_token
+from notebook_intelligence.util import get_claude_config_dir, resolve_github_token
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ def _claude_plugins_root() -> Path:
     configured = os.environ.get(CLAUDE_PLUGIN_CACHE_DIR_ENV)
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / ".claude" / "plugins"
+    return Path(get_claude_config_dir()) / "plugins"
 
 
 def _validate_marketplace_name(name: str) -> str:

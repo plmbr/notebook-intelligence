@@ -17,8 +17,9 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 ### Fixed
 
 - **Session history follows `CLAUDE_CONFIG_DIR`** (#373). The chat-sidebar resume picker and the launcher tile's session list always read transcripts from `~/.claude/projects`, so both came up empty when the Claude CLI was configured with `CLAUDE_CONFIG_DIR` and wrote its transcripts elsewhere. The session listing now resolves the CLI's config dir the same way the skills and spinner-verbs paths already did.
+- **User-scope MCP config and the plugin cache follow `CLAUDE_CONFIG_DIR`** (#375). The MCP management tab read user-scope servers from `~/.claude.json` even though the CLI relocates that file to `$CLAUDE_CONFIG_DIR/.claude.json` when the override is set (so reads and CLI-mediated writes diverged), and the Plugins panel's cache fallback pointed at `~/.claude/plugins` instead of the relocated cache. Both now resolve the CLI's actual locations; `CLAUDE_CODE_PLUGIN_CACHE_DIR` still wins for the plugin cache when set.
 
-## [5.1.0] - UNRELEASED
+## [5.1.0] - 2026-06-08
 
 5.1.0 builds on 5.0.x with a focus on Claude-mode agent visibility. Tool calls the agent runs now render as persistent status cards with inline diffs and collapsible grouping, the generating indicator can cycle custom verbs, and cancelling a turn tears down the whole process tree the agent spawned instead of leaking it. It also adds two opt-in security guardrails (an MCP stdio-command allowlist and a default-token-password check on shared filesystems) and an always-visible mode for chat feedback. No traitlet, env-var, REST route, or on-disk-format renames or removals; every new admin surface is opt-in and listed below.
 
@@ -382,7 +383,8 @@ A multi-PR accessibility pass landed across most NBI surfaces. Together these ma
 - Settings UI restructured around Claude vs default mode.
 - WebSocket connection reliability improvements.
 
-[unreleased]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.1...HEAD
+[unreleased]: https://github.com/plmbr/notebook-intelligence/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.1...v5.1.0
 [5.0.1]: https://github.com/plmbr/notebook-intelligence/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.8.0...v5.0.0
 [4.8.0]: https://github.com/plmbr/notebook-intelligence/compare/v4.7.0...v4.8.0

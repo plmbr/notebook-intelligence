@@ -8,6 +8,12 @@
 // its own; import the config helper from `@playwright/test` directly.
 import { defineConfig, devices } from '@playwright/test';
 
+const webServerEnv: { [key: string]: string } = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([key, value]) => key !== 'CLAUDE_CONFIG_DIR' && value !== undefined
+  )
+) as { [key: string]: string };
+
 export default defineConfig({
   // Tests live next to this config so they can ``import { test, expect } from
   // '@jupyterlab/galata'`` without long relative paths.
@@ -23,7 +29,14 @@ export default defineConfig({
     command: 'jlpm start',
     url: 'http://localhost:8888/lab',
     timeout: 120_000,
-    reuseExistingServer: !process.env.CI
+    reuseExistingServer: !process.env.CI,
+    // The MCP PATCH spec relies on HOME isolation to keep writes out of the
+    // developer's real ~/.claude.json; an exported CLAUDE_CONFIG_DIR would
+    // bypass that seam (the server follows the override), so drop it. Delete
+    // rather than set to '': the claude CLI treats an empty string as a set
+    // (and degenerate) config dir, so '' would only cover the server's own
+    // file reads, not any future spec that shells out to the CLI.
+    env: webServerEnv
   },
 
   use: {

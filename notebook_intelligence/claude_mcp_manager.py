@@ -8,6 +8,9 @@ Reads come from the JSON config files Claude maintains itself:
   - Local scope:   ``~/.claude.json`` → ``projects.<cwd>.mcpServers``
   - Project scope: ``<cwd>/.mcp.json``
 
+When ``CLAUDE_CONFIG_DIR`` is set, the CLI relocates ``.claude.json`` to
+``$CLAUDE_CONFIG_DIR/.claude.json`` and the reads follow it there.
+
 Writes go through ``claude mcp add`` / ``claude mcp remove`` so Claude
 remains the source of truth for any side effects (project-trust prompts,
 oauth bookkeeping, etc.). The file-based reads are decoupled from the CLI's
@@ -21,6 +24,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal, Optional
@@ -127,6 +131,21 @@ def _gather_from_dict(
     return out
 
 
+def _claude_user_config_path() -> Path:
+    """Locate the CLI's ``.claude.json``.
+
+    Unlike skills and transcripts, the default lives in the home dir itself
+    rather than inside ``~/.claude``, so this can't reuse
+    ``util.get_claude_config_dir``'s fallback: the CLI keeps the file at
+    ``$HOME/.claude.json`` normally but relocates it to
+    ``$CLAUDE_CONFIG_DIR/.claude.json`` when the override is set.
+    """
+    override = os.environ.get("CLAUDE_CONFIG_DIR")
+    if override:
+        return Path(override) / ".claude.json"
+    return Path.home() / ".claude.json"
+
+
 class ClaudeMCPManager:
     # Class-level so the lock is shared across all ClaudeMCPManager instances
     # within this process. Handlers construct a fresh manager per request,
@@ -142,7 +161,7 @@ class ClaudeMCPManager:
         stdio_command_allowlist: Optional[Iterable[str]] = None,
     ):
         self._working_dir = Path(working_dir) if working_dir else Path.cwd()
-        self._user_config_path = Path.home() / ".claude.json"
+        self._user_config_path = _claude_user_config_path()
         # An empty allowlist means "no enforcement"; the default keeps
         # per-user deployments permissive. Admins thread their pinned
         # regex list in via ``stdio_command_allowlist``.
