@@ -3,6 +3,7 @@
 import json
 from typing import Any
 from notebook_intelligence.api import ChatModel, EmbeddingModel, InlineCompletionModel, LLMProvider, CancelToken, ChatResponse, CompletionContext, LLMProviderProperty
+from notebook_intelligence.message_sanitizer import sanitize_chat_history_tool_calls
 import litellm
 
 DEFAULT_CONTEXT_WINDOW = 4096
@@ -42,9 +43,10 @@ class LiteLLMCompatibleChatModel(ChatModel):
         base_url = self.get_property("base_url").value
         api_key_prop = self.get_property("api_key")
         api_key = api_key_prop.value if api_key_prop is not None else None
+        sanitized_messages = sanitize_chat_history_tool_calls(messages)
         litellm_resp = litellm.completion(
             model=model_id,
-            messages=messages.copy(),
+            messages=sanitized_messages,
             tools=tools,
             tool_choice=options.get("tool_choice", None),
             api_base=base_url,
@@ -60,12 +62,16 @@ class LiteLLMCompatibleChatModel(ChatModel):
                 reasoning = getattr(delta, 'reasoning_content', None) or getattr(delta, 'reasoning', None)
                 if reasoning is not None:
                     reasoning = str(reasoning)
+                tool_calls = None
+                if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                    tool_calls = [json.loads(tc.model_dump_json()) for tc in delta.tool_calls]
                 response.stream({
                         "choices": [{
                             "delta": {
                                 "role": delta.role,
                                 "content": delta.content,
-                                "reasoning_content": reasoning
+                                "reasoning_content": reasoning,
+                                "tool_calls": tool_calls
                             }
                         }]
                     })

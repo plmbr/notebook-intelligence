@@ -143,6 +143,8 @@ class ChatRequest:
     cancel_token: CancelToken = None
     # NEW: Add context for rule evaluation
     rule_context: Optional[RuleContext] = None
+    # Internal conversation id for persistence backends
+    conversation_id: str = None
 
 @dataclass
 class ResponseStreamData:
@@ -312,6 +314,12 @@ class ChatResponse:
 
     def stream(self, data: ResponseStreamData, finish: bool = False) -> None:
         raise NotImplementedError
+
+    def append_tool_calls(self, tool_calls: list[dict] | None) -> None:
+        return None
+
+    def append_history_message(self, message: dict) -> None:
+        return None
     
     def finish(self) -> None:
         raise NotImplementedError
@@ -636,6 +644,7 @@ class ChatParticipant:
 
                 for choice in tool_response['choices']:
                     message = choice['message']
+                    response.append_tool_calls(message.get('tool_calls'))
                     # Some models use 'reasoning', some use 'reasoning_content'
                     raw_reasoning = message.get('reasoning') or message.get('reasoning_content') or ''
                     
@@ -687,6 +696,12 @@ class ChatParticipant:
                         args = tool_call['function']['arguments']
                     else:
                         args = fuzzy_json_loads(tool_call['function']['arguments'])
+                    
+                    # Persist tool execution START (initial record).
+                    if request.conversation_id:
+                        request.host.history_persistence.log_tool_execution(
+                            tool_call['id'], request.conversation_id, tool_name, args, ""
+                        )
 
                     tool_properties = tool_to_call.schema["function"]["parameters"]["properties"]
                     if type(args) is str:
@@ -713,6 +728,17 @@ class ChatParticipant:
                                 return
 
                     tool_call_response = await tool_to_call.handle_tool_call(request, response, tool_context, args)
+                    
+                    # Persist tool execution result.
+                    if request.conversation_id:
+                        request.host.history_persistence.log_tool_execution(
+                            tool_call['id'], request.conversation_id, tool_name, args, str(tool_call_response)
+                        )
+                        # Also log the tool message itself
+                        msg_id = str(uuid.uuid4())
+                        request.host.history_persistence.add_message(
+                            msg_id, request.conversation_id, "tool", str(tool_call_response), tool_call_id=tool_call['id']
+                        )
 
                     function_call_result_message = {
                         "role": "tool",
@@ -720,6 +746,7 @@ class ChatParticipant:
                         "tool_call_id": tool_call['id']
                     }
 
+                    response.append_history_message(function_call_result_message)
                     messages.append(function_call_result_message)
 
                 if had_tool_call:
@@ -915,6 +942,9 @@ class Host:
     def register_toolset(self, toolset: Toolset) -> None:
         raise NotImplementedError
 
+    def register_history_persistence_backend(self, backend) -> None:
+        raise NotImplementedError
+
     @property
     def nbi_config(self) -> NBIConfig:
         raise NotImplementedError
@@ -970,6 +1000,10 @@ class Host:
     @property
     def websocket_connector(self) -> ThreadSafeWebSocketConnector:
         raise NotImplementedError
+    
+    @property
+    def history_persistence(self) -> Any:
+        return NotImplementedError
     
 
 class NotebookIntelligenceExtension:

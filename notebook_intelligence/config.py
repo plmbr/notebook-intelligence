@@ -6,6 +6,7 @@ import os
 import stat
 import sys
 import tempfile
+import copy
 from typing import Optional
 
 from notebook_intelligence.feature_flags import (
@@ -229,6 +230,64 @@ class NBIConfig:
     def active_rules(self) -> dict:
         """Get dictionary of active rule states (filename -> bool)."""
         return self.get('active_rules', {})
+    
+    @property
+    def history_backend_configs(self) -> dict:
+        """Get history persistence backend configuration by backend id."""
+        defaults = {
+            'mysql': {
+                'host': 'localhost',
+                'port': 3306,
+                'user': '',
+                'password': '',
+                'database': 'notebook_intelligence'
+            },
+            'sqlite': {
+                'path': os.path.join(self.nbi_user_dir, 'history.sqlite3')
+            }
+        }
+
+        merged = copy.deepcopy(defaults)
+        configured = self.get('history_backend_configs', {})
+        if isinstance(configured, dict):
+            for backend_id, backend_cfg in configured.items():
+                if not isinstance(backend_cfg, dict):
+                    continue
+                merged.setdefault(backend_id, {})
+                merged[backend_id].update(backend_cfg)
+
+        legacy_mysql = self.get('mysql_config', None)
+        if isinstance(legacy_mysql, dict):
+            merged['mysql'].update(
+                {
+                    key: value
+                    for key, value in legacy_mysql.items()
+                    if key != 'enabled'
+                }
+            )
+        return merged
+
+    @property
+    def history_config(self) -> dict:
+        """Get chat history storage configuration."""
+        cfg = self.get('history_config', {})
+        mode = cfg.get('mode', 'local')
+        backend = cfg.get('backend', 'sqlite')
+        if mode in ['mysql', 'sqlite']:
+            backend = mode
+            mode = 'persistent'
+        local_max_messages = cfg.get('local_max_messages', 10)
+        try:
+            local_max_messages = int(local_max_messages)
+        except Exception:
+            local_max_messages = 10
+        if local_max_messages < 1:
+            local_max_messages = 1
+        return {
+            'mode': mode if mode in ['persistent', 'local', 'none'] else 'local',
+            'backend': backend if isinstance(backend, str) and backend else 'sqlite',
+            'local_max_messages': local_max_messages
+        }
     
     def set_rule_active(self, filename: str, active: bool):
         """Set the active state of a rule."""

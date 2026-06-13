@@ -1,14 +1,18 @@
+import asyncio
 import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
 from tornado.httputil import HTTPServerRequest
 from tornado.web import Application
+import notebook_intelligence.extension as ext_module
 from notebook_intelligence.extension import WebsocketCopilotHandler
 from notebook_intelligence.context_factory import RuleContextFactory
 from notebook_intelligence.ruleset import RuleContext
 
 
 class TestWebsocketHandlerIntegration:
+    _user_id = "test-user"
+
     def _create_mock_application(self):
         """Create a properly mocked Tornado Application.
 
@@ -29,12 +33,27 @@ class TestWebsocketHandlerIntegration:
         request = Mock(spec=HTTPServerRequest)
         request.connection = Mock()
         return request
+
+    def _run_on_message(self, handler, message):
+        # `on_message` is async; tests need to drive it to completion so
+        # the context factory and request-building side effects actually
+        # happen before assertions.
+        handler._jupyter_current_user = self._user_id
+        chat_id = message.get("data", {}).get("chatId")
+        if chat_id is not None:
+            scoped_chat_id = ext_module.ChatHistory._scope_key(
+                chat_id, user_id=self._user_id
+            )
+            handler.chat_history.messages[scoped_chat_id] = []
+        asyncio.run(handler.on_message(json.dumps(message)))
     
     def test_init_with_default_context_factory(self):
         """Test WebsocketCopilotHandler initialization with default context factory."""
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'), \
              patch('notebook_intelligence.extension.ai_service_manager') as mock_ai_manager, \
              patch('notebook_intelligence.extension.github_copilot') as mock_copilot:
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(), 
                 self._create_mock_request()
@@ -50,6 +69,8 @@ class TestWebsocketHandlerIntegration:
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'), \
              patch('notebook_intelligence.extension.ai_service_manager') as mock_ai_manager, \
              patch('notebook_intelligence.extension.github_copilot') as mock_copilot:
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(), 
                 self._create_mock_request(), 
@@ -72,6 +93,8 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.return_value = mock_context
         
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(),
                 self._create_mock_request(),
@@ -94,7 +117,7 @@ class TestWebsocketHandlerIntegration:
         }
         
         # Call on_message
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
         
         # Verify context factory was called
         mock_factory.create.assert_called_once_with(
@@ -104,8 +127,14 @@ class TestWebsocketHandlerIntegration:
             root_dir='/workspace'
         )
         
-        # Verify thread was started
-        mock_thread.assert_called_once()
+        # Verify our worker thread was started. asyncio may also create an
+        # internal waitpid helper thread in the same patch scope.
+        assert any(
+            call.kwargs.get('target') == handler._run_request_thread
+            and call.kwargs.get('args')
+            == (mock_ai_manager.handle_chat_request.return_value, 'test-message-id')
+            for call in mock_thread.call_args_list
+        )
         
         # Verify the ChatRequest was created with rule_context
         thread_call_args = mock_thread.call_args[1]['args']
@@ -130,6 +159,8 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.return_value = mock_context
         
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(),
                 self._create_mock_request(),
@@ -152,7 +183,7 @@ class TestWebsocketHandlerIntegration:
         }
         
         # Call on_message
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
         
         # Verify context factory was called
         mock_factory.create.assert_called_once_with(
@@ -162,8 +193,14 @@ class TestWebsocketHandlerIntegration:
             root_dir='/workspace'
         )
         
-        # Verify thread was started
-        mock_thread.assert_called_once()
+        # Verify our worker thread was started. asyncio may also create an
+        # internal waitpid helper thread in the same patch scope.
+        assert any(
+            call.kwargs.get('target') == handler._run_request_thread
+            and call.kwargs.get('args')
+            == (mock_ai_manager.handle_chat_request.return_value, 'test-message-id')
+            for call in mock_thread.call_args_list
+        )
     
     @patch('notebook_intelligence.extension.ai_service_manager')
     @patch('notebook_intelligence.extension.NotebookIntelligence')
@@ -179,6 +216,8 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.return_value = mock_context
         
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(),
                 self._create_mock_request(),
@@ -205,7 +244,7 @@ class TestWebsocketHandlerIntegration:
         }
         
         # Call on_message
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
         
         # Verify context factory was called with agent mode
         mock_factory.create.assert_called_once_with(
@@ -233,6 +272,8 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.return_value = Mock(spec=RuleContext)
 
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(),
                 self._create_mock_request(),
@@ -261,7 +302,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         mock_ai_manager.handle_chat_request.assert_called_once()
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
@@ -295,6 +336,8 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.return_value = Mock(spec=RuleContext)
 
         with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            ext_module.shared_chat_history = ext_module.ChatHistory()
+            WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
             handler = WebsocketCopilotHandler(
                 self._create_mock_application(),
                 self._create_mock_request(),
@@ -327,7 +370,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         mock_ai_manager.handle_chat_request.assert_called_once()
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
@@ -397,7 +440,7 @@ class TestWebsocketHandlerIntegration:
         }
 
         with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
-            handler.on_message(json.dumps(message))
+            self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -456,7 +499,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         # No context message produced; the sandbox rejected the path
@@ -516,7 +559,7 @@ class TestWebsocketHandlerIntegration:
         }
 
         with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
-            handler.on_message(json.dumps(message))
+            self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -574,7 +617,7 @@ class TestWebsocketHandlerIntegration:
         }
 
         with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
-            handler.on_message(json.dumps(message))
+            self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert chat_request.chat_history == []
@@ -643,7 +686,7 @@ class TestWebsocketHandlerIntegration:
             }
 
             with patch('notebook_intelligence.extension._upload_dir', str(upload_root)):
-                handler.on_message(json.dumps(message))
+                self._run_on_message(handler, message)
 
             chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
             assert chat_request.chat_history == [], (
@@ -705,7 +748,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -771,7 +814,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1
@@ -831,7 +874,7 @@ class TestWebsocketHandlerIntegration:
             }
         }
 
-        handler.on_message(json.dumps(message))
+        self._run_on_message(handler, message)
 
         chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
         assert len(chat_request.chat_history) == 1

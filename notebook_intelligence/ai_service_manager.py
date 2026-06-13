@@ -12,6 +12,12 @@ from notebook_intelligence import github_copilot
 from notebook_intelligence.api import ButtonData, ChatModel, EmbeddingModel, InlineCompletionModel, LLMProvider, ChatParticipant, ChatRequest, ChatResponse, CompletionContext, ContextRequest, Host, CompletionContextProvider, MCPPrompt, MCPServer, MarkdownData, NotebookIntelligenceExtension, RegistrationError, TelemetryEvent, TelemetryListener, Tool, Toolset
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
 from notebook_intelligence.config import NBIConfig
+from notebook_intelligence.history_backends import (
+    HistoryPersistenceBackend,
+    HistoryPersistenceManager,
+    MySQLHistoryBackend,
+    SQLiteHistoryBackend,
+)
 from notebook_intelligence.github_copilot_chat_participant import GithubCopilotChatParticipant
 from notebook_intelligence.claude import CLAUDE_CODE_CHAT_PARTICIPANT_ID, ClaudeCodeChatParticipant, ClaudeCodeInlineCompletionModel, fetch_claude_models, get_claude_models
 from notebook_intelligence.llm_providers.github_copilot_llm_provider import GitHubCopilotLLMProvider
@@ -61,6 +67,13 @@ class AIServiceManager(Host):
             self._options.get("feature_policies") or {},
             self._options.get("string_overrides") or {},
         )
+        self._history_persistence = HistoryPersistenceManager()
+        self.register_history_persistence_backend(MySQLHistoryBackend())
+        self.register_history_persistence_backend(SQLiteHistoryBackend())
+        self._history_persistence.reconfigure(
+            self._nbi_config.history_config,
+            self._nbi_config.history_backend_configs,
+        )
         self._openai_compatible_llm_provider = OpenAICompatibleLLMProvider()
         self._litellm_compatible_llm_provider = LiteLLMCompatibleLLMProvider()
         self._ollama_llm_provider = OllamaLLMProvider()
@@ -92,6 +105,22 @@ class AIServiceManager(Host):
     @property
     def nbi_config(self) -> NBIConfig:
         return self._nbi_config
+    
+    @property
+    def history_persistence(self) -> HistoryPersistenceManager:
+        return self._history_persistence
+
+    def register_history_persistence_backend(
+        self, backend: HistoryPersistenceBackend
+    ) -> None:
+        self._history_persistence.register_backend(backend)
+
+    def update_history_persistence(self):
+        """Refresh history persistence backend configuration from current config."""
+        self._history_persistence.reconfigure(
+            self._nbi_config.history_config,
+            self._nbi_config.history_backend_configs,
+        )
     
     @property
     def ollama_llm_provider(self) -> OllamaLLMProvider:

@@ -14,6 +14,10 @@ import {
   IClaudeModelInfo,
   NBIAPI
 } from '../api';
+import {
+  buildHistorySessionScopeSignature,
+  shouldStartNewHistorySession
+} from '../history-session';
 import { CheckBoxItem } from './checkbox';
 import { PillItem } from './pill';
 import { mcpServerSettingsToEnabledState } from './mcp-util';
@@ -99,6 +103,28 @@ const OPENAI_COMPATIBLE_INLINE_COMPLETION_MODEL_ID =
   'openai-compatible-inline-completion-model';
 const LITELLM_COMPATIBLE_INLINE_COMPLETION_MODEL_ID =
   'litellm-compatible-inline-completion-model';
+
+type HistorySettingsState = {
+  mode: string;
+  backend: string;
+  localMaxMessages: number;
+  backendConfigs: Record<string, Record<string, unknown>>;
+};
+
+const readHistorySettingsState = (
+  config: typeof NBIAPI.config,
+  fallbackBackendId: string
+): HistorySettingsState => ({
+  mode: config.historyConfig?.mode ?? 'local',
+  backend: config.historyConfig?.backend ?? fallbackBackendId,
+  localMaxMessages: Number(config.historyConfig?.local_max_messages ?? 10),
+  backendConfigs: structuredClone(config.historyBackendConfigs ?? {})
+});
+
+const historySettingsEqual = (
+  left: HistorySettingsState,
+  right: HistorySettingsState
+): boolean => JSON.stringify(left) === JSON.stringify(right);
 
 export class SettingsPanel extends ReactWidget {
   constructor(options: {
@@ -307,11 +333,108 @@ function SettingsPanelTabsComponent(props: {
 function SettingsPanelComponentGeneral(props: any) {
   const nbiConfig = NBIAPI.config;
   const llmProviders = nbiConfig.llmProviders;
+  const historyBackends = nbiConfig.historyBackends;
+  const defaultHistoryBackendId = historyBackends[0]?.id ?? 'sqlite';
+  const initialHistoryState = readHistorySettingsState(
+    nbiConfig,
+    defaultHistoryBackendId
+  );
   const [chatModels, setChatModels] = useState([]);
   const [inlineCompletionModels, setInlineCompletionModels] = useState([]);
   const isInClaudeCodeMode = nbiConfig.isInClaudeCodeMode;
+  const [historyMode, setHistoryMode] = useState(initialHistoryState.mode);
+  const [historyBackendId, setHistoryBackendId] = useState(
+    initialHistoryState.backend
+  );
+  const [localMaxMessages, setLocalMaxMessages] = useState(
+    initialHistoryState.localMaxMessages
+  );
+  const [historyBackendConfigs, setHistoryBackendConfigs] = useState<
+    Record<string, Record<string, unknown>>
+  >(initialHistoryState.backendConfigs);
+  const [activeHistoryMode, setActiveHistoryMode] = useState(
+    initialHistoryState.mode
+  );
+  const [activeHistoryBackendId, setActiveHistoryBackendId] = useState(
+    initialHistoryState.backend
+  );
+  const [activeLocalMaxMessages, setActiveLocalMaxMessages] = useState(
+    initialHistoryState.localMaxMessages
+  );
+  const [activeHistoryBackendConfigs, setActiveHistoryBackendConfigs] =
+    useState<Record<string, Record<string, unknown>>>(
+      initialHistoryState.backendConfigs
+    );
+  const [historyApplyStatus, setHistoryApplyStatus] = useState<
+    'idle' | 'applying' | 'success' | 'error'
+  >('idle');
+  const [historyApplyMessage, setHistoryApplyMessage] = useState('');
+  const initialHistoryScopeSignatureRef = useRef<string>(
+    buildHistorySessionScopeSignature(
+      {
+        mode: initialHistoryState.mode,
+        backend: initialHistoryState.backend
+      },
+      initialHistoryState.backendConfigs,
+      NBIAPI.config.currentHistoryStorageScope
+    )
+  );
 
-  const handleSaveSettings = async () => {
+  const syncDraftHistoryState = (historyState: HistorySettingsState) => {
+    setHistoryMode(historyState.mode);
+    setHistoryBackendId(historyState.backend);
+    setLocalMaxMessages(historyState.localMaxMessages);
+    setHistoryBackendConfigs(structuredClone(historyState.backendConfigs));
+  };
+
+  const syncActiveHistoryState = (historyState: HistorySettingsState) => {
+    setActiveHistoryMode(historyState.mode);
+    setActiveHistoryBackendId(historyState.backend);
+    setActiveLocalMaxMessages(historyState.localMaxMessages);
+    setActiveHistoryBackendConfigs(
+      structuredClone(historyState.backendConfigs)
+    );
+  };
+
+  const readLatestHistoryState = () =>
+    readHistorySettingsState(NBIAPI.config, defaultHistoryBackendId);
+
+  const activeHistoryState: HistorySettingsState = {
+    mode: activeHistoryMode,
+    backend: activeHistoryBackendId,
+    localMaxMessages: activeLocalMaxMessages,
+    backendConfigs: activeHistoryBackendConfigs
+  };
+  const draftHistoryState: HistorySettingsState = {
+    mode: historyMode,
+    backend: historyBackendId,
+    localMaxMessages,
+    backendConfigs: historyBackendConfigs
+  };
+  const isPersistentHistoryDraftDirty =
+    historyMode === 'persistent' &&
+    !historySettingsEqual(draftHistoryState, activeHistoryState);
+  const immediateHistorySettingsKey =
+    historyMode === 'persistent'
+      ? 'persistent-draft'
+      : JSON.stringify(draftHistoryState);
+  const selectedHistoryBackend =
+    historyBackends.find((backend: any) => backend.id === historyBackendId) ??
+    historyBackends[0];
+
+  const clearHistoryApplyFeedback = () => {
+    setHistoryApplyStatus('idle');
+    setHistoryApplyMessage('');
+  };
+
+  const handleSaveSettings = async (options?: {
+    historyState?: HistorySettingsState;
+    isHistoryApply?: boolean;
+    syncDraftHistoryOnSuccess?: boolean;
+  }) => {
+    const historyState =
+      options?.historyState ??
+      (historyMode === 'persistent' ? activeHistoryState : draftHistoryState);
     const config: any = {
       default_chat_mode: defaultChatMode,
       chat_model: {
@@ -324,7 +447,13 @@ function SettingsPanelComponentGeneral(props: any) {
         model: inlineCompletionModel,
         properties: inlineCompletionModelProperties
       },
-      inline_completion_debouncer_delay: inlineCompletionDebouncerDelay
+      inline_completion_debouncer_delay: inlineCompletionDebouncerDelay,
+      history_config: {
+        mode: historyState.mode,
+        backend: historyState.backend,
+        local_max_messages: historyState.localMaxMessages
+      },
+      history_backend_configs: historyState.backendConfigs
     };
 
     if (
@@ -334,7 +463,54 @@ function SettingsPanelComponentGeneral(props: any) {
       config.store_github_access_token = storeGitHubAccessToken;
     }
 
-    await NBIAPI.setConfig(config);
+    try {
+      await NBIAPI.setConfig(config);
+      const refreshedHistoryState = readLatestHistoryState();
+      const nextHistoryScopeSignature = buildHistorySessionScopeSignature(
+        {
+          mode: refreshedHistoryState.mode,
+          backend: refreshedHistoryState.backend
+        },
+        refreshedHistoryState.backendConfigs,
+        NBIAPI.config.currentHistoryStorageScope
+      );
+      if (
+        shouldStartNewHistorySession(
+          initialHistoryScopeSignatureRef.current,
+          nextHistoryScopeSignature
+        )
+      ) {
+        localStorage.removeItem('nbi_last_chat_id');
+      }
+      initialHistoryScopeSignatureRef.current = nextHistoryScopeSignature;
+      syncActiveHistoryState(refreshedHistoryState);
+      if (options?.syncDraftHistoryOnSuccess) {
+        syncDraftHistoryState(refreshedHistoryState);
+      }
+      if (options?.isHistoryApply) {
+        setHistoryApplyStatus('success');
+        setHistoryApplyMessage(
+          'Backend settings applied. New chats will use this backend.'
+        );
+      }
+    } catch (error: any) {
+      const message =
+        (error && (error.message || error.toString())) ||
+        'Unknown config error';
+      await NBIAPI.fetchCapabilities();
+      const refreshedHistoryState = readLatestHistoryState();
+      syncActiveHistoryState(refreshedHistoryState);
+      if (options?.isHistoryApply) {
+        setHistoryApplyStatus('error');
+        setHistoryApplyMessage(message);
+      } else {
+        if (options?.syncDraftHistoryOnSuccess) {
+          syncDraftHistoryState(refreshedHistoryState);
+          clearHistoryApplyFeedback();
+        }
+        window.alert(`Failed to save settings.\n${message}`);
+      }
+    }
 
     props.onSave();
   };
@@ -382,6 +558,20 @@ function SettingsPanelComponentGeneral(props: any) {
     NBIAPI.setConfig({
       enable_output_toolbar: !featurePolicies.output_toolbar.enabled
     });
+  };
+
+  const updateHistoryBackendField = (
+    backendId: string,
+    key: string,
+    value: unknown
+  ) => {
+    setHistoryBackendConfigs(prev => ({
+      ...prev,
+      [backendId]: {
+        ...(prev[backendId] ?? {}),
+        [key]: value
+      }
+    }));
   };
 
   const toggleRefreshOpenFilesOnDiskChange = () => {
@@ -471,7 +661,11 @@ function SettingsPanelComponentGeneral(props: any) {
   }, []);
 
   useEffect(() => {
-    handleSaveSettings();
+    void handleSaveSettings({
+      historyState:
+        historyMode === 'persistent' ? activeHistoryState : draftHistoryState,
+      syncDraftHistoryOnSuccess: historyMode !== 'persistent'
+    });
   }, [
     defaultChatMode,
     chatModelProvider,
@@ -481,7 +675,8 @@ function SettingsPanelComponentGeneral(props: any) {
     inlineCompletionModel,
     inlineCompletionModelProperties,
     storeGitHubAccessToken,
-    inlineCompletionDebouncerDelay
+    inlineCompletionDebouncerDelay,
+    immediateHistorySettingsKey
   ]);
 
   return (
@@ -894,6 +1089,208 @@ function SettingsPanelComponentGeneral(props: any) {
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="model-config-section">
+          <div className="model-config-section-header">
+            Chat history storage
+          </div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div>History mode</div>
+                <select
+                  className="jp-mod-styled"
+                  value={historyMode}
+                  disabled={historyApplyStatus === 'applying'}
+                  onChange={event => {
+                    clearHistoryApplyFeedback();
+                    setHistoryMode(event.target.value);
+                  }}
+                >
+                  <option value="persistent">Persistent backend</option>
+                  <option value="local">Local temporary storage</option>
+                  <option value="none">Private session</option>
+                </select>
+                <div
+                  className="form-field-description"
+                  style={{ marginTop: '6px' }}
+                >
+                  <div>
+                    Persistent backend: saved to the selected backend and
+                    available after refresh or restart.
+                  </div>
+                  <div>
+                    Local temporary storage: kept in this app process with a
+                    message limit.
+                  </div>
+                  <div>
+                    Private session: kept only for the current session and
+                    cleared on refresh.
+                  </div>
+                </div>
+                {historyMode === 'persistent' && (
+                  <div
+                    className="form-field-description"
+                    style={{ marginTop: '6px' }}
+                  >
+                    Draft changes stay local until you click "Apply backend
+                    settings". The active backend remains unchanged until then.
+                  </div>
+                )}
+              </div>
+            </div>
+            {historyMode === 'local' && (
+              <div className="model-config-section-row">
+                <div className="model-config-section-column">
+                  <div>Local max messages</div>
+                  <input
+                    className="jp-mod-styled"
+                    type="number"
+                    value={localMaxMessages}
+                    min={1}
+                    onChange={event =>
+                      setLocalMaxMessages(
+                        Math.max(1, Number(event.target.value || 1))
+                      )
+                    }
+                  />
+                </div>
+                <div className="model-config-section-column"></div>
+              </div>
+            )}
+            {historyMode === 'persistent' && (
+              <>
+                <div className="model-config-section-row">
+                  <div className="model-config-section-column">
+                    <div>Backend</div>
+                    <select
+                      className="jp-mod-styled"
+                      value={historyBackendId}
+                      disabled={historyApplyStatus === 'applying'}
+                      onChange={event => {
+                        clearHistoryApplyFeedback();
+                        setHistoryBackendId(event.target.value);
+                      }}
+                    >
+                      {historyBackends.map((backend: any) => (
+                        <option key={backend.id} value={backend.id}>
+                          {backend.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedHistoryBackend?.description && (
+                      <div
+                        className="form-field-description"
+                        style={{ marginTop: '6px' }}
+                      >
+                        {selectedHistoryBackend.description}
+                      </div>
+                    )}
+                  </div>
+                  <div className="model-config-section-column"></div>
+                </div>
+                {selectedHistoryBackend?.fields.map((field: any) => (
+                  <div
+                    className="model-config-section-row"
+                    key={`${selectedHistoryBackend.id}-${field.key}`}
+                  >
+                    <div className="model-config-section-column">
+                      <div>{field.label}</div>
+                      <input
+                        className="jp-mod-styled"
+                        disabled={historyApplyStatus === 'applying'}
+                        type={
+                          field.input_type === 'password'
+                            ? 'password'
+                            : field.input_type
+                        }
+                        value={String(
+                          historyBackendConfigs?.[selectedHistoryBackend.id]?.[
+                            field.key
+                          ] ?? ''
+                        )}
+                        onChange={event => {
+                          clearHistoryApplyFeedback();
+                          updateHistoryBackendField(
+                            selectedHistoryBackend.id,
+                            field.key,
+                            field.input_type === 'number'
+                              ? Number(event.target.value)
+                              : event.target.value
+                          );
+                        }}
+                        placeholder={field.placeholder ?? ''}
+                      />
+                      {field.help_text && (
+                        <div
+                          className="form-field-description"
+                          style={{ marginTop: '6px' }}
+                        >
+                          {field.help_text}
+                        </div>
+                      )}
+                    </div>
+                    <div className="model-config-section-column"></div>
+                  </div>
+                ))}
+                <div className="model-config-section-row">
+                  <div className="model-config-section-column">
+                    <button
+                      className="jp-mod-styled"
+                      disabled={
+                        historyApplyStatus === 'applying' ||
+                        !isPersistentHistoryDraftDirty
+                      }
+                      onClick={() => {
+                        setHistoryApplyStatus('applying');
+                        setHistoryApplyMessage(
+                          'Checking backend connection and applying settings...'
+                        );
+                        void handleSaveSettings({
+                          historyState: draftHistoryState,
+                          isHistoryApply: true,
+                          syncDraftHistoryOnSuccess: true
+                        });
+                      }}
+                    >
+                      {historyApplyStatus === 'applying'
+                        ? 'Applying backend settings...'
+                        : historyApplyStatus === 'success' &&
+                            !isPersistentHistoryDraftDirty
+                          ? 'Backend settings applied'
+                          : 'Apply backend settings'}
+                    </button>
+                    <div
+                      className="form-field-description"
+                      aria-live="polite"
+                      style={{
+                        marginTop: '6px',
+                        color:
+                          historyApplyStatus === 'error'
+                            ? 'var(--jp-error-color1)'
+                            : historyApplyStatus === 'success'
+                              ? 'var(--jp-success-color1)'
+                              : undefined
+                      }}
+                    >
+                      {historyApplyStatus === 'applying'
+                        ? historyApplyMessage
+                        : historyApplyStatus === 'error'
+                          ? historyApplyMessage
+                          : historyApplyStatus === 'success' &&
+                              !isPersistentHistoryDraftDirty
+                            ? historyApplyMessage
+                            : isPersistentHistoryDraftDirty
+                              ? 'Draft changes are ready. Click "Apply backend settings" to make them active.'
+                              : 'Current backend settings are active.'}
+                    </div>
+                  </div>
+                  <div className="model-config-section-column"></div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

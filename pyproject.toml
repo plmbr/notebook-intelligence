@@ -72,6 +72,7 @@ dependencies = [
     # ``set_key`` / ``unset_key`` write paths only, which neither NBI
     # nor any of its other deps use. Re-add a ``>=1.2.2`` lower bound
     # when litellm loosens its pin.
+    "aiomysql"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 

@@ -21,6 +21,11 @@ import {
   formatElapsedSeconds,
   isHeartbeatStale
 } from './chat-progress-feedback';
+import { historyMessagesToChatMessages } from './chat-history-replay';
+import {
+  buildHistorySessionScopeSignature,
+  shouldStartNewHistorySession
+} from './history-session';
 import {
   BackendMessageType,
   BuiltinToolsetType,
@@ -355,6 +360,42 @@ interface IChatMessage {
   participant?: IChatParticipant;
   feedback?: 'positive' | 'negative';
   chatModel?: { provider: string; model: string };
+}
+
+function normalizeHistoryStorageScope(
+  scope: string | null | undefined
+): string {
+  return scope && scope.trim() ? scope.trim() : 'anonymous';
+}
+
+function lastChatIdStorageKey(scope: string): string {
+  return `nbi_last_chat_id_${normalizeHistoryStorageScope(scope)}`;
+}
+
+function chatCacheKey(scope: string, chatId: string): string {
+  return `nbi_chat_cache_${normalizeHistoryStorageScope(scope)}_${chatId}`;
+}
+
+function serializeChatMessages(messages: IChatMessage[]): any[] {
+  return messages.map(msg => ({
+    ...msg,
+    date: msg.date?.toISOString?.() || new Date().toISOString(),
+    contents: msg.contents.map(content => ({
+      ...content,
+      created: content.created?.toISOString?.() || new Date().toISOString()
+    }))
+  }));
+}
+
+function deserializeChatMessages(serialized: any[]): IChatMessage[] {
+  return (serialized || []).map((msg: any) => ({
+    ...msg,
+    date: new Date(msg.date),
+    contents: (msg.contents || []).map((content: any) => ({
+      ...content,
+      created: new Date(content.created)
+    }))
+  }));
 }
 
 interface IWorkspaceFileOption {
@@ -1338,9 +1379,115 @@ function SidebarComponent(props: any) {
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   // position on prompt history stack
   const [promptHistoryIndex, setPromptHistoryIndex] = useState(0);
-  const [chatId, setChatId] = useState(UUID.uuid4());
+  const historyStorageScope = NBIAPI.config.currentHistoryStorageScope;
+  const [chatId, setChatId] = useState(() => {
+    const historyMode = NBIAPI.config.historyConfig?.mode ?? 'local';
+    if (historyMode === 'none') {
+      return UUID.uuid4();
+    }
+    const savedChatId = localStorage.getItem(
+      lastChatIdStorageKey(historyStorageScope)
+    );
+    return savedChatId || UUID.uuid4();
+  });
   const lastMessageId = useRef<string>('');
   const lastRequestTime = useRef<Date>(new Date());
+
+  const historyMode = NBIAPI.config.historyConfig?.mode ?? 'local';
+  const historySessionScopeSignature = buildHistorySessionScopeSignature(
+    NBIAPI.config.historyConfig,
+    NBIAPI.config.historyBackendConfigs,
+    historyStorageScope
+  );
+  const prevHistorySessionScopeRef = useRef<string>(
+    historySessionScopeSignature
+  );
+
+  useEffect(() => {
+    localStorage.removeItem('nbi_last_chat_id');
+    if (historyMode === 'none') {
+      localStorage.removeItem(lastChatIdStorageKey(historyStorageScope));
+      return;
+    }
+    localStorage.setItem(lastChatIdStorageKey(historyStorageScope), chatId);
+  }, [chatId, historyMode, historyStorageScope]);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const history = await NBIAPI.fetchChatHistory(chatId);
+        if (history && history.length > 0) {
+          const formattedMessages = historyMessagesToChatMessages(
+            history,
+            NBIAPI.config.chatParticipants
+          ) as IChatMessage[];
+          setChatMessages(formattedMessages);
+          if (historyMode === 'local') {
+            try {
+              localStorage.setItem(
+                chatCacheKey(historyStorageScope, chatId),
+                JSON.stringify(serializeChatMessages(formattedMessages))
+              );
+            } catch (e) {
+              console.warn('Failed to write chat cache', e);
+            }
+          }
+        } else {
+          if (historyMode === 'local') {
+            const cached = localStorage.getItem(
+              chatCacheKey(historyStorageScope, chatId)
+            );
+            if (cached) {
+              try {
+                const parsed = JSON.parse(cached);
+                setChatMessages(deserializeChatMessages(parsed));
+              } catch (e) {
+                console.warn('Failed to parse chat cache', e);
+              }
+            } else {
+              setChatMessages([]);
+            }
+          } else {
+            setChatMessages([]);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch chat history:', error);
+        if (historyMode === 'local') {
+          const cached = localStorage.getItem(
+            chatCacheKey(historyStorageScope, chatId)
+          );
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached);
+              setChatMessages(deserializeChatMessages(parsed));
+            } catch (e) {
+              console.warn('Failed to parse chat cache after history error', e);
+            }
+          }
+        } else {
+          setChatMessages([]);
+        }
+      }
+    };
+
+    fetchHistory();
+  }, [chatId, historyMode, historyStorageScope]);
+
+  useEffect(() => {
+    if (historyMode === 'local') {
+      try {
+        localStorage.setItem(
+          chatCacheKey(historyStorageScope, chatId),
+          JSON.stringify(serializeChatMessages(chatMessages))
+        );
+      } catch (e) {
+        console.warn('Failed to persist chat cache', e);
+      }
+    } else {
+      localStorage.removeItem(chatCacheKey(historyStorageScope, chatId));
+    }
+  }, [chatId, chatMessages, historyMode, historyStorageScope]);
   const [contextOn, setContextOn] = useState(false);
   const [activeDocumentInfo, setActiveDocumentInfo] =
     useState<IActiveDocumentInfo | null>(null);
@@ -1399,6 +1546,7 @@ function SidebarComponent(props: any) {
     useState('Tool selection');
   const [selectedToolCount, setSelectedToolCount] = useState(0);
   const [unsafeToolSelected, setUnsafeToolSelected] = useState(false);
+  const [, setConfigRefreshTick] = useState(0);
 
   const [renderCount, setRenderCount] = useState(1);
   const toolConfigRef = useRef({
@@ -2277,6 +2425,16 @@ function SidebarComponent(props: any) {
       Notification.warning(`Could not attach: ${errors.join('; ')}`);
     }
   };
+
+  useEffect(() => {
+    const handler = () => {
+      setConfigRefreshTick(tick => tick + 1);
+    };
+    NBIAPI.configChanged.connect(handler);
+    return () => {
+      NBIAPI.configChanged.disconnect(handler);
+    };
+  }, []);
 
   useEffect(() => {
     const handler = () => {
@@ -3810,21 +3968,70 @@ function SidebarComponent(props: any) {
   );
   const [chatEnabled, setChatEnabled] = useState(NBIAPI.getChatEnabled());
   const [skillsReloadedVisible, setSkillsReloadedVisible] = useState(false);
-  // Visible for a few seconds after the user starts a new chat session
-  // (either via the header button or `/clear`). The aria-live region
-  // below announces it to assistive tech.
-  const [newChatNoticeVisible, setNewChatNoticeVisible] = useState(false);
-  const newChatNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+  // Visible for a few seconds after the user starts a new chat session.
+  // Used both for explicit "new chat" actions and automatic resets when
+  // history-storage semantics change.
+  const [sessionNoticeMessage, setSessionNoticeMessage] = useState<
+    string | null
+  >(null);
+  const sessionNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
 
   useEffect(() => {
     return () => {
-      if (newChatNoticeTimerRef.current) {
-        clearTimeout(newChatNoticeTimerRef.current);
+      if (sessionNoticeTimerRef.current) {
+        clearTimeout(sessionNoticeTimerRef.current);
       }
     };
   }, []);
+
+  const showSessionNotice = useCallback((message: string) => {
+    setSessionNoticeMessage(message);
+    if (sessionNoticeTimerRef.current) {
+      clearTimeout(sessionNoticeTimerRef.current);
+    }
+    sessionNoticeTimerRef.current = setTimeout(() => {
+      setSessionNoticeMessage(null);
+      sessionNoticeTimerRef.current = null;
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    const previousScopeSignature = prevHistorySessionScopeRef.current;
+    if (
+      shouldStartNewHistorySession(
+        previousScopeSignature,
+        historySessionScopeSignature
+      )
+    ) {
+      if (copilotRequestInProgress) {
+        NBIAPI.sendWebSocketMessage(
+          lastMessageId.current,
+          RequestDataType.CancelChatRequest,
+          { chatId }
+        );
+        lastMessageId.current = '';
+        setCopilotRequestInProgress(false);
+      }
+      setChatId(UUID.uuid4());
+      setChatMessages([]);
+      setSelectedContextFiles([]);
+      resetPrefixSuggestions();
+      setPromptHistory([]);
+      setPromptHistoryIndex(0);
+      showSessionNotice(
+        'New chat session started because history storage changed.'
+      );
+    }
+    prevHistorySessionScopeRef.current = historySessionScopeSignature;
+  }, [
+    chatId,
+    copilotRequestInProgress,
+    historySessionScopeSignature,
+    resetPrefixSuggestions,
+    showSessionNotice
+  ]);
 
   const startNewChatSession = useCallback(() => {
     // Reset every piece of per-conversation UI state and tell the server
@@ -3861,21 +4068,20 @@ function SidebarComponent(props: any) {
         chatId
       }
     );
-    setNewChatNoticeVisible(true);
-    if (newChatNoticeTimerRef.current) {
-      clearTimeout(newChatNoticeTimerRef.current);
-    }
-    newChatNoticeTimerRef.current = setTimeout(() => {
-      setNewChatNoticeVisible(false);
-      newChatNoticeTimerRef.current = null;
-    }, 3000);
+    showSessionNotice('New chat session started.');
     // Move focus to the prompt textarea so the user can immediately type
     // their first message in the fresh session. Defer past the React
     // commit so the input has re-rendered with the cleared prompt value.
     window.requestAnimationFrame(() => {
       promptInputRef.current?.focus();
     });
-  }, [chatId, copilotRequestInProgress, resetChatId, resetPrefixSuggestions]);
+  }, [
+    chatId,
+    copilotRequestInProgress,
+    resetChatId,
+    resetPrefixSuggestions,
+    showSessionNotice
+  ]);
 
   useEffect(() => {
     const handler = () => {
@@ -3990,8 +4196,8 @@ function SidebarComponent(props: any) {
             Skills reloaded — applied to the current session.
           </div>
         )}
-        {newChatNoticeVisible && (
-          <div className="nbi-status-banner">New chat session started.</div>
+        {sessionNoticeMessage && (
+          <div className="nbi-status-banner">{sessionNoticeMessage}</div>
         )}
       </div>
       {/* sr-only polite region for chat-status boundary announcements.
@@ -4912,7 +5118,7 @@ function InlinePromptComponent(props: any) {
 
     submitCompletionRequest(
       {
-        messageId,
+        messageId: UUID.uuid4(),
         chatId: UUID.uuid4(),
         type: RunChatCompletionType.GenerateCode,
         content: prompt,

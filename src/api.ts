@@ -103,6 +103,21 @@ export interface IPluginMarketplacePluginInfo extends IPluginInfo {
   tags?: string[];
 }
 
+export interface IHistoryBackendField {
+  key: string;
+  label: string;
+  input_type: 'text' | 'number' | 'password' | string;
+  placeholder?: string;
+  help_text?: string;
+}
+
+export interface IHistoryBackendInfo {
+  id: string;
+  name: string;
+  description?: string;
+  fields: IHistoryBackendField[];
+}
+
 export interface IClaudeMCPServer {
   name: string;
   scope: ClaudeMCPScope;
@@ -390,6 +405,33 @@ export class NBIConfig {
 
   get spinnerVerbs(): { mode: string; verbs: string[] } | null {
     return this.capabilities.spinner_verbs ?? null;
+  }
+
+  get historyConfig(): any {
+    return (
+      this.capabilities.history_config ?? {
+        mode: 'local',
+        backend: 'sqlite',
+        local_max_messages: 10
+      }
+    );
+  }
+
+  get historyBackends(): IHistoryBackendInfo[] {
+    return this.capabilities.history_backends ?? [];
+  }
+
+  get historyBackendConfigs(): Record<string, Record<string, unknown>> {
+    return this.capabilities.history_backend_configs ?? {};
+  }
+
+  get currentUserId(): string {
+    const value = this.capabilities.current_user_id;
+    return typeof value === 'string' && value.trim() ? value.trim() : '';
+  }
+
+  get currentHistoryStorageScope(): string {
+    return this.userConfigDir || this.userHomeDir || this.currentUserId || '';
   }
 
   get claudeModels(): IClaudeModelInfo[] {
@@ -763,16 +805,17 @@ export class NBIAPI {
     });
   }
 
-  static async setConfig(config: any) {
-    requestAPI<any>('config', {
+  static async setConfig(config: any): Promise<any> {
+    return requestAPI<any>('config', {
       method: 'POST',
       body: JSON.stringify(config)
     })
       .then(data => {
-        NBIAPI.fetchCapabilities();
+        return NBIAPI.fetchCapabilities().then(() => data);
       })
       .catch(reason => {
         console.error(`Failed to set NBI config.\n${reason}`);
+        throw reason;
       });
   }
 
@@ -1425,6 +1468,32 @@ export class NBIAPI {
         })
         .catch(reason => {
           console.error(`Failed to emit telemetry event.\n${reason}`);
+          reject(reason);
+        });
+    });
+  }
+
+  static async fetchChatHistory(chatId: string): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      requestAPI<any>(`history?chatId=${chatId}`, { method: 'GET' })
+        .then(data => {
+          resolve(data.messages);
+        })
+        .catch(reason => {
+          console.error(`Failed to fetch chat history.\n${reason}`);
+          reject(reason);
+        });
+    });
+  }
+
+  static async fetchRecentConversations(): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      requestAPI<any>('conversations', { method: 'GET' })
+        .then(data => {
+          resolve(data.conversations);
+        })
+        .catch(reason => {
+          console.error(`Failed to fetch recent conversations.\n${reason}`);
           reject(reason);
         });
     });

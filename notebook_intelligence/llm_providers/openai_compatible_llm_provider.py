@@ -5,6 +5,7 @@ import json
 import re
 from typing import Any
 from notebook_intelligence.api import ChatModel, EmbeddingModel, InlineCompletionModel, LLMProvider, CancelToken, ChatResponse, CompletionContext, LLMProviderProperty
+from notebook_intelligence.message_sanitizer import sanitize_chat_history_tool_calls
 from openai import OpenAI, omit
 
 INLINE_COMPLETION_SYSTEM_PROMPT = """You are a code completion assistant. Your task is to generate intelligent autocomplete suggestions for the code at the cursor position for given language and active file type. This is not an interactive session, don't ask for clarifying questions, always generate a suggestion. Don't include any explanations for your response, just generate the code. Don't return any thinking or reasoning, just generate the code. You are given a code snippet with a prefix and a suffix. You need to generate a suggestion for the code that fits best in place of <CURSOR/>. You should return only the code that fits best in place of <CURSOR/>. You should provide multiline code if needed. Enclose the code in triple backticks, just return the code in language. You should not return any other text, just the code. DO NOT INCLUDE THE PREFIX OR SUFFIX IN THE RESPONSE. .ipynb files are Jupyter notebook files and for notebook files, you generate suggestions for a cell within the notebook. A cell can be a code cell with code or a markdown cell with markdown text. If the language is markdown, only return markdown text. If you need to install a Python package within a notebook cell code (for .ipynb files), use %pip install <package_name> instead of !pip install <package_name>. Follow the tags very carefully for proper spacing and indentations."""
@@ -54,6 +55,10 @@ class OpenAICompatibleChatModel(ChatModel):
         except:
             return DEFAULT_CONTEXT_WINDOW
 
+    @property
+    def supports_tools(self) -> bool:
+        return True
+
     def completions(self, messages: list[dict], tools: list[dict] = None, response: ChatResponse = None, cancel_token: CancelToken = None, options: dict = {}) -> Any:
         stream = response is not None
         model_id = self.get_property("model_id").value
@@ -65,7 +70,7 @@ class OpenAICompatibleChatModel(ChatModel):
         client = OpenAI(base_url=base_url, api_key=api_key)
         resp = client.chat.completions.create(
             model=model_id,
-            messages=messages.copy(),
+            messages=sanitize_chat_history_tool_calls(messages),
             tools=sanitize_tools_for_openai_compatible(tools) or omit,
             tool_choice=options.get("tool_choice", omit),
             stream=stream,
@@ -79,12 +84,18 @@ class OpenAICompatibleChatModel(ChatModel):
                 reasoning = getattr(delta, 'reasoning_content', None) or getattr(delta, 'reasoning', None)
                 if reasoning is not None:
                     reasoning = str(reasoning)
+                
+                tool_calls = None
+                if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                    tool_calls = [json.loads(tc.model_dump_json()) for tc in delta.tool_calls]
+
                 response.stream({
                         "choices": [{
                             "delta": {
                                 "role": delta.role,
                                 "content": delta.content,
-                                "reasoning_content": reasoning
+                                "reasoning_content": reasoning,
+                                "tool_calls": tool_calls
                             }
                         }]
                     })

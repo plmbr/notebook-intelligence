@@ -14,6 +14,7 @@ import datetime as dt
 import logging
 from notebook_intelligence.api import BackendMessageType, CancelToken, ChatResponse, CompletionContext, MarkdownData
 from notebook_intelligence.config import _atomic_write_json
+from notebook_intelligence.message_sanitizer import sanitize_chat_history_tool_calls
 from notebook_intelligence.util import decrypt_with_password, encrypt_with_password, ThreadSafeWebSocketConnector
 
 from ._version import __version__ as NBI_VERSION
@@ -1084,9 +1085,10 @@ def completions(model_id, messages, tools = None, response: ChatResponse = None,
     aggregate = response is None
 
     try:
+        sanitized_messages = sanitize_chat_history_tool_calls(messages)
         data = {
             'model': model_id,
-            'messages': messages,
+            'messages': sanitized_messages,
             'tools': tools,
             'temperature': 0,
             'top_p': 1,

@@ -3,6 +3,7 @@
 import json
 from typing import Any
 from notebook_intelligence.api import ChatModel, EmbeddingModel, InlineCompletionModel, LLMProvider, CancelToken, ChatResponse, CompletionContext
+from notebook_intelligence.message_sanitizer import sanitize_chat_history_tool_calls
 import ollama
 import logging
 
@@ -38,9 +39,10 @@ class OllamaChatModel(ChatModel):
 
     def completions(self, messages: list[dict], tools: list[dict] = None, response: ChatResponse = None, cancel_token: CancelToken = None, options: dict = {}) -> Any:
         stream = response is not None
+        sanitized_messages = sanitize_chat_history_tool_calls(messages)
         completion_args = {
             "model": self._model_id, 
-            "messages": messages.copy(),
+            "messages": sanitized_messages,
             "stream": stream,
         }
         if tools is not None and len(tools) > 0:
@@ -59,7 +61,8 @@ class OllamaChatModel(ChatModel):
                             "delta": {
                                 "role": delta['role'],
                                 "content": delta['content'],
-                                "reasoning_content": reasoning
+                                "reasoning_content": reasoning,
+                                "tool_calls": delta.get('tool_calls')
                             }
                         }]
                     })

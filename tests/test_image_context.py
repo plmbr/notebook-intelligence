@@ -9,6 +9,7 @@ Covers the backend image branch added to WebsocketCopilotHandler.on_message:
 - Mixed image + text context items both appear in history
 """
 
+import asyncio
 import base64
 from contextlib import nullcontext
 import json
@@ -19,13 +20,21 @@ from unittest.mock import Mock, patch
 from tornado.httputil import HTTPServerRequest
 from tornado.web import Application
 
+import notebook_intelligence.extension as ext_module
 from notebook_intelligence.extension import WebsocketCopilotHandler
 
 
 CHAT_ID = "test-chat"
+USER_ID = "test-user"
+
+
+def _scoped_chat_key(chat_id=CHAT_ID, user_id=USER_ID):
+    return ext_module.ChatHistory._scope_key(chat_id, user_id=user_id)
 
 
 def _make_handler():
+    ext_module.shared_chat_history = ext_module.ChatHistory()
+    WebsocketCopilotHandler.chat_history_ref = ext_module.shared_chat_history
     app = Mock(spec=Application)
     # JupyterHandler.set_default_headers reads application.settings and
     # the ui_* maps during __init__; provide enough for the mock to
@@ -38,9 +47,10 @@ def _make_handler():
     request.connection = Mock()
     with patch("notebook_intelligence.extension.ThreadSafeWebSocketConnector"):
         handler = WebsocketCopilotHandler(app, request)
+    handler._jupyter_current_user = USER_ID
     # get_history() returns a throwaway list for unknown chat IDs; pre-seed so
     # messages appended by on_message are visible after the call returns.
-    handler.chat_history.messages[CHAT_ID] = []
+    handler.chat_history.messages[_scoped_chat_key()] = []
     return handler
 
 
@@ -70,9 +80,12 @@ def _on_message(handler, additional_context, prompt="hello"):
         else nullcontext()
     )
     with upload_dir_patch:
-        handler.on_message(msg)
-    return handler.chat_history.messages[CHAT_ID]
-
+        asyncio.run(handler.on_message(msg))
+    call = ext_module.ai_service_manager.handle_chat_request.call_args
+    if call is None:
+        return handler.chat_history.messages[_scoped_chat_key()]
+    request = call.args[0]
+    return list(request.chat_history) + [{"role": "user", "content": prompt}]
 
 def _image_context(file_path, mime_type="image/png"):
     return {
@@ -289,6 +302,37 @@ class TestImageContextInChatHistory:
         assert image_msg["content"][1]["type"] == "image_url"
         b64 = image_msg["content"][1]["image_url"]["url"].split(",", 1)[1]
         assert base64.b64decode(b64) == image_bytes
+
+    def test_image_context_is_request_scoped_not_persisted_in_shared_history(
+        self, _thread, mock_nbi, mock_ai, tmp_path
+    ):
+        """Image context should affect only the current request payload.
+
+        It must not be persisted into shared ``self.chat_history`` across
+        turns; otherwise a later request without image attachments would
+        silently inherit old image context.
+        """
+        mock_nbi.root_dir = str(tmp_path)
+        mock_ai.chat_model = None
+        mock_ai.is_claude_code_mode = False
+
+        img_file = tmp_path / "shot.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+
+        handler = _make_handler()
+
+        first_history = _on_message(handler, [_image_context(img_file)], prompt="first turn")
+        assert len(first_history) == 2
+        assert isinstance(first_history[0]["content"], list)
+        assert first_history[-1]["content"] == "first turn"
+
+        second_history = _on_message(handler, [], prompt="second turn")
+        assert second_history[-1]["content"] == "second turn"
+        # Previous image context should not leak into a later request.
+        assert not any(isinstance(item.get("content"), list) for item in second_history)
+        # Shared persisted history should keep user prompts only.
+        persisted = handler.chat_history.messages[_scoped_chat_key()]
+        assert [m["content"] for m in persisted] == ["first turn", "second turn"]
 
     def test_path_traversal_outside_workspace_is_rejected(
         self, _thread, mock_nbi, mock_ai, tmp_path, caplog
