@@ -267,6 +267,8 @@ export type FeaturePolicyName =
   | 'output_followup'
   | 'output_toolbar'
   | 'claude_mode'
+  | 'codex_mode'
+  | 'codex_full_access'
   | 'claude_continue_conversation'
   | 'claude_code_tools'
   | 'claude_jupyter_ui_tools'
@@ -296,7 +298,10 @@ export type SettingLockName =
   | 'claude_chat_model'
   | 'claude_inline_completion_model'
   | 'claude_api_key'
-  | 'claude_base_url';
+  | 'claude_base_url'
+  | 'codex_chat_model'
+  | 'codex_api_key'
+  | 'codex_base_url';
 
 export type ISettingLocks = Record<SettingLockName, { locked: boolean }>;
 
@@ -389,6 +394,26 @@ export class NBIConfig {
     return this.capabilities.claude_settings;
   }
 
+  get codexSettings(): any {
+    return this.capabilities.codex_settings ?? {};
+  }
+
+  // The agent modes that are enabled, in priority order; the frontend shows an
+  // agent picker when more than one is on.
+  get enabledAgentModes(): string[] {
+    return this.capabilities.enabled_agent_modes ?? [];
+  }
+
+  // The single agent mode currently handling chat (the user's pick when
+  // several are enabled), or null when the native provider path is in use.
+  get activeAgentMode(): string | null {
+    return this.capabilities.active_agent_mode ?? null;
+  }
+
+  get isInCodexMode(): boolean {
+    return this.activeAgentMode === 'codex';
+  }
+
   get spinnerVerbs(): { mode: string; verbs: string[] } | null {
     return this.capabilities.spinner_verbs ?? null;
   }
@@ -398,7 +423,7 @@ export class NBIConfig {
   }
 
   get isInClaudeCodeMode(): boolean {
-    return this.claudeSettings.enabled === true;
+    return this.activeAgentMode === 'claude';
   }
 
   get isClaudeCliAvailable(): boolean {
@@ -501,6 +526,8 @@ export class NBIConfig {
       'output_followup',
       'output_toolbar',
       'claude_mode',
+      'codex_mode',
+      'codex_full_access',
       'claude_continue_conversation',
       'claude_code_tools',
       'claude_jupyter_ui_tools',
@@ -559,7 +586,10 @@ export class NBIConfig {
       'claude_chat_model',
       'claude_inline_completion_model',
       'claude_api_key',
-      'claude_base_url'
+      'claude_base_url',
+      'codex_chat_model',
+      'codex_api_key',
+      'codex_base_url'
     ];
     const result = {} as ISettingLocks;
     for (const name of names) {
@@ -677,6 +707,7 @@ export class NBIAPI {
   static getChatEnabled() {
     return (
       this.config.isInClaudeCodeMode ||
+      this.config.isInCodexMode ||
       (this.config.chatModel.provider === GITHUB_COPILOT_PROVIDER_ID
         ? !this.getGHLoginRequired()
         : this.config.llmProviders.find(

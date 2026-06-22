@@ -32,6 +32,7 @@ from notebook_intelligence.feature_flags import (
     CHAT_MODEL_OVERRIDES,
     CLAUDE_CODE_TOOLS_ID,
     CLAUDE_SETTINGS_OVERRIDES,
+    CODEX_SETTINGS_OVERRIDES,
     INLINE_COMPLETION_MODEL_OVERRIDES,
     JUPYTER_UI_TOOLS_ID,
     POLICY_FORCE_OFF,
@@ -39,6 +40,7 @@ from notebook_intelligence.feature_flags import (
     POLICY_USER_CHOICE,
     VALID_POLICIES,
     apply_claude_policies,
+    apply_codex_policies,
     apply_string_overrides,
     is_force_off,
     is_locked,
@@ -291,6 +293,12 @@ FEATURE_POLICY_SPEC = (
     ("output_followup", "NBI_OUTPUT_FOLLOWUP_POLICY", "output_followup_policy"),
     ("output_toolbar", "NBI_OUTPUT_TOOLBAR_POLICY", "output_toolbar_policy"),
     ("claude_mode", "NBI_CLAUDE_MODE_POLICY", "claude_mode_policy"),
+    ("codex_mode", "NBI_CODEX_MODE_POLICY", "codex_mode_policy"),
+    (
+        "codex_full_access",
+        "NBI_CODEX_FULL_ACCESS_POLICY",
+        "codex_full_access_policy",
+    ),
     (
         "claude_continue_conversation",
         "NBI_CLAUDE_CONTINUE_CONVERSATION_POLICY",
@@ -356,13 +364,17 @@ FEATURE_POLICY_NAMES = tuple(name for name, _, _ in FEATURE_POLICY_SPEC)
 
 # Fallback used when a policies dict hasn't been populated (handler classes
 # before _setup_handlers, direct construction in tests). Everything defaults
-# to user-choice except bypass, which must fail closed.
+# to user-choice except bypass, the experimental Codex mode, and Codex full
+# access, which must fail closed.
 FEATURE_POLICY_DEFAULTS = {name: POLICY_USER_CHOICE for name in FEATURE_POLICY_NAMES}
 FEATURE_POLICY_DEFAULTS["claude_bypass_permissions"] = POLICY_FORCE_OFF
+FEATURE_POLICY_DEFAULTS["codex_mode"] = POLICY_FORCE_OFF
+FEATURE_POLICY_DEFAULTS["codex_full_access"] = POLICY_FORCE_OFF
 
 # ``(setting_lock_name, env_var)`` pairs for the value-presence-locks. The
 # claude_api_key entry maps to ANTHROPIC_API_KEY (the SDK's native convention)
-# rather than an NBI-prefixed env var. Same for claude_base_url.
+# rather than an NBI-prefixed env var. Same for claude_base_url. The codex_*
+# entries follow the same idea against OpenAI's native env vars.
 STRING_OVERRIDE_SPEC = (
     ("chat_model_provider", "NBI_CHAT_MODEL_PROVIDER"),
     ("chat_model_id", "NBI_CHAT_MODEL_ID"),
@@ -372,6 +384,9 @@ STRING_OVERRIDE_SPEC = (
     ("claude_inline_completion_model", "NBI_CLAUDE_INLINE_COMPLETION_MODEL"),
     ("claude_api_key", "ANTHROPIC_API_KEY"),
     ("claude_base_url", "ANTHROPIC_BASE_URL"),
+    ("codex_chat_model", "NBI_CODEX_CHAT_MODEL"),
+    ("codex_api_key", "OPENAI_API_KEY"),
+    ("codex_base_url", "OPENAI_BASE_URL"),
 )
 SETTING_LOCK_NAMES = tuple(name for name, _ in STRING_OVERRIDE_SPEC)
 
@@ -384,6 +399,7 @@ def _build_feature_policies_response(policies: dict, nbi_config) -> dict:
     feature only needs an entry here plus a matching env-var resolution.
     """
     claude_settings = nbi_config.claude_settings or {}
+    codex_settings = nbi_config.codex_settings or {}
     tools = claude_settings.get("tools") or []
     sources = claude_settings.get("setting_sources") or []
 
@@ -392,6 +408,11 @@ def _build_feature_policies_response(policies: dict, nbi_config) -> dict:
         "output_followup": nbi_config.enable_output_followup,
         "output_toolbar": nbi_config.enable_output_toolbar,
         "claude_mode": bool(claude_settings.get("enabled", False)),
+        # Experimental Codex (ACP) agent mode; defaults to force-off (#378).
+        "codex_mode": bool(codex_settings.get("enabled", False)),
+        # Codex autonomous "full access" posture; defaults to force-off so the
+        # agent asks before risky actions unless an admin opts in (#378).
+        "codex_full_access": bool(codex_settings.get("full_access", False)),
         "claude_continue_conversation": bool(
             claude_settings.get("continue_conversation", False)
         ),
@@ -460,15 +481,18 @@ def _build_setting_locks_response(string_overrides: dict) -> dict:
     }
 
 
-def _scrub_credentials_for_wire(claude_settings: dict, string_overrides: dict) -> dict:
+def _scrub_credentials_for_wire(
+    settings: dict, string_overrides: dict, api_key_lock: str = "claude_api_key"
+) -> dict:
     """Strip the api_key from the capabilities response when locked by env.
 
-    The Anthropic SDK reads ANTHROPIC_API_KEY directly; surfacing the value
-    through the frontend would leak the credential.
+    The SDKs read their key env var directly (ANTHROPIC_API_KEY for Claude,
+    OPENAI_API_KEY for Codex); surfacing the value through the frontend would
+    leak the credential.
     """
-    if not string_overrides.get("claude_api_key"):
-        return claude_settings
-    result = dict(claude_settings or {})
+    if not string_overrides.get(api_key_lock):
+        return settings
+    result = dict(settings or {})
     result["api_key"] = ""
     return result
 
@@ -594,6 +618,14 @@ class GetCapabilitiesHandler(APIHandler):
             "claude_settings": _scrub_credentials_for_wire(
                 nbi_config.claude_settings, self.string_overrides
             ),
+            "codex_settings": _scrub_credentials_for_wire(
+                nbi_config.codex_settings, self.string_overrides, "codex_api_key"
+            ),
+            # Which agent modes are enabled and which one is currently active.
+            # The frontend shows an agent picker when more than one is enabled
+            # and gates the active agent's UI on active_agent_mode (#378).
+            "enabled_agent_modes": ai_service_manager.enabled_agent_modes,
+            "active_agent_mode": ai_service_manager.active_agent_mode,
             "spinner_verbs": _read_claude_spinner_verbs(),
             "claude_models": ai_service_manager.claude_models,
             # Drive launcher-tile visibility (issues #183, #260). Each flag
@@ -668,6 +700,8 @@ class ConfigHandler(APIHandler):
             "inline_completion_debouncer_delay",
             "mcp_server_settings",
             "claude_settings",
+            "codex_settings",
+            "active_chat_agent",
             "enable_explain_error",
             "enable_output_followup",
             "enable_output_toolbar",
@@ -699,6 +733,8 @@ class ConfigHandler(APIHandler):
 
         has_model_change = False
         has_claude_settings_change = False
+        has_codex_settings_change = False
+        has_active_agent_change = False
         for key in data:
             if key in locked_keys:
                 continue
@@ -735,6 +771,34 @@ class ConfigHandler(APIHandler):
                 if self.string_overrides.get("claude_api_key"):
                     value = dict(value)
                     value["api_key"] = ""
+            elif key == "codex_settings":
+                value = apply_codex_policies(value, self.feature_policies)
+                value = apply_string_overrides(
+                    value, self.string_overrides, CODEX_SETTINGS_OVERRIDES
+                )
+                # OPENAI_API_KEY is a credential; same handling as Claude above.
+                if self.string_overrides.get("codex_api_key"):
+                    value = dict(value)
+                    value["api_key"] = ""
+                # Only act when something actually changed. The settings tab
+                # re-POSTs on mount, and an unconditional restart would bounce
+                # the live ACP subprocess every time the tab is opened. Compare
+                # against the raw stored value (not the codex_settings property,
+                # which re-injects env overrides such as OPENAI_API_KEY and would
+                # never match the scrubbed value we persist).
+                has_codex_settings_change = (
+                    value != (ai_service_manager.nbi_config.get("codex_settings") or {})
+                )
+            elif key == "active_chat_agent":
+                # The preferred agent when several agent modes are enabled.
+                # Reject unknown ids ("" clears the preference); an unknown
+                # value would just be ignored by the resolver, but persisting
+                # junk helps nobody.
+                if value not in ai_service_manager.AGENT_MODE_PRIORITY and value != "":
+                    continue
+                has_active_agent_change = (
+                    value != (ai_service_manager.nbi_config.get("active_chat_agent") or "")
+                )
             ai_service_manager.nbi_config.set(key, value)
             if key == "store_github_access_token":
                 if value:
@@ -756,13 +820,22 @@ class ConfigHandler(APIHandler):
                     default_chat_participant.update_client_debounced()
 
         ai_service_manager.nbi_config.save()
-        if has_model_change or has_claude_settings_change:
+        if (
+            has_model_change
+            or has_claude_settings_change
+            or has_codex_settings_change
+            or has_active_agent_change
+        ):
             ai_service_manager.update_models_from_config()
         if has_claude_settings_change:
             default_chat_participant = ai_service_manager.default_chat_participant
             if isinstance(default_chat_participant, ClaudeCodeChatParticipant):
                 # needed to reconnect / update
                 default_chat_participant.update_client_debounced()
+        if has_codex_settings_change:
+            # Codex reads its key/model from codex_settings at launch, so the
+            # running ACP subprocess must restart to pick up the new values.
+            ai_service_manager.restart_codex_client()
 
         self.finish(json.dumps({}))
 
@@ -2863,6 +2936,30 @@ class NotebookIntelligence(ExtensionApp):
         help="""
         Org-wide policy for whether Claude mode is enabled. Same semantics as
         explain_error_policy. Overridden by the NBI_CLAUDE_MODE_POLICY env var.
+        """,
+        config=True,
+    )
+
+    codex_mode_policy = TraitletEnum(
+        list(VALID_POLICIES),
+        default_value=POLICY_FORCE_OFF,
+        help="""
+        Org-wide policy for whether the experimental Codex (ACP) agent mode is
+        available (#378). Defaults to force-off; set to user-choice to let users
+        enable it. Overridden by the NBI_CODEX_MODE_POLICY env var.
+        """,
+        config=True,
+    )
+
+    codex_full_access_policy = TraitletEnum(
+        list(VALID_POLICIES),
+        default_value=POLICY_FORCE_OFF,
+        help="""
+        Org-wide policy for Codex "full access" (#378): running tools
+        autonomously without asking. Defaults to force-off, so Codex is pinned
+        to ask before anything beyond trusted read-only commands. Set to
+        user-choice to let users opt into unattended runs, or force-on to
+        require it. Overridden by the NBI_CODEX_FULL_ACCESS_POLICY env var.
         """,
         config=True,
     )
