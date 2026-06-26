@@ -132,10 +132,15 @@ class AIServiceManager(Host):
         self._websocket_connector = _websocket_connector
         self._mcp_manager.websocket_connector = _websocket_connector
         self._claude_code_chat_participant.websocket_connector = _websocket_connector
+        if self._codex_chat_participant is not None:
+            self._codex_chat_participant.websocket_connector = _websocket_connector
 
     def initialize(self):
         self.chat_participants = {}
         self._claude_code_chat_participant = ClaudeCodeChatParticipant(self)
+        # Created lazily the first time Codex mode is active so the ACP SDK
+        # import stays off the startup path (#378).
+        self._codex_chat_participant = None
         self.register_llm_provider(GitHubCopilotLLMProvider())
         self.register_llm_provider(self._openai_compatible_llm_provider)
         self.register_llm_provider(self._litellm_compatible_llm_provider)
@@ -221,7 +226,32 @@ class AIServiceManager(Host):
         else:
             self.unregister_chat_participant(self._claude_code_chat_participant)
 
+        # Codex agent mode (#378). is_codex_mode already reflects the resolved
+        # active agent, so it is exclusive with is_claude_code_mode.
+        if self.is_codex_mode:
+            self._default_chat_participant = self._ensure_codex_participant()
+        elif self._codex_chat_participant is not None:
+            self.unregister_chat_participant(self._codex_chat_participant)
+
         self.chat_participants[DEFAULT_CHAT_PARTICIPANT_ID] = self._default_chat_participant
+
+    def _ensure_codex_participant(self):
+        """Create (lazily, to defer the ACP import) and register the Codex
+        participant, returning it (#378)."""
+        if self._codex_chat_participant is None:
+            from notebook_intelligence.acp_agent import CodexAgentChatParticipant
+            self._codex_chat_participant = CodexAgentChatParticipant(self)
+            self._codex_chat_participant.websocket_connector = self._websocket_connector
+        if self._codex_chat_participant.id not in self.chat_participants:
+            self.register_chat_participant(self._codex_chat_participant)
+        return self._codex_chat_participant
+
+    def restart_codex_client(self):
+        """Drop the running ACP subprocess (if any) so the next Codex request
+        relaunches it with the current codex_settings (#378). No-op when the
+        participant has never been created."""
+        if self._codex_chat_participant is not None:
+            self._codex_chat_participant.restart_client()
 
     def update_mcp_servers(self):
         self._mcp_manager.update_mcp_servers(self.nbi_config.mcp)
@@ -317,9 +347,53 @@ class AIServiceManager(Host):
     def embedding_model(self) -> EmbeddingModel:
         return self._embedding_model
 
+    # Agent modes that take over chat, in the priority order used to pick a
+    # default when more than one is enabled. Extends as more ACP agents land
+    # (e.g. gemini, opencode). Claude is first so the historical "Claude wins
+    # when both are on" behavior is preserved when the user has no preference.
+    AGENT_MODE_PRIORITY = ("claude", "codex")
+
+    def _agent_mode_enabled(self, mode: str) -> bool:
+        if mode == "claude":
+            return bool(self.nbi_config.claude_settings.get("enabled", False))
+        if mode == "codex":
+            return bool(self.nbi_config.codex_settings.get("enabled", False))
+        return False
+
+    @property
+    def enabled_agent_modes(self) -> list[str]:
+        return [m for m in self.AGENT_MODE_PRIORITY if self._agent_mode_enabled(m)]
+
+    @staticmethod
+    def resolve_active_agent(enabled: list[str], preferred: Optional[str]) -> Optional[str]:
+        """Pick the active agent: the preference when it is enabled, else the
+        highest-priority enabled mode, else None."""
+        if not enabled:
+            return None
+        if preferred in enabled:
+            return preferred
+        return enabled[0]
+
+    @property
+    def active_agent_mode(self) -> Optional[str]:
+        """The single agent mode currently handling chat.
+
+        When several agent modes are enabled the user's stored preference
+        (``active_chat_agent``) wins; otherwise the highest-priority enabled
+        mode is used. Returns None when no agent mode is enabled (the native
+        provider path handles chat).
+        """
+        return self.resolve_active_agent(
+            self.enabled_agent_modes, self.nbi_config.get("active_chat_agent")
+        )
+
     @property
     def is_claude_code_mode(self) -> bool:
-        return self.nbi_config.claude_settings.get('enabled', False)
+        return self.active_agent_mode == "claude"
+
+    @property
+    def is_codex_mode(self) -> bool:
+        return self.active_agent_mode == "codex"
 
     @property
     def claude_models(self) -> list[dict]:
@@ -450,13 +524,19 @@ class AIServiceManager(Host):
 
     async def handle_chat_request(self, request: ChatRequest, response: ChatResponse, options: dict = {}) -> None:
         is_claude_code_mode = self.is_claude_code_mode
-        if not is_claude_code_mode and self.chat_model is None:
+        is_codex_mode = self.is_codex_mode
+        if not is_claude_code_mode and not is_codex_mode and self.chat_model is None:
             response.stream(MarkdownData("Chat model is not set!"))
             response.stream(ButtonData("Configure", "notebook-intelligence:open-configuration-dialog"))
             response.finish()
             return
         request.host = self
-        prompt_parts = PromptParts(input=request.prompt, participant=CLAUDE_CODE_CHAT_PARTICIPANT_ID) if is_claude_code_mode else AIServiceManager.parse_prompt(request.prompt)
+        if is_claude_code_mode:
+            prompt_parts = PromptParts(input=request.prompt, participant=CLAUDE_CODE_CHAT_PARTICIPANT_ID)
+        elif is_codex_mode:
+            prompt_parts = PromptParts(input=request.prompt, participant=self._ensure_codex_participant().id)
+        else:
+            prompt_parts = AIServiceManager.parse_prompt(request.prompt)
 
         # add MCP server prompt messages to chat history
         if prompt_parts.mcp_prompt_name != "":

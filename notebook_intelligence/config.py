@@ -12,8 +12,10 @@ from notebook_intelligence.util import get_claude_config_dir
 from notebook_intelligence.feature_flags import (
     CHAT_MODEL_OVERRIDES,
     CLAUDE_SETTINGS_OVERRIDES,
+    CODEX_SETTINGS_OVERRIDES,
     INLINE_COMPLETION_MODEL_OVERRIDES,
     apply_claude_policies,
+    apply_codex_policies,
     apply_string_overrides,
 )
 
@@ -170,6 +172,15 @@ class NBIConfig:
         )
         return apply_string_overrides(
             resolved, self._string_overrides, CLAUDE_SETTINGS_OVERRIDES
+        )
+
+    @property
+    def codex_settings(self):
+        resolved = apply_codex_policies(
+            self.get('codex_settings', {}), self._feature_policies
+        )
+        return apply_string_overrides(
+            resolved, self._string_overrides, CODEX_SETTINGS_OVERRIDES
         )
 
     @property

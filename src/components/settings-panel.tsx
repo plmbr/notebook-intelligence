@@ -7,6 +7,7 @@ import * as path from 'path';
 
 import copySvgstr from '../../style/icons/copy.svg';
 import claudeSvgStr from '../../style/icons/claude.svg';
+import openaiSvgStr from '../../style/icons/openai.svg';
 import {
   ClaudeModelType,
   ClaudeToolType,
@@ -168,6 +169,22 @@ const TABS: TabSpec[] = [
         onEditMCPConfigClicked={props.onEditMCPConfigClicked}
       />
     )
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    icon: () => (
+      <span
+        className="codex-icon"
+        dangerouslySetInnerHTML={{ __html: openaiSvgStr }}
+      ></span>
+    ),
+    // Hidden unless an admin has unlocked the experimental Codex mode
+    // (codex_mode defaults to force-off, which reads as locked + disabled).
+    visible: ctx =>
+      ctx.featurePolicies.codex_mode.enabled ||
+      !ctx.featurePolicies.codex_mode.locked,
+    render: () => <SettingsPanelComponentCodex />
   },
   {
     id: 'mcp-servers',
@@ -1171,7 +1188,7 @@ function SettingsPanelComponentClaude(props: any) {
   const claudeSettingsRef = useRef<any>(nbiConfig.claudeSettings);
   const [_renderCount, setRenderCount] = useState(1);
   const [claudeEnabled, setClaudeEnabled] = useState(
-    nbiConfig.isInClaudeCodeMode
+    nbiConfig.claudeSettings?.enabled === true
   );
   const [chatModel, setChatModel] = useState(
     nbiConfig.claudeSettings.chat_model ?? ClaudeModelType.Default
@@ -1618,6 +1635,188 @@ function SettingsPanelComponentClaude(props: any) {
                     value={baseUrl}
                     disabled={settingLocks.claude_base_url.locked}
                     title={lockedTip(settingLocks.claude_base_url.locked)}
+                    onChange={event => setBaseUrl(event.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsPanelComponentCodex(props: any) {
+  const nbiConfig = NBIAPI.config;
+  const [codexEnabled, setCodexEnabled] = useState(
+    nbiConfig.codexSettings?.enabled === true
+  );
+  const [chatModel, setChatModel] = useState(
+    nbiConfig.codexSettings.chat_model ?? ''
+  );
+  const [apiKey, setApiKey] = useState(nbiConfig.codexSettings.api_key ?? '');
+  const [baseUrl, setBaseUrl] = useState(
+    nbiConfig.codexSettings.base_url ?? ''
+  );
+  const [fullAccess, setFullAccess] = useState(
+    nbiConfig.codexSettings.full_access === true
+  );
+  const { featurePolicies, settingLocks } = useNbiPolicies();
+
+  const syncSettingsToServerState = () => {
+    NBIAPI.setConfig({
+      codex_settings: {
+        enabled: codexEnabled,
+        chat_model: chatModel,
+        api_key: apiKey,
+        base_url: baseUrl,
+        full_access: fullAccess
+      }
+    });
+  };
+
+  useEffect(() => {
+    syncSettingsToServerState();
+  }, [codexEnabled, chatModel, apiKey, baseUrl, fullAccess]);
+
+  return (
+    <div className="config-dialog codex-mode-config-dialog">
+      <div className="config-dialog-body">
+        <div className="model-config-section">
+          <div className="model-config-section-header">Enable Codex mode</div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <span>
+                Experimental. Routes chat through{' '}
+                <a href="https://openai.com/codex/" target="_blank">
+                  OpenAI Codex
+                </a>{' '}
+                over the Agent Client Protocol. Requires an OpenAI API key and{' '}
+                <code>npx</code> available on the server.
+              </span>
+            </div>
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div>
+                  <CheckBoxItem
+                    header={true}
+                    label="Enable Codex mode"
+                    checked={checkedValue(
+                      featurePolicies.codex_mode,
+                      codexEnabled
+                    )}
+                    disabled={featurePolicies.codex_mode.locked}
+                    tooltip={lockedTip(featurePolicies.codex_mode.locked)}
+                    onClick={() => {
+                      setCodexEnabled(!codexEnabled);
+                    }}
+                  ></CheckBoxItem>
+                </div>
+              </div>
+            </div>
+            <div className="model-config-section-row">
+              <span id="codex-full-access-warning" className="config-warning">
+                By default Codex asks before anything beyond trusted read-only
+                commands. Full access lets it run tools (edits, shell) without
+                asking. Content the agent reads can steer what it runs.
+              </span>
+            </div>
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div>
+                  <CheckBoxItem
+                    label="Full access (run without asking)"
+                    ariaDescribedBy="codex-full-access-warning"
+                    checked={checkedValue(
+                      featurePolicies.codex_full_access,
+                      fullAccess
+                    )}
+                    disabled={featurePolicies.codex_full_access.locked}
+                    tooltip={lockedTip(
+                      featurePolicies.codex_full_access.locked
+                    )}
+                    onClick={() => {
+                      setFullAccess(!fullAccess);
+                    }}
+                  ></CheckBoxItem>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="model-config-section">
+          <div className="model-config-section-header">Model</div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div className="form-field-row">
+                  <div className="form-field-description">
+                    Chat model (optional)
+                  </div>
+                  <input
+                    name="codex-chat-model-input"
+                    placeholder={
+                      settingLocks.codex_chat_model.locked
+                        ? 'Locked by NBI_CODEX_CHAT_MODEL'
+                        : "Codex default (e.g. 'gpt-5-codex')"
+                    }
+                    className="jp-mod-styled"
+                    spellCheck={false}
+                    value={
+                      settingLocks.codex_chat_model.locked ? '' : chatModel
+                    }
+                    disabled={settingLocks.codex_chat_model.locked}
+                    title={lockedTip(settingLocks.codex_chat_model.locked)}
+                    onChange={event => setChatModel(event.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="model-config-section">
+          <div className="model-config-section-header">Codex account</div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div className="form-field-row">
+                  <div className="form-field-description">
+                    API Key (optional)
+                  </div>
+                  <input
+                    name="codex-api-key-input"
+                    placeholder={
+                      settingLocks.codex_api_key.locked
+                        ? 'Locked by OPENAI_API_KEY'
+                        : 'API Key'
+                    }
+                    className="jp-mod-styled"
+                    spellCheck={false}
+                    value={settingLocks.codex_api_key.locked ? '' : apiKey}
+                    disabled={settingLocks.codex_api_key.locked}
+                    title={lockedTip(settingLocks.codex_api_key.locked)}
+                    onChange={event => setApiKey(event.target.value)}
+                  />
+                </div>
+                <div className="form-field-row">
+                  <div className="form-field-description">
+                    Base URL (optional)
+                  </div>
+                  <input
+                    name="codex-base-url-input"
+                    placeholder={
+                      settingLocks.codex_base_url.locked
+                        ? 'Locked by OPENAI_BASE_URL'
+                        : 'https://api.openai.com/v1'
+                    }
+                    className="jp-mod-styled"
+                    spellCheck={false}
+                    value={baseUrl}
+                    disabled={settingLocks.codex_base_url.locked}
+                    title={lockedTip(settingLocks.codex_base_url.locked)}
                     onChange={event => setBaseUrl(event.target.value)}
                   />
                 </div>

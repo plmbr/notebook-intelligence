@@ -217,3 +217,32 @@ class TestAIServiceManagerIntegration:
         ):
             manager.update_models_from_config()
         assert mock_fetch.call_count == 0
+
+
+class TestResolveActiveAgent:
+    """The active-agent resolution that backs the in-chat agent picker (#378).
+
+    Pure static logic, so it needs no AIServiceManager instance.
+    """
+
+    def test_none_enabled_returns_none(self):
+        assert AIServiceManager.resolve_active_agent([], "claude") is None
+        assert AIServiceManager.resolve_active_agent([], None) is None
+
+    def test_single_enabled_ignores_preference(self):
+        assert AIServiceManager.resolve_active_agent(["codex"], None) == "codex"
+        # A stale preference for a disabled mode is ignored.
+        assert AIServiceManager.resolve_active_agent(["codex"], "claude") == "codex"
+
+    def test_preference_wins_when_enabled(self):
+        assert AIServiceManager.resolve_active_agent(["claude", "codex"], "codex") == "codex"
+        assert AIServiceManager.resolve_active_agent(["claude", "codex"], "claude") == "claude"
+
+    def test_no_preference_falls_back_to_priority_order(self):
+        # Both enabled, no preference -> first (Claude), preserving the
+        # historical "Claude wins" default.
+        assert AIServiceManager.resolve_active_agent(["claude", "codex"], None) == "claude"
+        assert AIServiceManager.resolve_active_agent(["claude", "codex"], "") == "claude"
+
+    def test_unknown_preference_falls_back(self):
+        assert AIServiceManager.resolve_active_agent(["claude", "codex"], "gemini") == "claude"
