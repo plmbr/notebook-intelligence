@@ -21,7 +21,7 @@ This guide covers deploying Notebook Intelligence at scale — JupyterHub, KubeS
 - [Restricting features for managed deployments](#restricting-features-for-managed-deployments)
 - [Multi-tenancy and per-team scoping](#multi-tenancy-and-per-team-scoping)
 - [Managed Claude Skills token](#managed-claude-skills-token)
-- [Chat feedback event hook](#chat-feedback-event-hook)
+- [Telemetry events](#telemetry-events)
 - [HTTP API surface](#http-api-surface)
 - [Failure modes](#failure-modes)
 - [Version matrix](#version-matrix)
@@ -643,13 +643,43 @@ The reconciler handles skill name collisions between manifests and user-authored
 
 ---
 
-## Chat feedback event hook
+## Telemetry events
 
-When `enable_chat_feedback = True`, NBI emits a `telemetry` event in-process whenever a user gives thumbs-up/down feedback in chat. The event payload includes the rating, the prompt, the response, and the model.
+NBI emits `telemetry` events in-process to signal feature usage. The events are **emitted in-process only**: by default nothing listens for them, so they go nowhere and never leave the process. To collect them (for example, to forward usage into an internal observability stack such as Kafka or an OTel collector), write a JupyterLab extension that registers a listener through NBI's `INotebookIntelligence` token and forwards what it receives. Payload shapes are not currently considered stable API; if you build on them, pin to a specific NBI version.
 
-The event is **emitted in-process only**. Nothing leaves the process unless you write a custom handler that listens for it. The payload shape is not currently considered stable API; if you build on it, pin to a specific NBI version.
+Each event has a `type` (the identifier below) and a `data` payload carrying the relevant model and context. Auto-complete (inline completion) and cell inline chat are reported as separate event families, so a listener can tell the two features apart by `type` alone.
 
-To pipe feedback into your internal observability stack (Kafka, OTel collector), write an extension that registers a listener for the `telemetry` event and forwards it.
+Auto-complete:
+
+| Event `type`                 | Fires when                                                    |
+| ---------------------------- | ------------------------------------------------------------- |
+| `inline-completion-request`  | A ghost-text completion is requested as the user types.       |
+| `inline-completion-response` | A suggestion is returned (carries `timeElapsed`).             |
+| `inline-completion-accepted` | The user accepts a suggestion (Tab or the completer toolbar). |
+
+Cell inline chat:
+
+| Event `type`            | Fires when                                                          |
+| ----------------------- | ------------------------------------------------------------------- |
+| `inline-chat-request`   | The user submits an inline-chat prompt (carries the `prompt`).      |
+| `inline-chat-response`  | A generation completes (carries `timeElapsed`).                     |
+| `inline-chat-accepted`  | Generated code is applied, with `mode` = `review` or `auto-insert`. |
+| `inline-chat-dismissed` | The popover is closed after code was shown but never applied.       |
+
+Chat and feedback:
+
+| Event `type`                     | Fires when                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| `chat-request` / `chat-response` | A message is sent to / answered by the chat sidebar.                                       |
+| `feedback`                       | The user gives thumbs-up/down on a chat response (`sentiment` = `positive` or `negative`). |
+
+NBI also emits request events for the chat sidebar's code and output actions (`generate-code-request`, `explain-this-request`, `fix-this-code-request`, `explain-this-output-request`, `troubleshoot-this-output-request`, `output-follow-up-request`).
+
+The `inline-completion-*`, `inline-chat-*`, and chat/action events fire whenever those features are used; they are not gated by any setting. To measure how often auto-complete suggestions are taken, compare `inline-completion-accepted` against `inline-completion-response`; the gap is the ignore rate. Only the `feedback` event is gated, by `enable_chat_feedback` (off by default), which also controls the thumbs-up/down UI:
+
+```python
+c.NotebookIntelligence.enable_chat_feedback = True
+```
 
 The thumbs buttons reveal on hover by default. To keep them always visible, enable:
 
@@ -663,40 +693,40 @@ c.NotebookIntelligence.enable_chat_feedback_always_visible = True
 
 All routes live under `/notebook-intelligence/`. All require Jupyter authentication (XSRF token plus Jupyter login token) including the `/copilot` WebSocket upgrade, which now inherits Jupyter's `WebSocketMixin` + `JupyterHandler` so the same `allow_origin` and identity-provider checks that apply to REST handlers also apply to the chat WS endpoint. The labextension obtains these automatically. There is no admin-only route; access control runs through Jupyter Server itself.
 
-| Route                                                       | Method          | Purpose                                                                                                              |
-| ----------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `/notebook-intelligence/capabilities`                       | GET             | Capabilities + tool/provider gate state.                                                                             |
-| `/notebook-intelligence/config`                             | GET/POST        | Read or update user-scope config.                                                                                    |
-| `/notebook-intelligence/update-provider-models`             | POST            | Refresh model list for a provider (e.g., Anthropic SDK refresh).                                                     |
-| `/notebook-intelligence/mcp-config-file`                    | GET/POST        | Read or write `~/.jupyter/nbi/mcp.json`.                                                                             |
-| `/notebook-intelligence/reload-mcp-servers`                 | POST            | Re-discover MCP servers without restarting JupyterLab.                                                               |
-| `/notebook-intelligence/emit-telemetry-event`               | POST            | Used by the frontend to emit `telemetry` events (e.g., chat feedback).                                               |
-| `/notebook-intelligence/gh-login-status`                    | GET             | GitHub Copilot login state.                                                                                          |
-| `/notebook-intelligence/gh-login`                           | POST            | Begin GitHub Copilot device-flow login.                                                                              |
-| `/notebook-intelligence/gh-logout`                          | GET             | Sign out of GitHub Copilot.                                                                                          |
-| `/notebook-intelligence/copilot`                            | WS              | Streaming chat / inline-completion WebSocket.                                                                        |
-| `/notebook-intelligence/rules`                              | GET             | List discovered rules.                                                                                               |
-| `/notebook-intelligence/rules/<id>/toggle`                  | PUT             | Toggle a rule's `active` field.                                                                                      |
-| `/notebook-intelligence/rules/reload`                       | POST            | Manually reload all rules.                                                                                           |
-| `/notebook-intelligence/skills`                             | GET/POST        | List or create skills.                                                                                               |
-| `/notebook-intelligence/skills/context`                     | GET             | Skill context info for the active workspace.                                                                         |
-| `/notebook-intelligence/skills/import/preview`              | POST            | Preview a GitHub-hosted skill before installing.                                                                     |
-| `/notebook-intelligence/skills/import`                      | POST            | Install a GitHub-hosted skill (user-initiated).                                                                      |
-| `/notebook-intelligence/skills/reconcile`                   | POST            | Run the managed-skills reconciler. Returns 409 if `NBI_SKILLS_MANIFEST` is unset.                                    |
-| `/notebook-intelligence/skills/reconciler/stop`             | POST            | Incident-response kill switch. Stops the background reconciler without a server restart. Idempotent.                 |
-| `/notebook-intelligence/skills/<scope>/<name>`              | GET/PUT/DELETE  | Skill detail; managed skills are read-only.                                                                          |
-| `/notebook-intelligence/skills/<scope>/<name>/rename`       | POST            | Rename a skill (denied for managed skills).                                                                          |
-| `/notebook-intelligence/skills/<scope>/<name>/files`        | GET/POST/DELETE | Skill bundle file ops.                                                                                               |
-| `/notebook-intelligence/skills/<scope>/<name>/files/rename` | POST            | Rename a file inside a skill bundle.                                                                                 |
-| `/notebook-intelligence/upload-file`                        | POST            | Upload a file to attach as chat context (size and retention governed by `upload_max_mb` / `upload_retention_hours`). |
-| `/notebook-intelligence/claude-sessions`                    | GET             | List Claude Code sessions for the working directory.                                                                 |
-| `/notebook-intelligence/claude-sessions/resume`             | POST            | Resume a Claude session.                                                                                             |
-| `/notebook-intelligence/claude-mcp`                         | GET/POST        | List or add Claude-mode MCP servers. Gated by `claude_mcp_management_policy`.                                        |
-| `/notebook-intelligence/claude-mcp/<scope>/<name>`          | GET/DELETE      | Get or remove a Claude-mode MCP server by scope (user/project/local) and name.                                       |
-| `/notebook-intelligence/plugins`                            | GET/POST        | List or install Claude plugins. Gated by `claude_plugins_management_policy`.                                         |
-| `/notebook-intelligence/plugins/<scope>/<name>`             | POST/DELETE     | Enable or disable (POST with `{"action": "enable"\|"disable"}`) or uninstall (DELETE) a plugin.                      |
-| `/notebook-intelligence/plugins/marketplace`                | GET/POST        | List or add plugin marketplaces. GitHub-sourced adds are gated by `allow_github_plugin_import`.                      |
-| `/notebook-intelligence/plugins/marketplace/<name>`         | DELETE          | Remove a plugin marketplace.                                                                                         |
+| Route                                                       | Method          | Purpose                                                                                                                                              |
+| ----------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/notebook-intelligence/capabilities`                       | GET             | Capabilities + tool/provider gate state.                                                                                                             |
+| `/notebook-intelligence/config`                             | GET/POST        | Read or update user-scope config.                                                                                                                    |
+| `/notebook-intelligence/update-provider-models`             | POST            | Refresh model list for a provider (e.g., Anthropic SDK refresh).                                                                                     |
+| `/notebook-intelligence/mcp-config-file`                    | GET/POST        | Read or write `~/.jupyter/nbi/mcp.json`.                                                                                                             |
+| `/notebook-intelligence/reload-mcp-servers`                 | POST            | Re-discover MCP servers without restarting JupyterLab.                                                                                               |
+| `/notebook-intelligence/emit-telemetry-event`               | POST            | Used by the frontend to emit `telemetry` events (chat feedback, inline completion and inline chat usage). See [Telemetry events](#telemetry-events). |
+| `/notebook-intelligence/gh-login-status`                    | GET             | GitHub Copilot login state.                                                                                                                          |
+| `/notebook-intelligence/gh-login`                           | POST            | Begin GitHub Copilot device-flow login.                                                                                                              |
+| `/notebook-intelligence/gh-logout`                          | GET             | Sign out of GitHub Copilot.                                                                                                                          |
+| `/notebook-intelligence/copilot`                            | WS              | Streaming chat / inline-completion WebSocket.                                                                                                        |
+| `/notebook-intelligence/rules`                              | GET             | List discovered rules.                                                                                                                               |
+| `/notebook-intelligence/rules/<id>/toggle`                  | PUT             | Toggle a rule's `active` field.                                                                                                                      |
+| `/notebook-intelligence/rules/reload`                       | POST            | Manually reload all rules.                                                                                                                           |
+| `/notebook-intelligence/skills`                             | GET/POST        | List or create skills.                                                                                                                               |
+| `/notebook-intelligence/skills/context`                     | GET             | Skill context info for the active workspace.                                                                                                         |
+| `/notebook-intelligence/skills/import/preview`              | POST            | Preview a GitHub-hosted skill before installing.                                                                                                     |
+| `/notebook-intelligence/skills/import`                      | POST            | Install a GitHub-hosted skill (user-initiated).                                                                                                      |
+| `/notebook-intelligence/skills/reconcile`                   | POST            | Run the managed-skills reconciler. Returns 409 if `NBI_SKILLS_MANIFEST` is unset.                                                                    |
+| `/notebook-intelligence/skills/reconciler/stop`             | POST            | Incident-response kill switch. Stops the background reconciler without a server restart. Idempotent.                                                 |
+| `/notebook-intelligence/skills/<scope>/<name>`              | GET/PUT/DELETE  | Skill detail; managed skills are read-only.                                                                                                          |
+| `/notebook-intelligence/skills/<scope>/<name>/rename`       | POST            | Rename a skill (denied for managed skills).                                                                                                          |
+| `/notebook-intelligence/skills/<scope>/<name>/files`        | GET/POST/DELETE | Skill bundle file ops.                                                                                                                               |
+| `/notebook-intelligence/skills/<scope>/<name>/files/rename` | POST            | Rename a file inside a skill bundle.                                                                                                                 |
+| `/notebook-intelligence/upload-file`                        | POST            | Upload a file to attach as chat context (size and retention governed by `upload_max_mb` / `upload_retention_hours`).                                 |
+| `/notebook-intelligence/claude-sessions`                    | GET             | List Claude Code sessions for the working directory.                                                                                                 |
+| `/notebook-intelligence/claude-sessions/resume`             | POST            | Resume a Claude session.                                                                                                                             |
+| `/notebook-intelligence/claude-mcp`                         | GET/POST        | List or add Claude-mode MCP servers. Gated by `claude_mcp_management_policy`.                                                                        |
+| `/notebook-intelligence/claude-mcp/<scope>/<name>`          | GET/DELETE      | Get or remove a Claude-mode MCP server by scope (user/project/local) and name.                                                                       |
+| `/notebook-intelligence/plugins`                            | GET/POST        | List or install Claude plugins. Gated by `claude_plugins_management_policy`.                                                                         |
+| `/notebook-intelligence/plugins/<scope>/<name>`             | POST/DELETE     | Enable or disable (POST with `{"action": "enable"\|"disable"}`) or uninstall (DELETE) a plugin.                                                      |
+| `/notebook-intelligence/plugins/marketplace`                | GET/POST        | List or add plugin marketplaces. GitHub-sourced adds are gated by `allow_github_plugin_import`.                                                      |
+| `/notebook-intelligence/plugins/marketplace/<name>`         | DELETE          | Remove a plugin marketplace.                                                                                                                         |
 
 The extension respects `c.ServerApp.base_url`. Behind JupyterHub at `/user/<name>/` everything still works because JupyterLab proxies routes through the per-user base URL automatically.
 

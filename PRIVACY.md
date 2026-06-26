@@ -62,9 +62,9 @@ The encrypted GitHub token uses a default password (`nbi-access-token-password`)
 
 ## Telemetry
 
-NBI does not collect telemetry, send analytics, or report usage.
+NBI has no central server and sends no telemetry, analytics, or usage data to any external service.
 
-The `enable_chat_feedback` traitlet (off by default) emits an internal `telemetry` event when a user gives thumbs-up/down feedback in chat. The event is **emitted in-process only** — nothing leaves the process unless you write a custom handler that listens for it. See [`docs/admin-guide.md`](docs/admin-guide.md#chat-feedback-event-hook).
+Internally, NBI emits `telemetry` events that signal feature usage: chat, inline completion, and cell inline chat lifecycle events (including when a suggestion is accepted or dismissed), plus thumbs-up/down chat feedback when `enable_chat_feedback` is on. These events are **emitted in-process only**. By default nothing listens for them, so they go nowhere and never leave the process; an administrator can register a listener to collect them. See [`docs/admin-guide.md`](docs/admin-guide.md#telemetry-events).
 
 ## Reproducibility caveat
 
