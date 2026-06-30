@@ -4,7 +4,9 @@ scope:
   file_patterns:
     - '*.ipynb'
     - '*.py'
-  kernels:
+  languages:
+    - python
+  kernel_names:
     - python3
 active: true
 priority: 0

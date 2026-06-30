@@ -141,6 +141,8 @@ class ChatRequest:
     tool_selection: RequestToolSelection = None
     command: str = ''
     prompt: str = ''
+    language: str = ''
+    kernel_name: str = ''
     chat_history: list[dict] = None
     cancel_token: CancelToken = None
     # NEW: Add context for rule evaluation

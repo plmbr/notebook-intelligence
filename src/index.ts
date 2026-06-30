@@ -126,6 +126,13 @@ import { ITerminalTracker } from '@jupyterlab/terminal';
 import { Token } from '@lumino/coreutils';
 import { NotebookGenerationToolbarExtension } from './notebook-generation-toolbar';
 import { attachTerminalDragDrop } from './terminal-drag';
+import {
+  DEFAULT_NOTEBOOK_KERNEL,
+  NotebookKernelNotFoundError,
+  findKernelProfile,
+  listKernelProfiles,
+  normalizeNotebookLanguage
+} from './notebook-kernels';
 
 import { CommandIDs } from './command-ids';
 
@@ -389,9 +396,20 @@ class ActiveDocumentWatcher {
       const np = activeWidget as NotebookPanel;
       activeDocumentInfo.filename = np.sessionContext.name;
       activeDocumentInfo.filePath = np.sessionContext.path;
-      activeDocumentInfo.language =
-        (np.model?.sharedModel?.metadata?.kernelspec?.language as string) ||
-        'python';
+      const kernelspec = np.model?.sharedModel?.metadata?.kernelspec as
+        | {
+            language?: string;
+            name?: string;
+            display_name?: string;
+          }
+        | undefined;
+      activeDocumentInfo.language = normalizeNotebookLanguage(
+        kernelspec?.language
+      );
+      activeDocumentInfo.kernelName =
+        kernelspec?.name || DEFAULT_NOTEBOOK_KERNEL.kernelName;
+      activeDocumentInfo.kernelDisplayName =
+        kernelspec?.display_name || DEFAULT_NOTEBOOK_KERNEL.displayName;
       const { activeCellIndex, activeCell } = np.content;
       activeDocumentInfo.activeCellIndex = activeCellIndex;
       activeDocumentInfo.selection = activeCell?.editor?.getSelection();
@@ -406,6 +424,8 @@ class ActiveDocumentWatcher {
             contentsModel.mimetype
           ) || ActiveDocumentWatcher._languageRegistry.findByFileName(fileName);
         activeDocumentInfo.language = language?.name || 'unknown';
+        activeDocumentInfo.kernelName = undefined;
+        activeDocumentInfo.kernelDisplayName = undefined;
         activeDocumentInfo.filename = fileName;
         activeDocumentInfo.filePath = filePath;
         if (activeWidget instanceof FileEditorWidget) {
@@ -418,6 +438,8 @@ class ActiveDocumentWatcher {
         activeDocumentInfo.filename = '';
         activeDocumentInfo.filePath = '';
         activeDocumentInfo.language = '';
+        activeDocumentInfo.kernelName = undefined;
+        activeDocumentInfo.kernelDisplayName = undefined;
       }
     }
 
@@ -443,6 +465,8 @@ class ActiveDocumentWatcher {
       lhs.filename !== rhs.filename ||
       lhs.filePath !== rhs.filePath ||
       lhs.language !== rhs.language ||
+      lhs.kernelName !== rhs.kernelName ||
+      lhs.kernelDisplayName !== rhs.kernelDisplayName ||
       lhs.activeCellIndex !== rhs.activeCellIndex ||
       !compareSelections(lhs.selection, rhs.selection)
     );
@@ -509,6 +533,8 @@ class ActiveDocumentWatcher {
 
   static activeDocumentInfo: IActiveDocumentInfo = {
     language: 'python',
+    kernelName: DEFAULT_NOTEBOOK_KERNEL.kernelName,
+    kernelDisplayName: DEFAULT_NOTEBOOK_KERNEL.displayName,
     filename: 'nb-doesnt-exist.ipynb',
     filePath: 'nb-doesnt-exist.ipynb',
     activeWidget: null,
@@ -1215,21 +1241,26 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       }
     });
 
-    app.commands.addCommand(CommandIDs.createNewNotebookFromPython, {
+    app.commands.addCommand(CommandIDs.createNewNotebook, {
       execute: async args => {
-        let pythonKernelSpec = null;
         const contents = new ContentsManager();
         const kernels = new KernelSpecManager();
         await kernels.ready;
-        const kernelspecs = kernels.specs?.kernelspecs;
-        if (kernelspecs) {
-          for (const key in kernelspecs) {
-            const kernelspec = kernelspecs[key];
-            if (kernelspec?.language === 'python') {
-              pythonKernelSpec = kernelspec;
-              break;
-            }
+        let profile;
+        try {
+          profile = findKernelProfile(kernels.specs?.kernelspecs, {
+            language: args.language as string | undefined,
+            kernelName: args.kernelName as string | undefined
+          });
+        } catch (error) {
+          if (error instanceof NotebookKernelNotFoundError) {
+            app.commands.execute('apputils:notify', {
+              message: error.message,
+              type: 'error',
+              options: { autoClose: true }
+            });
           }
+          throw error;
         }
 
         const newNBFile = await contents.newUntitled({
@@ -1237,15 +1268,16 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           path: defaultBrowser?.model.path
         });
         const nbFileContent = structuredClone(emptyNotebookContent);
-        if (pythonKernelSpec) {
-          nbFileContent.metadata = {
-            kernelspec: {
-              language: 'python',
-              name: pythonKernelSpec.name,
-              display_name: pythonKernelSpec.display_name
-            }
-          };
-        }
+        nbFileContent.metadata = {
+          kernelspec: {
+            language: profile.language,
+            name: profile.kernelName,
+            display_name: profile.displayName
+          },
+          language_info: {
+            name: profile.language
+          }
+        };
 
         if (args.code) {
           nbFileContent.cells.push({
@@ -1266,6 +1298,16 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         await waitForFileToBeActive(newNBFile.path);
 
         return newNBFile;
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.listAvailableNotebookKernels, {
+      execute: async () => {
+        const kernels = new KernelSpecManager();
+        await kernels.ready;
+        return {
+          kernels: listKernelProfiles(kernels.specs?.kernelspecs)
+        };
       }
     });
 

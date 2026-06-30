@@ -164,13 +164,14 @@ class RuleManager:
         
         applicable_rules = self.ruleset.get_applicable_rules(
             filename=context.basename,
-            kernel=context.kernel,
+            language=context.language,
+            kernel_name=context.kernel_name,
             mode=context.mode,
             directory=context.directory
         )
         
         log.debug(f"Found {len(applicable_rules)} applicable rules for context: "
-                 f"file={context.basename}, kernel={context.kernel}, mode={context.mode}, dir={context.directory}")
+                 f"file={context.basename}, language={context.language}, kernel_name={context.kernel_name}, mode={context.mode}, dir={context.directory}")
         
         return applicable_rules
     
@@ -195,7 +196,11 @@ class RuleManager:
             if rule.apply not in ['always', 'auto', 'manual']:
                 validation_result['warnings'].append(f"Unknown apply mode: {rule.apply}")
             
-            if not rule.scope.file_patterns and not rule.scope.kernels:
+            if (
+                not rule.scope.file_patterns
+                and not rule.scope.languages
+                and not rule.scope.kernel_names
+            ):
                 validation_result['warnings'].append("Rule has no scope restrictions, will apply to all contexts")
                 
         except FileNotFoundError:

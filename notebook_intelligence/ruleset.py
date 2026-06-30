@@ -12,7 +12,8 @@ log = logging.getLogger(__name__)
 class RuleScope:
     """Defines the scope where a rule applies."""
     file_patterns: List[str] = field(default_factory=list)
-    kernels: List[str] = field(default_factory=list)
+    languages: List[str] = field(default_factory=list)
+    kernel_names: List[str] = field(default_factory=list)
     directory_patterns: List[str] = field(default_factory=list)
     cell_types: Optional[List[str]] = None
     
@@ -42,12 +43,17 @@ class RuleScope:
                 return True
         return False
     
-    def matches_kernel(self, kernel_name: str) -> bool:
-        """Check if the kernel matches any of the specified kernels."""
-        if not self.kernels:
-            return True  # No kernels specified means matches all kernels
-        
-        return kernel_name in self.kernels
+    def matches_language(self, language: str) -> bool:
+        """Check if the language matches any of the specified languages."""
+        if not self.languages:
+            return True
+        return language in self.languages
+
+    def matches_kernel_name(self, kernel_name: str) -> bool:
+        """Check if the kernel name matches any of the specified kernel names."""
+        if not self.kernel_names:
+            return True
+        return kernel_name in self.kernel_names
 
 @dataclass
 class Rule:
@@ -100,9 +106,16 @@ class Rule:
             apply_mode = 'always'
         
         # Create scope object
+        if 'kernels' in scope_data:
+            raise ValueError(
+                f"Invalid rule frontmatter in {filepath}: "
+                "scope.kernels is no longer supported; use scope.languages or scope.kernel_names"
+            )
+
         scope = RuleScope(
             file_patterns=scope_data.get('file_patterns', []),
-            kernels=scope_data.get('kernels', []),
+            languages=scope_data.get('languages', []),
+            kernel_names=scope_data.get('kernel_names', []),
             directory_patterns=scope_data.get('directory_patterns', []),
             cell_types=scope_data.get('cell_types')
         )
@@ -117,7 +130,15 @@ class Rule:
             priority=priority
         )
     
-    def matches_context(self, filename: str, kernel: str = None, cell_type: str = None, mode: str = None, directory: str = None) -> bool:
+    def matches_context(
+        self,
+        filename: str,
+        language: str = None,
+        kernel_name: str = None,
+        cell_type: str = None,
+        mode: str = None,
+        directory: str = None,
+    ) -> bool:
         """Check if this rule applies to the given context."""
         if not self.active:
             return False
@@ -130,7 +151,10 @@ class Rule:
         if not self.scope.matches_file(filename):
             return False
         
-        if kernel and not self.scope.matches_kernel(kernel):
+        if language and not self.scope.matches_language(language):
+            return False
+
+        if kernel_name and not self.scope.matches_kernel_name(kernel_name):
             return False
         
         if directory and not self.scope.matches_directory(directory):
@@ -145,7 +169,8 @@ class Rule:
             'apply': self.apply,
             'scope': {
                 'file_patterns': self.scope.file_patterns,
-                'kernels': self.scope.kernels,
+                'languages': self.scope.languages,
+                'kernel_names': self.scope.kernel_names,
                 'directory_patterns': self.scope.directory_patterns,
                 'cell_types': self.scope.cell_types
             },
@@ -159,9 +184,15 @@ class Rule:
     def from_dict(cls, data: Dict[str, Any]) -> 'Rule':
         """Create rule from dictionary."""
         scope_data = data.get('scope', {})
+        if 'kernels' in scope_data:
+            raise ValueError(
+                "Invalid rule data: scope.kernels is no longer supported; "
+                "use scope.languages or scope.kernel_names"
+            )
         scope = RuleScope(
             file_patterns=scope_data.get('file_patterns', []),
-            kernels=scope_data.get('kernels', []),
+            languages=scope_data.get('languages', []),
+            kernel_names=scope_data.get('kernel_names', []),
             directory_patterns=scope_data.get('directory_patterns', []),
             cell_types=scope_data.get('cell_types')
         )
@@ -191,20 +222,41 @@ class RuleSet:
         else:
             self.global_rules.append(rule)
     
-    def get_applicable_rules(self, filename: str, kernel: str = None, 
-                           cell_type: str = None, mode: str = None, directory: str = None) -> List[Rule]:
+    def get_applicable_rules(
+        self,
+        filename: str,
+        language: str = None,
+        kernel_name: str = None,
+        cell_type: str = None,
+        mode: str = None,
+        directory: str = None,
+    ) -> List[Rule]:
         """Get all rules that apply to the given context."""
         applicable_rules = []
         
         # Add applicable global rules
         for rule in self.global_rules:
-            if rule.matches_context(filename, kernel, cell_type, mode, directory):
+            if rule.matches_context(
+                filename,
+                language,
+                kernel_name,
+                cell_type,
+                mode,
+                directory,
+            ):
                 applicable_rules.append(rule)
         
         # Add applicable mode-specific rules
         if mode and mode in self.mode_rules:
             for rule in self.mode_rules[mode]:
-                if rule.matches_context(filename, kernel, cell_type, mode, directory):
+                if rule.matches_context(
+                    filename,
+                    language,
+                    kernel_name,
+                    cell_type,
+                    mode,
+                    directory,
+                ):
                     applicable_rules.append(rule)
         
         # Sort by priority (lower number = higher priority), then by filename
@@ -267,7 +319,8 @@ class RuleSet:
 class RuleContext:
     """Context information for rule matching."""
     filename: str
-    kernel: Optional[str] = None
+    language: Optional[str] = None
+    kernel_name: Optional[str] = None
     mode: Optional[str] = None
     directory: Optional[str] = None
     

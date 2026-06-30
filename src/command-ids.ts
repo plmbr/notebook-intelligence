@@ -9,8 +9,9 @@ export namespace CommandIDs {
   export const insertAtCursor = 'notebook-intelligence:insert-at-cursor';
   export const addCodeAsNewCell = 'notebook-intelligence:add-code-as-new-cell';
   export const createNewFile = 'notebook-intelligence:create-new-file';
-  export const createNewNotebookFromPython =
-    'notebook-intelligence:create-new-notebook-from-py';
+  export const createNewNotebook = 'notebook-intelligence:create-new-notebook';
+  export const listAvailableNotebookKernels =
+    'notebook-intelligence:list-available-notebook-kernels';
   export const renameNotebook = 'notebook-intelligence:rename-notebook';
   export const addCodeCellToNotebook =
     'notebook-intelligence:add-code-cell-to-notebook';

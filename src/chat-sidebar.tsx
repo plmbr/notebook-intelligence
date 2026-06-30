@@ -111,6 +111,8 @@ export interface IRunChatCompletionRequest {
   type: RunChatCompletionType;
   content: string;
   language?: string;
+  kernelName?: string;
+  kernelDisplayName?: string;
   currentDirectory?: string;
   filename?: string;
   prefix?: string;
@@ -1188,6 +1190,8 @@ async function submitCompletionRequest(
         request.chatId,
         request.content,
         request.language || 'python',
+        request.kernelName || '',
+        request.kernelDisplayName || '',
         request.currentDirectory || '',
         request.filename || '',
         request.additionalContext || [],
@@ -1203,6 +1207,8 @@ async function submitCompletionRequest(
         request.chatId,
         request.content,
         request.language || 'python',
+        request.kernelName || '',
+        request.kernelDisplayName || '',
         request.currentDirectory || '',
         request.filename || '',
         [],
@@ -3089,6 +3095,8 @@ function SidebarComponent(props: any) {
         type: RunChatCompletionType.Chat,
         content: extractedPrompt,
         language: activeDocInfo.language,
+        kernelName: activeDocInfo.kernelName,
+        kernelDisplayName: activeDocInfo.kernelDisplayName,
         currentDirectory: props.getCurrentDirectory(),
         filename: activeDocInfo.filePath,
         additionalContext,
@@ -3525,6 +3533,11 @@ function SidebarComponent(props: any) {
         externalActiveDocInfo?.filePath?.endsWith('.ipynb')
           ? externalActiveDocInfo.filePath
           : null;
+      request.language = request.language || externalActiveDocInfo?.language;
+      request.kernelName =
+        request.kernelName || externalActiveDocInfo?.kernelName;
+      request.kernelDisplayName =
+        request.kernelDisplayName || externalActiveDocInfo?.kernelDisplayName;
       const hideInChat = !!request.hideInChat;
       const newList = hideInChat
         ? chatMessages

@@ -95,10 +95,10 @@ export function MarkdownRenderer({
           };
 
           const handleCreateNewNotebookClick = () => {
-            app.commands.execute(
-              'notebook-intelligence:create-new-notebook-from-py',
-              { language, code: codeString }
-            );
+            app.commands.execute('notebook-intelligence:create-new-notebook', {
+              language,
+              code: codeString
+            });
           };
 
           if (inline || !match) {
