@@ -335,15 +335,23 @@ async def search_files(
             pinfo = file_pattern if file_pattern else pattern
             return f"No files found matching pattern '{pinfo}' in '{directory}'"
 
+        root_dir = Path(jupyter_root_dir).expanduser().resolve()
         for file_path in files:
-            root_dir = Path(jupyter_root_dir).expanduser().resolve()
             try:
                 rel_path = file_path.relative_to(root_dir)
             except ValueError:
-                rel_path = file_path
+                # A glob hit outside the workspace root should not be read.
+                continue
 
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                safe_file = _get_safe_path(str(rel_path))
+            except ValueError:
+                # Outbound symlinks (e.g. leak.txt -> /etc/passwd) must be
+                # skipped, matching read_file's safe_jupyter_path gate.
+                continue
+
+            try:
+                with open(safe_file, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
             except Exception:
                 continue  # skip unreadable files
