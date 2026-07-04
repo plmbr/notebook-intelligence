@@ -9,6 +9,8 @@ from notebook_intelligence.api import BuiltinToolset
 from pathlib import Path
 import subprocess
 import shlex
+import os
+import fnmatch
 
 from notebook_intelligence.util import (
     get_jupyter_root_dir,
@@ -22,6 +24,107 @@ from notebook_intelligence.util import (
 # working through the alias; new code should call ``safe_jupyter_path``
 # directly.
 _get_safe_path = safe_jupyter_path
+
+
+def _glob_pattern_escapes(pattern: str) -> bool:
+    """True if a glob pattern would range outside the search root.
+
+    ``Path.glob`` evaluates ``..`` segments (and rejects absolute
+    patterns only with an unhelpful error), so a pattern like
+    ``../secret.txt`` or ``**/../secret.txt`` makes ``glob`` enumerate
+    and stat paths outside ``jupyter_root_dir`` before the per-match
+    ``safe_jupyter_path`` gate can skip them. That both defeats the
+    workspace confinement during enumeration and leaks outside-file
+    existence through the differing "no files found" vs "found" replies.
+    Reject absolute patterns and any ``..`` component up front so the
+    boundary holds during enumeration too.
+    """
+    norm = pattern.replace("\\", "/")
+    if norm.startswith("/"):
+        return True
+    return ".." in norm.split("/")
+
+
+def _explicit_descendable(entry, root_dir):
+    """Whether an explicit (non-``**``) path segment may recurse into ``entry``.
+
+    Real directories are descendable. A symlinked directory is descendable
+    only when it resolves back inside ``root_dir`` -- an outbound symlink is
+    refused so its target tree is never enumerated -- which mirrors how
+    ``Path.glob`` follows an explicit path component through an in-workspace
+    symlink but the ``safe_jupyter_path`` gate rejects an outbound one.
+    """
+    try:
+        if entry.is_symlink():
+            # Resolve first and reject an outbound target before probing it as
+            # a directory, so an outbound symlink is never stat-followed past
+            # the workspace boundary during enumeration.
+            real = os.path.realpath(entry.path)
+            try:
+                Path(real).relative_to(root_dir)
+            except ValueError:
+                return False  # outbound symlinked path
+            # In-workspace target: safe to confirm it is a directory.
+            return os.path.isdir(real)
+        return entry.is_dir(follow_symlinks=False)
+    except OSError:
+        return False
+
+
+def _iter_pattern_matches(base_dir, segments, root_dir):
+    """Yield paths under ``base_dir`` matching the glob ``segments``.
+
+    A drop-in, sandbox-safe replacement for ``Path.glob`` enumeration:
+
+    * It recurses only as deep as the pattern requires (a non-recursive
+      pattern like ``*.py`` or ``foo.txt`` scans a single directory level,
+      not the whole subtree), so a simple search stays O(entries at that
+      depth) rather than walking every descendant.
+    * ``**`` recursion descends real directories only and never crosses a
+      symlink, exactly like ``Path.glob``; that also makes it cycle-free.
+      An explicit path component (e.g. ``link/*.txt``) may follow an
+      in-workspace symlinked directory but never an outbound one (see
+      ``_explicit_descendable``), so an outside tree is never enumerated,
+      and explicit depth is bounded by the finite pattern.
+    * Each path segment is matched with ``fnmatch.fnmatch``, which honors the
+      full glob syntax ``pathlib`` supports -- ``*``, ``?`` and character
+      classes such as ``[co]`` / ``[!x]`` -- with the platform-default case
+      sensitivity ``Path.glob`` uses; ``**`` spans zero or more levels.
+
+    Matches are yielded regardless of type; the caller resolves each one
+    through ``safe_jupyter_path`` and applies its own ``is_file`` filter.
+    """
+    if not segments:
+        return
+    seg, rest = segments[0], segments[1:]
+    try:
+        entries = list(os.scandir(base_dir))
+    except OSError:
+        return
+    if seg == "**":
+        # ``**`` matches zero or more directory levels, following real
+        # directories only (Path.glob does not cross symlinks for ``**``).
+        if rest:
+            yield from _iter_pattern_matches(base_dir, rest, root_dir)
+        else:
+            yield Path(base_dir)
+        for entry in entries:
+            try:
+                is_real_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_real_dir:
+                yield from _iter_pattern_matches(entry.path, segments, root_dir)
+        return
+    for entry in entries:
+        if not fnmatch.fnmatch(entry.name, seg):
+            continue
+        if rest:
+            if _explicit_descendable(entry, root_dir):
+                yield from _iter_pattern_matches(entry.path, rest, root_dir)
+        else:
+            yield Path(entry.path)
+
 
 log = logging.getLogger(__name__)
 
@@ -357,38 +460,81 @@ async def search_files(
         context_lines = int(args.get('context_lines', 2))
         # Support backward-compatible defaulting, if called with only old pattern argument
         main_pattern = pattern or "**/*"
+        # Reject patterns that try to escape the search root before they
+        # reach glob(); otherwise glob would stat outside paths and the
+        # differing replies would leak outside-file existence even though
+        # the per-match gate below refuses to read the contents.
+        for pat in (main_pattern, file_pattern):
+            if pat and _glob_pattern_escapes(pat):
+                return (
+                    f"Pattern '{pat}' is not allowed: search is confined to the "
+                    f"workspace and patterns cannot traverse outside it."
+                )
         # If file_pattern is provided, use it to restrict files further after applying main_pattern
         matched_results = []
         file_count = 0
         match_count = 0
 
-        # Use the main pattern for initial search
-        files = [f for f in search_dir.glob(main_pattern) if f.is_file()]
-        # Further restrict by file_pattern if provided (matches basename)
-        if file_pattern:
-            files = [
-                f for f in files
-                if f.match(file_pattern) or f.name == file_pattern or f.match(str(search_dir / file_pattern))
-            ]
+        # Enumerate via a depth-pruned, sandbox-aware walk instead of
+        # Path.glob(): glob descends OUTBOUND symlinked directories while
+        # expanding a pattern such as "link/*", enumerating the filesystem
+        # outside the workspace before any candidate can be rejected, and it
+        # walks the whole subtree even for shallow patterns.
+        # _iter_pattern_matches recurses only as deep as the pattern requires,
+        # descends real and in-workspace symlinked directories but never an
+        # outbound one, and preserves full glob syntax; each surviving match is
+        # still funneled through the safe_jupyter_path gate before it is stat'd
+        # or opened.
+        root_dir = Path(jupyter_root_dir).expanduser().resolve()
+        # Drop empty and "." segments so a "current directory" component is a
+        # no-op, matching Path.glob's normalization of "./*.py" and
+        # "sub/./*.txt" rather than searching for an entry literally named ".".
+        segments = [
+            s
+            for s in main_pattern.replace("\\", "/").split("/")
+            if s and s != "."
+        ]
+        files = []
+        seen = set()
+        for cand in _iter_pattern_matches(search_dir, segments, root_dir):
+            # Optional file_pattern filter. Preserve the original path-aware
+            # behavior: Path.match is right-anchored, so a bare basename glob
+            # ("*.py") and a relative-path glob ("sub/*.py") both work, as does
+            # a pattern anchored at the search directory.
+            if file_pattern and not (
+                cand.match(file_pattern)
+                or cand.name == file_pattern
+                or cand.match(str(search_dir / file_pattern))
+            ):
+                continue
+            try:
+                rel_path = cand.relative_to(root_dir)
+            except ValueError:
+                continue
+            key = str(rel_path)
+            if key in seen:
+                continue
+            try:
+                safe_file = _get_safe_path(key)
+            except ValueError:
+                # Outbound symlink file (e.g. leak.txt -> /etc/passwd)
+                # resolves outside the workspace; skipped identically
+                # whether or not its target exists, so no outside-path
+                # existence can be inferred. Matches read_file's gate.
+                continue
+            # Safe to stat now: the path is confirmed inside the workspace.
+            if safe_file.is_file():
+                seen.add(key)
+                files.append((safe_file, rel_path))
+
+        # Deterministic order (directory iteration order is arbitrary).
+        files.sort(key=lambda item: str(item[1]))
+
         if not files:
             pinfo = file_pattern if file_pattern else pattern
             return f"No files found matching pattern '{pinfo}' in '{directory}'"
 
-        root_dir = Path(jupyter_root_dir).expanduser().resolve()
-        for file_path in files:
-            try:
-                rel_path = file_path.relative_to(root_dir)
-            except ValueError:
-                # A glob hit outside the workspace root should not be read.
-                continue
-
-            try:
-                safe_file = _get_safe_path(str(rel_path))
-            except ValueError:
-                # Outbound symlinks (e.g. leak.txt -> /etc/passwd) must be
-                # skipped, matching read_file's safe_jupyter_path gate.
-                continue
-
+        for safe_file, rel_path in files:
             try:
                 with open(safe_file, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
