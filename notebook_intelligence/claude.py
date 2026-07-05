@@ -19,7 +19,7 @@ from notebook_intelligence.base_chat_participant import BaseChatParticipant
 from notebook_intelligence._version import __version__ as NBI_VERSION
 import base64
 import logging
-from claude_agent_sdk import AssistantMessage, PermissionResultAllow, PermissionResultDeny, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, create_sdk_mcp_server, ClaudeAgentOptions, ClaudeSDKClient, tool
+from claude_agent_sdk import AssistantMessage, PermissionResultAllow, PermissionResultDeny, ResultMessage, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, create_sdk_mcp_server, ClaudeAgentOptions, ClaudeSDKClient, tool
 
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, _emit, get_jupyter_root_dir, import_litellm, resolve_claude_cli_path, safe_jupyter_path, terminate_process_tree
 
@@ -188,6 +188,60 @@ def claude_tool_kind(name: str) -> str:
                  "view", "open", "show", "find"}:
         return "read"
     return "other"
+
+
+def _format_token_count(count: int) -> str:
+    if count >= 1_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    if count >= 1_000:
+        return f"{count / 1_000:.1f}K"
+    return str(count)
+
+
+def format_result_usage(result: ResultMessage) -> Optional[str]:
+    """One-line usage footer for a completed Claude Code turn.
+
+    The SDK ends every turn with a ``ResultMessage`` carrying duration,
+    token usage, and cost; NBI used to drop it on the floor, leaving
+    users no signal of what a turn cost short of typing ``/cost``.
+    Returns a small italic markdown line, or ``None`` when there is
+    nothing meaningful to show (error results, missing usage) so the
+    caller can skip the footer entirely.
+    """
+    if getattr(result, "is_error", False):
+        return None
+    usage = getattr(result, "usage", None) or {}
+    parts: list[str] = []
+
+    duration_ms = getattr(result, "duration_ms", None)
+    if isinstance(duration_ms, (int, float)) and duration_ms > 0:
+        parts.append(f"{duration_ms / 1000:.1f}s")
+
+    def _count(key: str) -> int:
+        value = usage.get(key, 0)
+        return value if isinstance(value, int) and value > 0 else 0
+
+    total_in = (
+        _count("input_tokens")
+        + _count("cache_read_input_tokens")
+        + _count("cache_creation_input_tokens")
+    )
+    output_tokens = _count("output_tokens")
+    if total_in > 0 or output_tokens > 0:
+        token_part = f"{_format_token_count(total_in)} in"
+        cache_read = _count("cache_read_input_tokens")
+        if cache_read > 0:
+            token_part += f" ({_format_token_count(cache_read)} cached)"
+        token_part += f" / {_format_token_count(output_tokens)} out"
+        parts.append(token_part)
+
+    cost = getattr(result, "total_cost_usd", None)
+    if isinstance(cost, (int, float)) and cost > 0:
+        parts.append(f"${cost:.4f}")
+
+    if not parts:
+        return None
+    return f"*{' · '.join(parts)}*"
 
 
 # Cap the diff lines surfaced per tool-call card so a large edit doesn't bloat
@@ -1048,6 +1102,13 @@ class ClaudeCodeClient():
                                                         status=status,
                                                         diffs=diffs,
                                                     ))
+                                    elif isinstance(message, ResultMessage):
+                                        # End-of-turn accounting from the SDK:
+                                        # surface duration / tokens / cost as a
+                                        # small footer instead of dropping it.
+                                        usage_line = format_result_usage(message)
+                                        if usage_line is not None:
+                                            response.stream(MarkdownData(usage_line))
                                     else:
                                         pass
 
