@@ -62,10 +62,13 @@ _SKIPPABLE_PREFIXES = (
 # Control-only slash commands the user typed to manage the session itself
 # rather than ask Claude something. A regex like ^/[A-Za-z]+$ would also
 # match "/tmp" or "/etc" — common file paths someone might paste — so we
-# enumerate the known set instead.
-_CONTROL_SLASH_COMMANDS = frozenset({
+# enumerate the known set instead. Public because claude.py also consults
+# it when assembling the CLI query: attachment context is meaningless to
+# these commands, but must be preserved for every other command.
+CONTROL_SLASH_COMMANDS = frozenset({
     "/clear",
     "/compact",
+    "/context",
     "/cost",
     "/exit",
     "/help",
@@ -77,6 +80,7 @@ _CONTROL_SLASH_COMMANDS = frozenset({
     "/reset",
     "/status",
 })
+_CONTROL_SLASH_COMMANDS = CONTROL_SLASH_COMMANDS
 
 
 @dataclass
