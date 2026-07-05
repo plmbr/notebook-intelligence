@@ -60,6 +60,7 @@ from notebook_intelligence.claude import (
     claude_bypass_disabled_by_managed_settings,
     claude_managed_default_permission_mode,
     fetch_claude_models,
+    model_info_from_id,
     resolve_permission_mode,
 )
 from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
@@ -161,6 +162,27 @@ def _resolve_supports_vision(ai_service_manager) -> bool:
         return True
     chat_model = ai_service_manager.chat_model
     return chat_model.supports_vision if chat_model is not None else False
+
+
+def _resolve_context_token_limit(ai_service_manager) -> int:
+    """Token budget source for attachment/output context.
+
+    In Claude Code mode the active model is Claude, not
+    ``ai_service_manager.chat_model`` — that property still reflects the
+    user's most recent non-Claude provider selection and is ``None`` on a
+    Claude-only setup. Falling through to the legacy 100-token floor in
+    that state shrank the context budget to 80 tokens, which silently
+    dropped cell-output attachments and truncated every attachment after
+    the first. Resolve the budget from the configured Claude model
+    instead (``model_info_from_id`` falls back to a 200K window for
+    unknown or default model ids).
+    """
+    if ai_service_manager.is_claude_code_mode:
+        model_id = ai_service_manager.nbi_config.claude_settings.get('chat_model', '')
+        model_id = model_id.strip() if isinstance(model_id, str) else ''
+        return model_info_from_id(model_id)["context_window"]
+    chat_model = ai_service_manager.chat_model
+    return 100 if chat_model is None else chat_model.context_window
 
 
 def _resolve_policy_with_env(env_var_name: str, traitlet_value: str) -> str:
@@ -2325,7 +2347,7 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
                     current_directory_file_msg += f" and current file is: '{filename}'"
                 chat_history.append({"role": "user", "content": current_directory_file_msg})
 
-            token_limit = 100 if ai_service_manager.chat_model is None else ai_service_manager.chat_model.context_window
+            token_limit = _resolve_context_token_limit(ai_service_manager)
             remaining_token_budget = int(0.8 * token_limit)
 
             # Resolve once; reused for sandbox containment and for

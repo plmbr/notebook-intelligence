@@ -948,3 +948,135 @@ class TestPermissionModeClamp:
         handler = self._handler(bypass_allowed=True)
         req = self._send(handler, mock_ai_manager, mock_nb_intel, None)
         assert req.permission_mode == 'default'
+
+
+class TestContextTokenLimit:
+    """The attachment/output-context budget must come from the Claude model
+    in Claude Code mode, not from the (possibly ``None``) legacy chat_model.
+
+    Regression guard: on a Claude-only setup ``chat_model`` is ``None``, and
+    the old ``100 if chat_model is None else ...`` expression shrank the
+    budget to 80 tokens — cell-output context was skipped and every
+    attachment after the first was dropped by the budget break.
+    """
+
+    def _mock_manager(self, claude_mode: bool, chat_model):
+        manager = Mock()
+        manager.is_claude_code_mode = claude_mode
+        manager.chat_model = chat_model
+        manager.nbi_config.claude_settings = {'chat_model': ''}
+        return manager
+
+    def test_non_claude_mode_without_model_keeps_floor(self):
+        from notebook_intelligence.extension import _resolve_context_token_limit
+        assert _resolve_context_token_limit(self._mock_manager(False, None)) == 100
+
+    def test_non_claude_mode_uses_model_context_window(self):
+        from notebook_intelligence.extension import _resolve_context_token_limit
+        chat_model = Mock()
+        chat_model.context_window = 4096
+        assert _resolve_context_token_limit(self._mock_manager(False, chat_model)) == 4096
+
+    def test_claude_mode_ignores_missing_legacy_model(self):
+        from notebook_intelligence.extension import _resolve_context_token_limit
+        with patch(
+            'notebook_intelligence.extension.model_info_from_id',
+            return_value={'id': '', 'name': '', 'context_window': 123456},
+        ) as mock_info:
+            assert _resolve_context_token_limit(self._mock_manager(True, None)) == 123456
+        mock_info.assert_called_once_with('')
+
+    def test_claude_mode_passes_configured_model_id(self):
+        from notebook_intelligence.extension import _resolve_context_token_limit
+        manager = self._mock_manager(True, None)
+        manager.nbi_config.claude_settings = {'chat_model': ' claude-sonnet-4-5 '}
+        with patch(
+            'notebook_intelligence.extension.model_info_from_id',
+            return_value={'id': 'claude-sonnet-4-5', 'name': 'Sonnet', 'context_window': 200000},
+        ) as mock_info:
+            assert _resolve_context_token_limit(manager) == 200000
+        mock_info.assert_called_once_with('claude-sonnet-4-5')
+
+    def test_claude_mode_default_window_without_model_cache(self):
+        # No patching: the real model_info_from_id falls back to a 200K
+        # window for an unknown/default id, so the budget is never the
+        # legacy 100-token floor in Claude Code mode.
+        from notebook_intelligence.extension import _resolve_context_token_limit
+        assert _resolve_context_token_limit(self._mock_manager(True, None)) >= 200000
+
+    @patch('notebook_intelligence.extension.ai_service_manager')
+    @patch('notebook_intelligence.extension.NotebookIntelligence')
+    @patch('notebook_intelligence.extension.threading.Thread')
+    def test_claude_mode_output_context_survives_without_legacy_model(
+        self, mock_thread, mock_nb_intel, mock_ai_manager
+    ):
+        """A cell-output attachment larger than the legacy 80-token budget
+        must still reach chat history in Claude Code mode."""
+        mock_nb_intel.root_dir = "/workspace"
+        mock_ai_manager.handle_chat_request = Mock()
+        mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.chat_model = None  # Claude-only setup
+        mock_ai_manager.nbi_config.claude_settings = {'chat_model': ''}
+
+        mock_factory = Mock(spec=RuleContextFactory)
+        mock_factory.create.return_value = Mock(spec=RuleContext)
+
+        with patch('notebook_intelligence.extension.ThreadSafeWebSocketConnector'):
+            handler = WebsocketCopilotHandler(
+                self._create_mock_application(),
+                self._create_mock_request(),
+                context_factory=mock_factory
+            )
+
+        message = {
+            'id': 'test-message-id',
+            'type': 'chat-request',
+            'data': {
+                'chatId': 'test-chat-id',
+                'prompt': 'Explain this output',
+                'language': 'python',
+                'filename': 'notebook.ipynb',
+                'chatMode': 'agent',
+                'toolSelections': {},
+                'additionalContext': [
+                    {
+                        'filePath': 'notebook.ipynb',
+                        'outputContext': {
+                            'cellSource': 'df.describe()',
+                            'mimeBundles': [
+                                {
+                                    'mimeType': 'text/plain',
+                                    'data': 'count 100\nmean 4.2',
+                                    # Over the legacy 80-token budget: the
+                                    # old code path skipped this bundle.
+                                    'sizeTokens': 500,
+                                }
+                            ],
+                            'isError': False,
+                            'truncated': False,
+                        },
+                    }
+                ]
+            }
+        }
+
+        handler.on_message(json.dumps(message))
+
+        mock_ai_manager.handle_chat_request.assert_called_once()
+        chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
+        history_text = json.dumps(chat_request.chat_history)
+        assert 'df.describe()' in history_text
+        assert 'mean 4.2' in history_text
+
+    def _create_mock_application(self):
+        app = Mock(spec=Application)
+        app.settings = {"jinja2_env": None, "headers": {}}
+        app.ui_methods = {}
+        app.ui_modules = {}
+        app.transforms = []
+        return app
+
+    def _create_mock_request(self):
+        request = Mock(spec=HTTPServerRequest)
+        request.connection = Mock()
+        return request
