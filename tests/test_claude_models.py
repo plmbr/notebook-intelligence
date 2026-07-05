@@ -7,11 +7,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    """Clear the model cache before and after each test."""
-    from notebook_intelligence.claude import _claude_models_cache
-    _claude_models_cache.clear()
+    """Clear the model cache (and its endpoint marker) around each test."""
+    import notebook_intelligence.claude as claude_module
+    claude_module._claude_models_cache.clear()
+    claude_module._claude_models_cache_endpoint = None
     yield
-    _claude_models_cache.clear()
+    claude_module._claude_models_cache.clear()
+    claude_module._claude_models_cache_endpoint = None
 
 
 class TestGetClaudeModels:
@@ -305,24 +307,32 @@ class TestBoundedIntEnv:
 class TestResolveDefaultModel:
     """Defaults are validated against the fetched model list so a custom
     base_url that serves a different catalog never gets a model id it
-    doesn't recognize. An empty cache trusts the constant — first-party
-    endpoints always serve the current aliases."""
+    doesn't recognize. The cache is only authoritative for the endpoint
+    it was fetched from; an empty or foreign-endpoint cache trusts the
+    constant — first-party endpoints always serve the current aliases."""
+
+    def _fill_cache(self, models, api_key=None, base_url=None):
+        import notebook_intelligence.claude as claude_module
+        claude_module._claude_models_cache.extend(models)
+        claude_module._claude_models_cache_endpoint = (
+            claude_module._endpoint_identity(api_key, base_url)
+        )
 
     def test_empty_cache_trusts_the_constant(self):
         from notebook_intelligence.claude import resolve_default_model
         assert resolve_default_model("claude-sonnet-5", "claude-sonnet") == "claude-sonnet-5"
 
     def test_preferred_id_used_when_endpoint_lists_it(self):
-        from notebook_intelligence.claude import resolve_default_model, _claude_models_cache
-        _claude_models_cache.extend([
+        from notebook_intelligence.claude import resolve_default_model
+        self._fill_cache([
             {"id": "claude-sonnet-5", "name": "Claude Sonnet 5", "context_window": 1000000},
             {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "context_window": 200000},
         ])
         assert resolve_default_model("claude-sonnet-5", "claude-sonnet") == "claude-sonnet-5"
 
     def test_falls_back_to_newest_same_tier_model(self):
-        from notebook_intelligence.claude import resolve_default_model, _claude_models_cache
-        _claude_models_cache.extend([
+        from notebook_intelligence.claude import resolve_default_model
+        self._fill_cache([
             {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "context_window": 200000},
             {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "context_window": 200000},
             {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "context_window": 200000},
@@ -330,18 +340,68 @@ class TestResolveDefaultModel:
         assert resolve_default_model("claude-sonnet-5", "claude-sonnet") == "claude-sonnet-4-6"
 
     def test_falls_back_to_first_listed_model_without_tier_match(self):
-        from notebook_intelligence.claude import resolve_default_model, _claude_models_cache
-        _claude_models_cache.extend([
+        from notebook_intelligence.claude import resolve_default_model
+        self._fill_cache([
             {"id": "custom-proxy-model", "name": "Proxy", "context_window": 128000},
         ])
         assert resolve_default_model("claude-haiku-4-5", "claude-haiku") == "custom-proxy-model"
 
+    def test_cache_from_another_endpoint_is_not_authoritative(self):
+        # Endpoint A's catalog must not pick the default for endpoint B:
+        # the id might not be served there at all. The constant is the
+        # safer bet until B's own fetch lands.
+        from notebook_intelligence.claude import resolve_default_model
+        self._fill_cache(
+            [{"id": "endpoint-a-only-model", "name": "A", "context_window": 128000}],
+            base_url="https://endpoint-a.example.com",
+        )
+        resolved = resolve_default_model(
+            "claude-sonnet-5", "claude-sonnet",
+            base_url="https://endpoint-b.example.com",
+        )
+        assert resolved == "claude-sonnet-5"
+
+    def test_credential_normalization_applies_to_identity(self):
+        # '' and None are the same identity (settings-panel empty fields
+        # save as ''), so a cache fetched with no explicit credentials is
+        # authoritative for a constructor called with empty strings.
+        from notebook_intelligence.claude import resolve_default_model
+        self._fill_cache(
+            [{"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "context_window": 200000}],
+            api_key=None, base_url=None,
+        )
+        resolved = resolve_default_model(
+            "claude-sonnet-5", "claude-sonnet", api_key="", base_url="  ",
+        )
+        assert resolved == "claude-sonnet-4-6"
+
     def test_chat_model_constructor_resolves_against_cache(self):
         from unittest.mock import patch as _patch
-        from notebook_intelligence.claude import ClaudeChatModel, _claude_models_cache
-        _claude_models_cache.extend([
-            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "context_window": 200000},
-        ])
+        from notebook_intelligence.claude import ClaudeChatModel
+        self._fill_cache(
+            [{"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "context_window": 200000}],
+            api_key="test-key",
+        )
         with _patch("anthropic.Anthropic"):
             model = ClaudeChatModel("", api_key="test-key")
         assert model.id == "claude-sonnet-4-6"
+
+    @patch("notebook_intelligence.claude._get_context_window", return_value=200000)
+    @patch("anthropic.Anthropic")
+    def test_fetch_stamps_the_endpoint_identity(self, mock_anthropic_cls, mock_ctx_window):
+        import notebook_intelligence.claude as claude_module
+        from notebook_intelligence.claude import fetch_claude_models
+
+        mock_model = Mock()
+        mock_model.id = "claude-sonnet-4-6"
+        mock_model.display_name = "Claude Sonnet 4.6"
+        mock_model.max_input_tokens = None
+        mock_page = Mock()
+        mock_page.data = [mock_model]
+        mock_anthropic_cls.return_value.models.list.return_value = mock_page
+
+        fetch_claude_models(api_key="key-a", base_url="https://a.example.com")
+
+        assert claude_module._claude_models_cache_endpoint == (
+            "key-a", "https://a.example.com"
+        )

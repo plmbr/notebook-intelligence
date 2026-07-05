@@ -532,6 +532,12 @@ def model_info_from_id(model_id: str) -> dict:
 # another doomed thread, hammering api.anthropic.com in parallel when the
 # api_key is missing or wrong.
 _claude_models_cache: list[dict] = []
+# Identity of the endpoint the cache was fetched from — (api_key,
+# base_url) after credential normalization. The cache is only
+# authoritative for that endpoint: a user can switch to a custom
+# base_url whose catalog differs, and resolving a default against
+# another endpoint's model list would send it an id it doesn't serve.
+_claude_models_cache_endpoint: Optional[tuple] = None
 _claude_models_fetch_lock = threading.Lock()
 
 def get_claude_models() -> list[dict]:
@@ -539,20 +545,30 @@ def get_claude_models() -> list[dict]:
     return _claude_models_cache
 
 
-def resolve_default_model(preferred: str, tier_prefix: str) -> str:
+def _endpoint_identity(api_key: str = None, base_url: str = None) -> tuple:
+    return (
+        _normalize_anthropic_credential(api_key),
+        _normalize_anthropic_credential(base_url),
+    )
+
+
+def resolve_default_model(preferred: str, tier_prefix: str, api_key: str = None, base_url: str = None) -> str:
     """Pick a default model id, validated against the fetched model list.
 
     The ``CLAUDE_DEFAULT_*`` constants name current first-party aliases,
     but a custom ``base_url`` can front an endpoint that serves a
-    different catalog. When the model cache has entries, prefer the
-    constant only if the endpoint actually lists it; otherwise fall back
-    to the newest id in the same tier (``claude-sonnet``/``claude-haiku``
-    prefix), then to the first listed model. An empty cache (fetch not
-    yet run, or failed) trusts the constant — first-party endpoints
-    always serve it.
+    different catalog. When the model cache holds this endpoint's
+    catalog, prefer the constant only if the endpoint actually lists it;
+    otherwise fall back to the newest id in the same tier
+    (``claude-sonnet``/``claude-haiku`` prefix), then to the first
+    listed model. When the cache is empty — or was fetched from a
+    *different* endpoint (credentials changed, refresh still in flight)
+    — trust the constant rather than another endpoint's catalog.
     """
     models = get_claude_models()
     if not models:
+        return preferred
+    if _claude_models_cache_endpoint != _endpoint_identity(api_key, base_url):
         return preferred
     ids = [m["id"] for m in models if isinstance(m.get("id"), str)]
     if preferred in ids:
@@ -637,8 +653,10 @@ def fetch_claude_models(api_key: str = None, base_url: str = None) -> list[dict]
                     "name": model.display_name,
                     "context_window": context_window,
                 })
+            global _claude_models_cache_endpoint
             _claude_models_cache.clear()
             _claude_models_cache.extend(models)
+            _claude_models_cache_endpoint = _endpoint_identity(api_key, base_url)
             log.info(f"Fetched {len(models)} Claude models: {[m['id'] + ' (' + m['name'] + ')' for m in models]}")
             return models
         except Exception as e:
@@ -651,7 +669,7 @@ class ClaudeChatModel(ChatModel):
     def __init__(self, model_id: str, api_key: str = None, base_url: str = None):
         super().__init__(provider=None)
         if model_id == "":
-            model_id = resolve_default_model(CLAUDE_DEFAULT_CHAT_MODEL, "claude-sonnet")
+            model_id = resolve_default_model(CLAUDE_DEFAULT_CHAT_MODEL, "claude-sonnet", api_key, base_url)
 
         model_info = model_info_from_id(model_id)
         self._model_id = model_id
@@ -735,7 +753,7 @@ class ClaudeCodeInlineCompletionModel(InlineCompletionModel):
     def __init__(self, model_id: str, api_key: str = None, base_url: str = None):
         super().__init__(provider=None)
         if model_id == "":
-            model_id = resolve_default_model(CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL, "claude-haiku")
+            model_id = resolve_default_model(CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL, "claude-haiku", api_key, base_url)
 
         model_info = model_info_from_id(model_id)
         self._model_id = model_id
