@@ -538,6 +538,41 @@ def get_claude_models() -> list[dict]:
     """Return the cached list of available Claude models."""
     return _claude_models_cache
 
+
+def resolve_default_model(preferred: str, tier_prefix: str) -> str:
+    """Pick a default model id, validated against the fetched model list.
+
+    The ``CLAUDE_DEFAULT_*`` constants name current first-party aliases,
+    but a custom ``base_url`` can front an endpoint that serves a
+    different catalog. When the model cache has entries, prefer the
+    constant only if the endpoint actually lists it; otherwise fall back
+    to the newest id in the same tier (``claude-sonnet``/``claude-haiku``
+    prefix), then to the first listed model. An empty cache (fetch not
+    yet run, or failed) trusts the constant — first-party endpoints
+    always serve it.
+    """
+    models = get_claude_models()
+    if not models:
+        return preferred
+    ids = [m["id"] for m in models if isinstance(m.get("id"), str)]
+    if preferred in ids:
+        return preferred
+    tier_matches = sorted(i for i in ids if i.startswith(tier_prefix))
+    if tier_matches:
+        # Anthropic ids sort by recency within a tier well enough for a
+        # fallback ('claude-sonnet-5' > 'claude-sonnet-4-5').
+        fallback = tier_matches[-1]
+    elif ids:
+        fallback = ids[0]
+    else:
+        return preferred
+    log.info(
+        "Default model %r is not served by the configured endpoint; using %r",
+        preferred, fallback,
+    )
+    return fallback
+
+
 def _get_context_window(model_id: str) -> int:
     """Get context window size for a model using litellm's model database."""
     try:
@@ -616,7 +651,7 @@ class ClaudeChatModel(ChatModel):
     def __init__(self, model_id: str, api_key: str = None, base_url: str = None):
         super().__init__(provider=None)
         if model_id == "":
-            model_id = CLAUDE_DEFAULT_CHAT_MODEL
+            model_id = resolve_default_model(CLAUDE_DEFAULT_CHAT_MODEL, "claude-sonnet")
 
         model_info = model_info_from_id(model_id)
         self._model_id = model_id
@@ -700,7 +735,7 @@ class ClaudeCodeInlineCompletionModel(InlineCompletionModel):
     def __init__(self, model_id: str, api_key: str = None, base_url: str = None):
         super().__init__(provider=None)
         if model_id == "":
-            model_id = CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL
+            model_id = resolve_default_model(CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL, "claude-haiku")
 
         model_info = model_info_from_id(model_id)
         self._model_id = model_id

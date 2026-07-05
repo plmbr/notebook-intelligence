@@ -300,3 +300,48 @@ class TestBoundedIntEnv:
 
     def test_negative_is_clamped_to_minimum(self, monkeypatch):
         assert self._parse(monkeypatch, '-5') == 1
+
+
+class TestResolveDefaultModel:
+    """Defaults are validated against the fetched model list so a custom
+    base_url that serves a different catalog never gets a model id it
+    doesn't recognize. An empty cache trusts the constant — first-party
+    endpoints always serve the current aliases."""
+
+    def test_empty_cache_trusts_the_constant(self):
+        from notebook_intelligence.claude import resolve_default_model
+        assert resolve_default_model("claude-sonnet-5", "claude-sonnet") == "claude-sonnet-5"
+
+    def test_preferred_id_used_when_endpoint_lists_it(self):
+        from notebook_intelligence.claude import resolve_default_model, _claude_models_cache
+        _claude_models_cache.extend([
+            {"id": "claude-sonnet-5", "name": "Claude Sonnet 5", "context_window": 1000000},
+            {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "context_window": 200000},
+        ])
+        assert resolve_default_model("claude-sonnet-5", "claude-sonnet") == "claude-sonnet-5"
+
+    def test_falls_back_to_newest_same_tier_model(self):
+        from notebook_intelligence.claude import resolve_default_model, _claude_models_cache
+        _claude_models_cache.extend([
+            {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "context_window": 200000},
+            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "context_window": 200000},
+            {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "context_window": 200000},
+        ])
+        assert resolve_default_model("claude-sonnet-5", "claude-sonnet") == "claude-sonnet-4-6"
+
+    def test_falls_back_to_first_listed_model_without_tier_match(self):
+        from notebook_intelligence.claude import resolve_default_model, _claude_models_cache
+        _claude_models_cache.extend([
+            {"id": "custom-proxy-model", "name": "Proxy", "context_window": 128000},
+        ])
+        assert resolve_default_model("claude-haiku-4-5", "claude-haiku") == "custom-proxy-model"
+
+    def test_chat_model_constructor_resolves_against_cache(self):
+        from unittest.mock import patch as _patch
+        from notebook_intelligence.claude import ClaudeChatModel, _claude_models_cache
+        _claude_models_cache.extend([
+            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "context_window": 200000},
+        ])
+        with _patch("anthropic.Anthropic"):
+            model = ClaudeChatModel("", api_key="test-key")
+        assert model.id == "claude-sonnet-4-6"
