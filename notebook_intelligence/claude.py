@@ -43,10 +43,44 @@ CLAUDE_CODE_ICON_URL = f"data:image/svg+xml;base64,{base64.b64encode(CLAUDE_CODE
 # for a surface that fires on every pause in typing.
 CLAUDE_DEFAULT_CHAT_MODEL = "claude-sonnet-5"
 CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL = "claude-haiku-4-5"
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Parse an int env var defensively and clamp it to a sane range.
+
+    This runs at import time: a malformed value must degrade to the
+    default with a warning, not raise ``ValueError`` and block the
+    backend from starting. Out-of-range values are clamped so an
+    operator typo (``0``, ``-5``, ``10000``) can't produce failing API
+    requests or restore the unbounded behavior the cap exists to
+    prevent.
+    """
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        log.warning(
+            "Invalid %s=%r (expected an integer); using default %d",
+            name, raw, default,
+        )
+        return default
+    clamped = max(minimum, min(maximum, value))
+    if clamped != value:
+        log.warning(
+            "%s=%d is outside the supported range [%d, %d]; clamping to %d",
+            name, value, minimum, maximum, clamped,
+        )
+    return clamped
+
+
 # Autocomplete suggestions are at most a few dozen lines; the previous
 # 10K-token ceiling let a rambling response generate for many seconds
-# before the extraction regex threw most of it away.
-CLAUDE_INLINE_COMPLETION_MAX_TOKENS = int(os.getenv("NBI_CLAUDE_INLINE_COMPLETION_MAX_TOKENS", "1024"))
+# before the extraction regex threw most of it away. The override is
+# clamped to [1, 4096] so it can't reintroduce that behavior or produce
+# a max_tokens value the API rejects.
+CLAUDE_INLINE_COMPLETION_MAX_TOKENS = _bounded_int_env(
+    "NBI_CLAUDE_INLINE_COMPLETION_MAX_TOKENS", 1024, 1, 4096
+)
 CLAUDE_CODE_CHAT_PARTICIPANT_ID = "claude-code"
 CLAUDE_CODE_MAX_BUFFER_SIZE = 20 * 1024 * 1024 # 20MB
 

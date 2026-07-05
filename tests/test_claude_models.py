@@ -262,3 +262,41 @@ class TestFetchClaudeModelsContextWindow:
 
         assert result[0]["context_window"] == 150000
         mock_ctx_window.assert_called_once_with("claude-sonnet-4-6")
+
+
+class TestBoundedIntEnv:
+    """NBI_CLAUDE_INLINE_COMPLETION_MAX_TOKENS is parsed at import time —
+    malformed values must degrade to the default (never raise and block
+    startup), and out-of-range values are clamped so an operator typo
+    can't restore unbounded autocomplete output or break API requests."""
+
+    def _parse(self, monkeypatch, raw):
+        from notebook_intelligence.claude import _bounded_int_env
+        if raw is None:
+            monkeypatch.delenv('NBI_TEST_INT', raising=False)
+        else:
+            monkeypatch.setenv('NBI_TEST_INT', raw)
+        return _bounded_int_env('NBI_TEST_INT', 1024, 1, 4096)
+
+    def test_unset_returns_default(self, monkeypatch):
+        assert self._parse(monkeypatch, None) == 1024
+
+    def test_valid_value_parsed(self, monkeypatch):
+        assert self._parse(monkeypatch, '2048') == 2048
+
+    def test_empty_string_returns_default(self, monkeypatch):
+        assert self._parse(monkeypatch, '  ') == 1024
+
+    def test_malformed_value_returns_default(self, monkeypatch):
+        assert self._parse(monkeypatch, '1k') == 1024
+
+    def test_too_high_is_clamped_to_maximum(self, monkeypatch):
+        # 10000 would restore the old unbounded behavior the cap prevents.
+        assert self._parse(monkeypatch, '10000') == 4096
+
+    def test_zero_is_clamped_to_minimum(self, monkeypatch):
+        # max_tokens=0 would fail the Anthropic request outright.
+        assert self._parse(monkeypatch, '0') == 1
+
+    def test_negative_is_clamped_to_minimum(self, monkeypatch):
+        assert self._parse(monkeypatch, '-5') == 1
