@@ -95,6 +95,18 @@ class TestFormatResultUsage:
         )
         assert "1.5M in" in line
 
+    def test_show_cost_false_omits_cost_but_keeps_tokens(self):
+        # Non-API-key setups (subscription/enterprise/cloud endpoints)
+        # can't be priced from the CLI's public list rates, so the caller
+        # suppresses the dollar figure while keeping the accurate
+        # duration and token counts.
+        line = format_result_usage(_result(), show_cost=False)
+        assert "$" not in line
+        assert line == "\n\n*12.3s · 45.2K in (38.1K cached) / 1.2K out*"
+
+    def test_show_cost_true_is_the_default(self):
+        assert "$0.0842" in format_result_usage(_result())
+
 
     def test_footer_starts_with_a_paragraph_break(self):
         # The footer is streamed right after the turn's final text block;

@@ -198,7 +198,7 @@ def _format_token_count(count: int) -> str:
     return str(count)
 
 
-def format_result_usage(result: ResultMessage) -> Optional[str]:
+def format_result_usage(result: ResultMessage, show_cost: bool = True) -> Optional[str]:
     """One-line usage footer for a completed Claude Code turn.
 
     The SDK ends every turn with a ``ResultMessage`` carrying duration,
@@ -211,6 +211,14 @@ def format_result_usage(result: ResultMessage) -> Optional[str]:
     the emphasis markup. Returns ``None`` when there is nothing
     meaningful to show (error results, missing usage) so the caller can
     skip the footer entirely.
+
+    ``show_cost`` gates the ``$`` segment. The SDK's ``total_cost_usd``
+    is priced from the CLI's built-in public list rates, so it is only
+    trustworthy for a direct first-party API key; on a subscription
+    login the marginal cost is really $0, and enterprise/cloud-endpoint
+    pricing differs. The caller passes ``False`` when NBI is not running
+    against a bare API key so we omit a figure we can't stand behind,
+    while still showing the always-accurate duration and token counts.
     """
     if getattr(result, "is_error", False):
         return None
@@ -239,9 +247,10 @@ def format_result_usage(result: ResultMessage) -> Optional[str]:
         token_part += f" / {_format_token_count(output_tokens)} out"
         parts.append(token_part)
 
-    cost = getattr(result, "total_cost_usd", None)
-    if isinstance(cost, (int, float)) and cost > 0:
-        parts.append(f"${cost:.4f}")
+    if show_cost:
+        cost = getattr(result, "total_cost_usd", None)
+        if isinstance(cost, (int, float)) and cost > 0:
+            parts.append(f"${cost:.4f}")
 
     if not parts:
         return None
@@ -1107,12 +1116,20 @@ class ClaudeCodeClient():
                                                         diffs=diffs,
                                                     ))
                                     elif isinstance(message, ResultMessage):
-                                        # End-of-turn accounting from the SDK:
-                                        # surface duration / tokens / cost as a
-                                        # small footer instead of dropping it.
-                                        usage_line = format_result_usage(message)
-                                        if usage_line is not None:
-                                            response.stream(MarkdownData(usage_line))
+                                        # End-of-turn accounting from the SDK.
+                                        # Opt-in (off by default): the footer
+                                        # is persistent per-turn noise, and its
+                                        # cost figure is only trustworthy for a
+                                        # direct API key, so show the dollar
+                                        # amount only when one is configured.
+                                        claude_settings = self._host.nbi_config.claude_settings
+                                        if claude_settings.get('show_turn_usage', False):
+                                            show_cost = _normalize_anthropic_credential(
+                                                claude_settings.get('api_key')
+                                            ) is not None
+                                            usage_line = format_result_usage(message, show_cost=show_cost)
+                                            if usage_line is not None:
+                                                response.stream(MarkdownData(usage_line))
                                     else:
                                         pass
 

@@ -1195,6 +1195,9 @@ function SettingsPanelComponentClaude(props: any) {
   const [continueConversation, setContinueConversation] = useState(
     nbiConfig.claudeSettings.continue_conversation ?? false
   );
+  const [showTurnUsage, setShowTurnUsage] = useState(
+    nbiConfig.claudeSettings.show_turn_usage ?? false
+  );
   const [claudeModels, setClaudeModels] = useState<IClaudeModelInfo[]>(
     nbiConfig.claudeModels
   );
@@ -1235,7 +1238,8 @@ function SettingsPanelComponentClaude(props: any) {
         base_url: baseUrl,
         setting_sources: settingSources,
         tools: tools,
-        continue_conversation: continueConversation
+        continue_conversation: continueConversation,
+        show_turn_usage: showTurnUsage
       }
     });
   };
@@ -1250,7 +1254,8 @@ function SettingsPanelComponentClaude(props: any) {
     baseUrl,
     settingSources,
     tools,
-    continueConversation
+    continueConversation,
+    showTurnUsage
   ]);
 
   return (
@@ -1570,6 +1575,27 @@ function SettingsPanelComponentClaude(props: any) {
                     )}
                     onClick={() => {
                       setContinueConversation(!continueConversation);
+                    }}
+                  ></CheckBoxItem>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="model-config-section">
+          <div className="model-config-section-header">Usage footer</div>
+          <div className="model-config-section-body">
+            <div className="model-config-section-row">
+              <div className="model-config-section-column">
+                <div>
+                  <CheckBoxItem
+                    header={true}
+                    label="Show usage after each turn (time / tokens / cost)"
+                    title="Adds a small footer under each reply. Cost is shown only when a direct API key is set; it reflects public list prices and won't match subscription or enterprise billing."
+                    checked={showTurnUsage}
+                    onClick={() => {
+                      setShowTurnUsage(!showTurnUsage);
                     }}
                   ></CheckBoxItem>
                 </div>
