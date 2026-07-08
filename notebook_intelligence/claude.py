@@ -216,9 +216,11 @@ def format_result_usage(result: ResultMessage, show_cost: bool = True) -> Option
     is priced from the CLI's built-in public list rates, so it is only
     trustworthy for a direct first-party API key; on a subscription
     login the marginal cost is really $0, and enterprise/cloud-endpoint
-    pricing differs. The caller passes ``False`` when NBI is not running
-    against a bare API key so we omit a figure we can't stand behind,
-    while still showing the always-accurate duration and token counts.
+    pricing differs. The caller passes ``False`` unless NBI is running
+    against a direct API key on Anthropic's own endpoint (see
+    ``_should_show_turn_cost``) so we omit a figure we can't stand
+    behind, while still showing the always-accurate duration and token
+    counts.
     """
     if getattr(result, "is_error", False):
         return None
@@ -582,6 +584,37 @@ def _normalize_anthropic_credential(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value.strip() or None
+
+
+def _is_first_party_anthropic_endpoint(base_url: Any) -> bool:
+    """True when requests go to Anthropic's own API — the only place the
+    SDK's public-list-price ``total_cost_usd`` is meaningful.
+
+    An unset ``base_url`` means the SDK uses its default
+    (``api.anthropic.com``). A custom ``base_url`` (proxy, gateway,
+    Bedrock/Vertex front, OpenAI-compatible endpoint) bills on its own
+    terms, so cost figures priced off Anthropic's list rates can't be
+    trusted there.
+    """
+    from urllib.parse import urlparse
+
+    normalized = _normalize_anthropic_credential(base_url)
+    if normalized is None:
+        return True
+    return (urlparse(normalized).hostname or "").lower() == "api.anthropic.com"
+
+
+def _should_show_turn_cost(claude_settings: dict) -> bool:
+    """Whether the per-turn footer's ``$`` cost can be trusted.
+
+    Requires both a direct API key (subscription logins report a
+    meaningless notional cost) and Anthropic's own endpoint (custom
+    ``base_url`` targets bill differently). Either condition failing
+    suppresses the dollar figure while duration/tokens still render.
+    """
+    if _normalize_anthropic_credential(claude_settings.get('api_key')) is None:
+        return False
+    return _is_first_party_anthropic_endpoint(claude_settings.get('base_url'))
 
 
 def _create_anthropic_client(api_key: str = None, base_url: str = None) -> "Anthropic":
@@ -1120,13 +1153,12 @@ class ClaudeCodeClient():
                                         # Opt-in (off by default): the footer
                                         # is persistent per-turn noise, and its
                                         # cost figure is only trustworthy for a
-                                        # direct API key, so show the dollar
-                                        # amount only when one is configured.
+                                        # direct API key against Anthropic's own
+                                        # endpoint, so gate the dollar amount on
+                                        # both (see _should_show_turn_cost).
                                         claude_settings = self._host.nbi_config.claude_settings
                                         if claude_settings.get('show_turn_usage', False):
-                                            show_cost = _normalize_anthropic_credential(
-                                                claude_settings.get('api_key')
-                                            ) is not None
+                                            show_cost = _should_show_turn_cost(claude_settings)
                                             usage_line = format_result_usage(message, show_cost=show_cost)
                                             if usage_line is not None:
                                                 response.stream(MarkdownData(usage_line))

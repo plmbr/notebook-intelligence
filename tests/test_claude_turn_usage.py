@@ -10,7 +10,10 @@ branch, leaving users no signal of what a turn cost short of typing
 
 from claude_agent_sdk import ResultMessage
 
-from notebook_intelligence.claude import format_result_usage
+from notebook_intelligence.claude import (
+    format_result_usage,
+    _should_show_turn_cost,
+)
 
 
 def _result(**overrides) -> ResultMessage:
@@ -106,6 +109,32 @@ class TestFormatResultUsage:
 
     def test_show_cost_true_is_the_default(self):
         assert "$0.0842" in format_result_usage(_result())
+
+
+class TestShouldShowTurnCost:
+    def test_direct_key_default_endpoint_shows_cost(self):
+        assert _should_show_turn_cost({"api_key": "sk-ant-xyz"}) is True
+
+    def test_direct_key_empty_base_url_shows_cost(self):
+        # Settings-panel saves an unset field as "" rather than None.
+        assert _should_show_turn_cost({"api_key": "sk-ant-xyz", "base_url": ""}) is True
+
+    def test_direct_key_explicit_anthropic_url_shows_cost(self):
+        assert _should_show_turn_cost(
+            {"api_key": "sk-ant-xyz", "base_url": "https://api.anthropic.com"}
+        ) is True
+
+    def test_custom_base_url_suppresses_cost(self):
+        # A proxy/gateway/cloud front bills on its own terms, so the SDK's
+        # public-list-price cost can't be trusted even with an API key.
+        assert _should_show_turn_cost(
+            {"api_key": "sk-ant-xyz", "base_url": "https://my-proxy.example.com/v1"}
+        ) is False
+
+    def test_no_api_key_suppresses_cost(self):
+        # Subscription login: no key -> notional cost only.
+        assert _should_show_turn_cost({"api_key": ""}) is False
+        assert _should_show_turn_cost({}) is False
 
 
     def test_footer_starts_with_a_paragraph_break(self):
