@@ -2705,11 +2705,21 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             handlers.cancel_token.cancel_request()
  
     def on_close(self):
-        # Drop any handler entries whose worker threads outlive the
-        # websocket connection. The thread wrapper would clean these up
-        # on its own once the coro returns, but a long-running request
-        # left in-flight at disconnect would otherwise pin its emitter
-        # and cancel token for the lifetime of the worker.
+        # Cancel any requests still in flight at disconnect, then drop their
+        # handlers. Clearing alone isn't enough: a turn parked on a tool
+        # approval no longer self-resolves via the response timeout (the
+        # approval wait is excluded from it, #381), so without an explicit
+        # cancel its worker thread and the Claude subprocess would spin until
+        # the server restarts. Cancelling makes the poll loop tear the
+        # subprocess down and return.
+        # Snapshot first: a worker thread finishing its request pops its own
+        # entry (see _run_request_thread), which would otherwise raise
+        # "dictionary changed size during iteration" here on the IOLoop thread.
+        for handlers in list(self._messageCallbackHandlers.values()):
+            try:
+                handlers.cancel_token.cancel_request()
+            except Exception as e:
+                log.warning(f"Error cancelling in-flight request on close: {e}")
         self._messageCallbackHandlers.clear()
 
     async def handle_inline_completions(prefix, suffix, language, filename, response_emitter, cancel_token):

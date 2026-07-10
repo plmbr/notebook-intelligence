@@ -8,9 +8,11 @@ entry keyed by messageId and nothing ever removed them. Across a long
 chat session this leaked one response emitter + cancel token per turn.
 
 Fix: the worker thread is wrapped in `_run_request_thread`, which pops
-the entry once the request coroutine returns. `on_close` clears the
-whole dict so requests still in flight at disconnect don't pin their
-state for the worker's lifetime.
+the entry once the request coroutine returns. `on_close` cancels any
+requests still in flight at disconnect and clears the whole dict so they
+don't pin their state for the worker's lifetime. The cancel matters since
+a turn parked on a tool approval no longer self-resolves via the response
+timeout (#381).
 """
 
 import asyncio
@@ -117,6 +119,41 @@ class TestOnCloseClearsHandlers:
 
         h.on_close()
 
+        assert h._messageCallbackHandlers == {}
+
+    def test_on_close_cancels_in_flight_requests(self):
+        # A turn parked on a tool approval no longer times out on its own
+        # (#381), so on_close must actively cancel in-flight requests; the
+        # poll loop then tears down the worker and Claude subprocess.
+        h = _make_handler()
+        tokens = []
+        for i in range(3):
+            token = MagicMock()
+            tokens.append(token)
+            h._messageCallbackHandlers[f"m{i}"] = MessageCallbackHandlers(
+                MagicMock(), token
+            )
+
+        h.on_close()
+
+        for token in tokens:
+            token.cancel_request.assert_called_once_with()
+        assert h._messageCallbackHandlers == {}
+
+    def test_on_close_continues_if_a_cancel_raises(self):
+        # One bad cancel_token must not prevent the others from cancelling or
+        # the dict from clearing.
+        h = _make_handler()
+        bad = MagicMock()
+        bad.cancel_request.side_effect = RuntimeError("boom")
+        good = MagicMock()
+        h._messageCallbackHandlers["bad"] = MessageCallbackHandlers(MagicMock(), bad)
+        h._messageCallbackHandlers["good"] = MessageCallbackHandlers(MagicMock(), good)
+
+        h.on_close()
+
+        bad.cancel_request.assert_called_once_with()
+        good.cancel_request.assert_called_once_with()
         assert h._messageCallbackHandlers == {}
 
     def test_on_close_is_idempotent(self):

@@ -1175,6 +1175,12 @@ class ClaudeCodeClient():
 
         start_time = time.time()
         last_heartbeat = start_time
+        # Time the agent spends blocked on a tool approval (or any user input)
+        # must not count toward the response timeout: a slow human reply isn't
+        # an unresponsive agent. Without this, a long approval wait timed out
+        # the turn and left the worker mid-request, wedging later prompts
+        # (issue #381).
+        response_obj = event_args.get("response") if event_args else None
 
         try:
             while True:
@@ -1227,7 +1233,10 @@ class ClaudeCodeClient():
                         "success": False,
                         "error": "Claude agent is not running",
                     }
-                if time.time() - start_time > CLAUDE_AGENT_CLIENT_RESPONSE_TIMEOUT:
+                elapsed = time.time() - start_time
+                if response_obj is not None:
+                    elapsed -= response_obj.user_input_wait_seconds
+                if elapsed > CLAUDE_AGENT_CLIENT_RESPONSE_TIMEOUT:
                     return {
                         "data": None,
                         "success": False,
