@@ -49,10 +49,11 @@ dependencies = [
     # BerriAI/litellm#25231 for the upstream fix.
     "mcp>=1.27.0",
     "claude-agent-sdk",
-    # Agent Client Protocol client SDK for Codex (and future ACP) agent mode
-    # (#378). Pinned because the protocol is pre-1.0 and the Python SDK still
-    # ships occasional breaking changes; imported lazily (only when Codex mode
-    # is used) per the #370 lazy-provider-import policy.
+    # Agent Client Protocol client SDK for ACP agent mode (Codex first, more
+    # agents as their adapters are validated, #378). Pinned because the
+    # protocol is pre-1.0 and the Python SDK still ships occasional breaking
+    # changes; imported lazily (only when ACP mode is used) per the #370
+    # lazy-provider-import policy.
     "agent-client-protocol==0.10.1",
     "anthropic>=0.22.1",
     # Used to tear down an agent subprocess and its descendants (shells, MCP

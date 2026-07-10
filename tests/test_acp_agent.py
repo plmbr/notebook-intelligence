@@ -1,6 +1,6 @@
 # Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
-"""Unit tests for the Codex/ACP backend mapping (issue #378, Phase 1).
+"""Unit tests for the ACP backend mapping (issue #378, Phase 1).
 
 These exercise the editor-side translation (ACP events -> NBI cards/approval)
 without launching codex-acp; the live end-to-end path is covered by the
@@ -43,7 +43,10 @@ class FakeResponse(ChatResponse):
 
 
 def _client_with_response(resp):
-    owner = SimpleNamespace(current_response=resp)
+    owner = SimpleNamespace(
+        current_response=resp,
+        agent_spec=SimpleNamespace(label="Codex"),
+    )
     return _NbiAcpClient(owner)
 
 
@@ -105,14 +108,27 @@ class TestToolCallStreaming:
         last = [d for d in resp.streamed if d.data_type == ResponseStreamDataType.ToolCall][-1]
         assert last.kind == "execute" and last.status == "completed"
 
-    def test_agent_message_chunk_streams_markdown(self):
+    def test_agent_message_chunk_streams_markdown_part(self):
+        # MarkdownPart, not Markdown: ACP delivers token-sized deltas and the
+        # frontend only concatenates consecutive *parts* into one block. With
+        # Markdown every delta rendered as its own paragraph (the one-word-
+        # per-line bug from the PR #380 review).
         resp = FakeResponse()
         client = _client_with_response(resp)
         asyncio.run(client.session_update("s", SimpleNamespace(
             session_update="agent_message_chunk",
             content=SimpleNamespace(text="hello world"))))
-        md = [d for d in resp.streamed if d.data_type == ResponseStreamDataType.Markdown]
+        md = [d for d in resp.streamed if d.data_type == ResponseStreamDataType.MarkdownPart]
         assert md and md[0].content == "hello world"
+
+    def test_agent_thought_chunk_streams_reasoning_part(self):
+        resp = FakeResponse()
+        client = _client_with_response(resp)
+        asyncio.run(client.session_update("s", SimpleNamespace(
+            session_update="agent_thought_chunk",
+            content=SimpleNamespace(text="mulling"))))
+        md = [d for d in resp.streamed if d.data_type == ResponseStreamDataType.MarkdownPart]
+        assert md and md[0].reasoning_content == "mulling"
 
 
 class TestPermission:
@@ -165,34 +181,34 @@ class TestPermission:
 
 class TestPolicyClamp:
     def test_force_off_clamps_enabled(self):
-        from notebook_intelligence.feature_flags import apply_codex_policies
-        assert apply_codex_policies({"enabled": True}, {"codex_mode": "force-off"}) == {"enabled": False}
+        from notebook_intelligence.feature_flags import apply_acp_policies
+        assert apply_acp_policies({"enabled": True}, {"acp_mode": "force-off"}) == {"enabled": False}
 
     def test_user_choice_keeps_user_value(self):
-        from notebook_intelligence.feature_flags import apply_codex_policies
-        assert apply_codex_policies({"enabled": True}, {"codex_mode": "user-choice"}) == {"enabled": True}
+        from notebook_intelligence.feature_flags import apply_acp_policies
+        assert apply_acp_policies({"enabled": True}, {"acp_mode": "user-choice"}) == {"enabled": True}
 
     def test_full_access_force_off_clamps(self):
-        from notebook_intelligence.feature_flags import apply_codex_policies
-        out = apply_codex_policies(
-            {"full_access": True}, {"codex_full_access": "force-off"}
+        from notebook_intelligence.feature_flags import apply_acp_policies
+        out = apply_acp_policies(
+            {"full_access": True}, {"acp_full_access": "force-off"}
         )
         assert out["full_access"] is False
 
     def test_full_access_user_choice_keeps_value(self):
-        from notebook_intelligence.feature_flags import apply_codex_policies
+        from notebook_intelligence.feature_flags import apply_acp_policies
         assert (
-            apply_codex_policies(
-                {"full_access": True}, {"codex_full_access": "user-choice"}
+            apply_acp_policies(
+                {"full_access": True}, {"acp_full_access": "user-choice"}
             )["full_access"]
             is True
         )
 
     def test_full_access_force_on(self):
-        from notebook_intelligence.feature_flags import apply_codex_policies
+        from notebook_intelligence.feature_flags import apply_acp_policies
         assert (
-            apply_codex_policies(
-                {"full_access": False}, {"codex_full_access": "force-on"}
+            apply_acp_policies(
+                {"full_access": False}, {"acp_full_access": "force-on"}
             )["full_access"]
             is True
         )
@@ -211,6 +227,69 @@ class TestApprovalArgs:
         assert codex_approval_args(True) == ["-c", 'approval_policy="never"']
 
 
+class TestAssembleQuery:
+    """The turn's context lines (attachments, current-file pointer, output
+    context) ride along with the prompt — sending only ``request.prompt``
+    silently dropped whatever the user had just attached (the file-as-context
+    bug from the PR #380 review)."""
+
+    def _assemble(self, chat_history, prompt="the prompt"):
+        from notebook_intelligence.acp_agent import AcpAgentClient
+        return AcpAgentClient.assemble_query(
+            SimpleNamespace(prompt=prompt, chat_history=chat_history)
+        )
+
+    def test_context_lines_precede_the_prompt(self):
+        query = self._assemble([
+            {"role": "user", "content": "The user attached @data.csv."},
+            {"role": "user", "content": "what is in this file?"},
+        ])
+        assert query == "The user attached @data.csv.\nwhat is in this file?"
+
+    def test_empty_history_falls_back_to_prompt(self):
+        assert self._assemble([]) == "the prompt"
+
+    def test_non_user_and_non_string_content_skipped(self):
+        query = self._assemble([
+            {"role": "assistant", "content": "earlier answer"},
+            {"role": "user", "content": [{"type": "text", "text": "structured"}]},
+            {"role": "user", "content": "the prompt"},
+        ])
+        assert query == "the prompt"
+
+    def test_trailing_slash_command_drops_context(self):
+        # Context lines are meaningless to a slash command and could break
+        # its parsing; mirrors the Claude-mode join.
+        query = self._assemble([
+            {"role": "user", "content": "The user attached @data.csv."},
+            {"role": "user", "content": "/compact"},
+        ])
+        assert query == "/compact"
+
+
+class TestStripContextPreamble:
+    """Session previews should show the user's first question, not the NBI
+    context lines the agent stored as part of its session title."""
+
+    def test_strips_leading_context_lines(self):
+        from notebook_intelligence.acp_agent import _strip_context_preamble
+        title = (
+            "Additional context: Current directory open in Jupyter is: '/w'\n"
+            "The user attached @facts.md. Read it if relevant.\n"
+            "What is the launch codename?"
+        )
+        assert _strip_context_preamble(title) == "What is the launch codename?"
+
+    def test_plain_title_unchanged(self):
+        from notebook_intelligence.acp_agent import _strip_context_preamble
+        assert _strip_context_preamble("say hi") == "say hi"
+
+    def test_all_context_falls_back_to_original(self):
+        from notebook_intelligence.acp_agent import _strip_context_preamble
+        title = "Additional context: Current directory open in Jupyter is: '/w'"
+        assert _strip_context_preamble(title) == title
+
+
 class TestSingleFlight:
     """The ACP session runs one prompt at a time; a second concurrent turn
     must be rejected rather than interleave with the first."""
@@ -219,7 +298,7 @@ class TestSingleFlight:
         from notebook_intelligence.acp_agent import AcpAgentClient
         host = SimpleNamespace(
             websocket_connector=None,
-            nbi_config=SimpleNamespace(codex_settings={"enabled": True}),
+            nbi_config=SimpleNamespace(acp_settings={"enabled": True}),
         )
         return AcpAgentClient(host)
 
@@ -228,7 +307,7 @@ class TestSingleFlight:
         # Simulate a turn already in flight by holding the turn lock.
         assert client._turn_lock.acquire(blocking=False)
         try:
-            req = SimpleNamespace(prompt="hi", cancel_token=None)
+            req = SimpleNamespace(prompt="hi", cancel_token=None, chat_history=[])
             result = client.query(req, FakeResponse())
             assert result is not None and "busy" in result.lower()
         finally:
@@ -240,7 +319,7 @@ class TestSingleFlight:
         # the lock (the outer finally).
         client._ensure_started = lambda: False
         client._start_error = "boom"
-        result = client.query(SimpleNamespace(prompt="x", cancel_token=None), FakeResponse())
+        result = client.query(SimpleNamespace(prompt="x", cancel_token=None, chat_history=[]), FakeResponse())
         assert result == "boom"
         assert client._turn_lock.acquire(blocking=False)
         client._turn_lock.release()
@@ -271,7 +350,8 @@ class TestSingleFlight:
         mod.asyncio.run_coroutine_threadsafe = fake_schedule
         try:
             result = client.query(
-                SimpleNamespace(prompt="hi", cancel_token=None), FakeResponse()
+                SimpleNamespace(prompt="hi", cancel_token=None, chat_history=[]),
+                FakeResponse(),
             )
         finally:
             mod.asyncio.run_coroutine_threadsafe = orig

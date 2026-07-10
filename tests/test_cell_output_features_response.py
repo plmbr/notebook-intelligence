@@ -29,7 +29,7 @@ def _config(
     store_token=False,
     refresh_open_files=True,
     claude_settings=None,
-    codex_settings=None,
+    acp_settings=None,
 ):
     return SimpleNamespace(
         enable_explain_error=explain,
@@ -38,7 +38,7 @@ def _config(
         store_github_access_token=store_token,
         refresh_open_files_on_disk_change=refresh_open_files,
         claude_settings=claude_settings if claude_settings is not None else {},
-        codex_settings=codex_settings if codex_settings is not None else {},
+        acp_settings=acp_settings if acp_settings is not None else {},
     )
 
 
@@ -226,14 +226,14 @@ class TestBuildSettingLocksResponse:
         # Unrelated keys remain unlocked.
         assert response["claude_chat_model"] == {"locked": False}
 
-    def test_codex_locks_track_their_env_overrides(self):
+    def test_acp_locks_track_their_env_overrides(self):
         response = _build_setting_locks_response(
-            {"codex_api_key": "sk-openai", "codex_base_url": ""}
+            {"acp_api_key": "sk-openai", "acp_base_url": ""}
         )
-        assert response["codex_api_key"] == {"locked": True}
+        assert response["acp_api_key"] == {"locked": True}
         # Empty string is the user-choice signal, not a lock.
-        assert response["codex_base_url"] == {"locked": False}
-        assert response["codex_chat_model"] == {"locked": False}
+        assert response["acp_base_url"] == {"locked": False}
+        assert response["acp_chat_model"] == {"locked": False}
 
     def test_response_includes_every_known_lock_name(self):
         response = _build_setting_locks_response({})
@@ -246,9 +246,9 @@ class TestBuildSettingLocksResponse:
             "claude_inline_completion_model",
             "claude_api_key",
             "claude_base_url",
-            "codex_chat_model",
-            "codex_api_key",
-            "codex_base_url",
+            "acp_chat_model",
+            "acp_api_key",
+            "acp_base_url",
         }
 
 
@@ -267,16 +267,16 @@ class TestScrubCredentialsForWire:
         # The source dict is not mutated in place.
         assert settings["api_key"] == "sk-secret"
 
-    def test_codex_key_scrubbed_with_its_own_lock_name(self):
+    def test_acp_key_scrubbed_with_its_own_lock_name(self):
         settings = {"api_key": "sk-openai"}
         # The Claude lock must not scrub the Codex key.
         assert (
             _scrub_credentials_for_wire(
-                settings, {"claude_api_key": "sk-env"}, "codex_api_key"
+                settings, {"claude_api_key": "sk-env"}, "acp_api_key"
             )
             is settings
         )
         scrubbed = _scrub_credentials_for_wire(
-            settings, {"codex_api_key": "sk-env"}, "codex_api_key"
+            settings, {"acp_api_key": "sk-env"}, "acp_api_key"
         )
         assert scrubbed["api_key"] == ""

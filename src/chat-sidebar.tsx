@@ -79,7 +79,6 @@ import { SafeAnchor } from './components/safe-anchor';
 import { mcpServerSettingsToEnabledState } from './components/mcp-util';
 import claudeSvgStr from '../style/icons/claude.svg';
 import openaiSvgStr from '../style/icons/openai.svg';
-import { AgentSelect } from './components/agent-select';
 import { AskUserQuestion } from './components/ask-user-question';
 import { ClaudeSessionPicker } from './components/claude-session-picker';
 import {
@@ -1242,9 +1241,6 @@ function getActiveChatModel(): { provider: string; model: string } {
 }
 
 function SidebarComponent(props: any) {
-  const [activeAgent, setActiveAgent] = useState(
-    NBIAPI.config.activeAgentMode ?? ''
-  );
   const [chatMessages, setChatMessages] = useState<IChatMessage[]>([]);
   const [prompt, setPrompt] = useState<string>('');
   const [draftPrompt, setDraftPrompt] = useState<string>('');
@@ -1368,6 +1364,7 @@ function SidebarComponent(props: any) {
   const [workspaceFilesLoaded, setWorkspaceFilesLoaded] = useState(false);
   const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
   const [showClaudeSessionPicker, setShowClaudeSessionPicker] = useState(false);
+  const [showAcpSessionPicker, setShowAcpSessionPicker] = useState(false);
   const [workspaceFilesError, setWorkspaceFilesError] = useState('');
   const [workspaceScanLimitReached, setWorkspaceScanLimitReached] =
     useState(false);
@@ -2308,7 +2305,6 @@ function SidebarComponent(props: any) {
         mcpServerSettingsRef.current
       );
       setMCPServerEnabledState(newMcpServerEnabledState);
-      setActiveAgent(NBIAPI.config.activeAgentMode ?? '');
       setRenderCount(renderCount => renderCount + 1);
     };
     NBIAPI.configChanged.connect(handler);
@@ -3308,11 +3304,10 @@ function SidebarComponent(props: any) {
     setChatId(UUID.uuid4());
   };
 
-  const handleClaudeSessionResumed = (session: IClaudeSessionInfo) => {
-    setShowClaudeSessionPicker(false);
-    // Reset local chat view so the user starts from a clean slate in the
-    // UI; the Claude Code backend retains the resumed transcript and will
-    // answer subsequent prompts with full prior context.
+  // Shared reset for both resume flows: the backend retains the resumed
+  // transcript (Claude reconnects with --resume; ACP replays via
+  // session/load), so the UI just resets to a clean slate with a notice.
+  const resetChatForResumedSession = (notice: string) => {
     setChatMessages([
       {
         id: UUID.uuid4(),
@@ -3322,9 +3317,7 @@ function SidebarComponent(props: any) {
           {
             id: UUID.uuid4(),
             type: ResponseStreamDataType.Markdown,
-            content: `Resumed Claude session \`${session.session_id.slice(0, 8)}\`${
-              session.preview ? ` \u2014 _${session.preview}_` : ''
-            }.`,
+            content: notice,
             created: new Date()
           }
         ]
@@ -3337,7 +3330,25 @@ function SidebarComponent(props: any) {
     resetPrefixSuggestions();
     setPromptHistory([]);
     setPromptHistoryIndex(0);
+  };
+
+  const handleClaudeSessionResumed = (session: IClaudeSessionInfo) => {
+    setShowClaudeSessionPicker(false);
+    resetChatForResumedSession(
+      `Resumed Claude session \`${session.session_id.slice(0, 8)}\`${
+        session.preview ? ` \u2014 _${session.preview}_` : ''
+      }.`
+    );
     setPermissionMode(NBIAPI.config.claudePermissionDefaultMode);
+  };
+
+  const handleAcpSessionResumed = (session: IClaudeSessionInfo) => {
+    setShowAcpSessionPicker(false);
+    resetChatForResumedSession(
+      `Resumed session \`${session.session_id.slice(0, 8)}\`${
+        session.preview ? `: _${session.preview}_` : ''
+      }.`
+    );
   };
 
   const onPromptKeyDown = async (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -4012,14 +4023,18 @@ function SidebarComponent(props: any) {
       {tourVisible && <TourOverlay onClose={() => setTourVisible(false)} />}
       <div className="sidebar-header">
         <div className="sidebar-title">Notebook Intelligence</div>
-        {NBIAPI.config.isInClaudeCodeMode && (
+        {(NBIAPI.config.isInClaudeCodeMode || NBIAPI.config.isInAcpMode) && (
           <>
             <button
               type="button"
               className="user-input-footer-button"
               data-tour-id={TOUR_ANCHOR.newChat}
               onClick={() => startNewChatSession()}
-              title="Start a new chat session (restarts the Claude client)"
+              title={
+                NBIAPI.config.isInClaudeCodeMode
+                  ? 'Start a new chat session (restarts the Claude client)'
+                  : 'Start a new chat session (starts a fresh agent session)'
+              }
               aria-label="Start a new chat session"
             >
               <VscAdd />
@@ -4028,9 +4043,13 @@ function SidebarComponent(props: any) {
               type="button"
               className="user-input-footer-button"
               data-tour-id={TOUR_ANCHOR.claudeHistory}
-              onClick={() => setShowClaudeSessionPicker(true)}
-              aria-label="Resume previous Claude session"
-              title="Resume a Claude session you started earlier in this workspace"
+              onClick={() =>
+                NBIAPI.config.isInClaudeCodeMode
+                  ? setShowClaudeSessionPicker(true)
+                  : setShowAcpSessionPicker(true)
+              }
+              aria-label="Resume a previous session"
+              title="Resume a session you started earlier in this workspace"
             >
               <VscHistory />
             </button>
@@ -4047,19 +4066,6 @@ function SidebarComponent(props: any) {
           <VscSettingsGear />
         </button>
       </div>
-      {NBIAPI.config.enabledAgentModes.length > 1 && (
-        <div className="sidebar-agent-select">
-          <span className="sidebar-agent-label">Agent</span>
-          <AgentSelect
-            value={activeAgent}
-            agents={NBIAPI.config.enabledAgentModes}
-            onChange={mode => {
-              setActiveAgent(mode);
-              NBIAPI.setConfig({ active_chat_agent: mode });
-            }}
-          />
-        </div>
-      )}
       <div className="nbi-status-banner-live" aria-live="polite">
         {skillsReloadedVisible && (
           <div className="nbi-status-banner">
@@ -4090,7 +4096,7 @@ function SidebarComponent(props: any) {
         </div>
       )}
       {!NBIAPI.config.isInClaudeCodeMode &&
-        !NBIAPI.config.isInCodexMode &&
+        !NBIAPI.config.isInAcpMode &&
         ghLoginRequired && (
           <div className="sidebar-login-info">
             <div>
@@ -4377,7 +4383,7 @@ function SidebarComponent(props: any) {
             <div style={{ flexGrow: 1 }}></div>
             <div className="chat-mode-widgets-container">
               {!NBIAPI.config.isInClaudeCodeMode &&
-                !NBIAPI.config.isInCodexMode && (
+                !NBIAPI.config.isInAcpMode && (
                   <div data-tour-id={TOUR_ANCHOR.chatMode}>
                     <select
                       className="chat-mode-select"
@@ -4398,7 +4404,7 @@ function SidebarComponent(props: any) {
                 )}
               {chatMode !== 'ask' &&
                 !NBIAPI.config.isInClaudeCodeMode &&
-                !NBIAPI.config.isInCodexMode && (
+                !NBIAPI.config.isInAcpMode && (
                   <button
                     type="button"
                     className={`user-input-footer-button tools-button ${unsafeToolSelected ? 'tools-button-warning' : selectedToolCount > 0 ? 'tools-button-active' : ''}`}
@@ -4432,10 +4438,10 @@ function SidebarComponent(props: any) {
                   dangerouslySetInnerHTML={{ __html: claudeSvgStr }}
                 ></span>
               )}
-              {NBIAPI.config.isInCodexMode && (
+              {NBIAPI.config.isInAcpMode && (
                 <span
-                  title="Codex mode"
-                  className="codex-icon"
+                  title="ACP mode"
+                  className="acp-agent-icon"
                   dangerouslySetInnerHTML={{ __html: openaiSvgStr }}
                 ></span>
               )}
@@ -4483,6 +4489,17 @@ function SidebarComponent(props: any) {
             <ClaudeSessionPicker
               onResume={handleClaudeSessionResumed}
               onClose={() => setShowClaudeSessionPicker(false)}
+            />
+          )}
+          {showAcpSessionPicker && (
+            <ClaudeSessionPicker
+              title="Resume session"
+              emptyMessage="No previous sessions found for this working directory."
+              showCopyCommand={false}
+              fetchSessions={() => NBIAPI.listAcpSessions()}
+              resumeSession={sessionId => NBIAPI.resumeAcpSession(sessionId)}
+              onResume={handleAcpSessionResumed}
+              onClose={() => setShowAcpSessionPicker(false)}
             />
           )}
           {showWorkspaceFilePicker && (

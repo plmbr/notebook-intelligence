@@ -267,8 +267,8 @@ export type FeaturePolicyName =
   | 'output_followup'
   | 'output_toolbar'
   | 'claude_mode'
-  | 'codex_mode'
-  | 'codex_full_access'
+  | 'acp_mode'
+  | 'acp_full_access'
   | 'claude_continue_conversation'
   | 'claude_code_tools'
   | 'claude_jupyter_ui_tools'
@@ -299,9 +299,9 @@ export type SettingLockName =
   | 'claude_inline_completion_model'
   | 'claude_api_key'
   | 'claude_base_url'
-  | 'codex_chat_model'
-  | 'codex_api_key'
-  | 'codex_base_url';
+  | 'acp_chat_model'
+  | 'acp_api_key'
+  | 'acp_base_url';
 
 export type ISettingLocks = Record<SettingLockName, { locked: boolean }>;
 
@@ -394,24 +394,24 @@ export class NBIConfig {
     return this.capabilities.claude_settings;
   }
 
-  get codexSettings(): any {
-    return this.capabilities.codex_settings ?? {};
+  get acpSettings(): any {
+    return this.capabilities.acp_settings ?? {};
   }
 
-  // The agent modes that are enabled, in priority order; the frontend shows an
-  // agent picker when more than one is on.
-  get enabledAgentModes(): string[] {
-    return this.capabilities.enabled_agent_modes ?? [];
+  // The agent types selectable in ACP mode (settings dropdown).
+  get acpAgents(): { id: string; label: string }[] {
+    return this.capabilities.acp_agents ?? [];
   }
 
-  // The single agent mode currently handling chat (the user's pick when
-  // several are enabled), or null when the native provider path is in use.
+  // The single agent mode currently handling chat ('claude' | 'acp'), or
+  // null when the native provider path is in use. Claude mode and ACP mode
+  // are mutually exclusive.
   get activeAgentMode(): string | null {
     return this.capabilities.active_agent_mode ?? null;
   }
 
-  get isInCodexMode(): boolean {
-    return this.activeAgentMode === 'codex';
+  get isInAcpMode(): boolean {
+    return this.activeAgentMode === 'acp';
   }
 
   get spinnerVerbs(): { mode: string; verbs: string[] } | null {
@@ -526,8 +526,8 @@ export class NBIConfig {
       'output_followup',
       'output_toolbar',
       'claude_mode',
-      'codex_mode',
-      'codex_full_access',
+      'acp_mode',
+      'acp_full_access',
       'claude_continue_conversation',
       'claude_code_tools',
       'claude_jupyter_ui_tools',
@@ -587,9 +587,9 @@ export class NBIConfig {
       'claude_inline_completion_model',
       'claude_api_key',
       'claude_base_url',
-      'codex_chat_model',
-      'codex_api_key',
-      'codex_base_url'
+      'acp_chat_model',
+      'acp_api_key',
+      'acp_base_url'
     ];
     const result = {} as ISettingLocks;
     for (const name of names) {
@@ -707,7 +707,7 @@ export class NBIAPI {
   static getChatEnabled() {
     return (
       this.config.isInClaudeCodeMode ||
-      this.config.isInCodexMode ||
+      this.config.isInAcpMode ||
       (this.config.chatModel.provider === GITHUB_COPILOT_PROVIDER_ID
         ? !this.getGHLoginRequired()
         : this.config.llmProviders.find(
@@ -1450,6 +1450,31 @@ export class NBIAPI {
           console.error(`Failed to resume Claude session.\n${reason}`);
           reject(reason);
         });
+    });
+  }
+
+  static async listAcpSessions(): Promise<IClaudeSessionList> {
+    interface IWireResponse {
+      sessions?: IClaudeSessionInfo[];
+      current_cwd?: string;
+      error?: string;
+    }
+    const data = await requestAPI<IWireResponse>('acp-sessions', {
+      method: 'GET'
+    });
+    if (data.error) {
+      throw new Error(data.error);
+    }
+    return {
+      sessions: data.sessions ?? [],
+      currentCwd: data.current_cwd ?? ''
+    };
+  }
+
+  static async resumeAcpSession(sessionId: string): Promise<void> {
+    await requestAPI<any>('acp-sessions/resume', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId })
     });
   }
 

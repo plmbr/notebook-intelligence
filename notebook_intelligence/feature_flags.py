@@ -26,10 +26,10 @@ CLAUDE_SETTINGS_OVERRIDES = (
     ("claude_api_key", "api_key"),
     ("claude_base_url", "base_url"),
 )
-CODEX_SETTINGS_OVERRIDES = (
-    ("codex_chat_model", "chat_model"),
-    ("codex_api_key", "api_key"),
-    ("codex_base_url", "base_url"),
+ACP_SETTINGS_OVERRIDES = (
+    ("acp_chat_model", "chat_model"),
+    ("acp_api_key", "api_key"),
+    ("acp_base_url", "base_url"),
 )
 
 
@@ -92,21 +92,21 @@ def apply_member_policy(members: list, item: str, policy: str) -> list:
     return list(members)
 
 
-def apply_codex_policies(codex_settings: dict, policies: dict) -> dict:
-    """Apply admin policies to a ``codex_settings`` dict (issue #378).
+def apply_acp_policies(acp_settings: dict, policies: dict) -> dict:
+    """Apply admin policies to an ``acp_settings`` dict (issue #378).
 
-    Two gates: ``codex_mode`` clamps ``enabled``, and ``codex_full_access``
+    Two gates: ``acp_mode`` clamps ``enabled``, and ``acp_full_access``
     clamps ``full_access`` (the autonomous, run-without-asking posture, which
     defaults to force-off like Claude's bypass-permissions). Used on both the
     read path and the write-filter path, like ``apply_claude_policies``.
     """
-    result = dict(codex_settings or {})
-    mode_policy = policies.get("codex_mode", POLICY_USER_CHOICE)
+    result = dict(acp_settings or {})
+    mode_policy = policies.get("acp_mode", POLICY_USER_CHOICE)
     if mode_policy == POLICY_FORCE_ON:
         result["enabled"] = True
     elif mode_policy == POLICY_FORCE_OFF:
         result["enabled"] = False
-    full_access_policy = policies.get("codex_full_access", POLICY_USER_CHOICE)
+    full_access_policy = policies.get("acp_full_access", POLICY_USER_CHOICE)
     if full_access_policy == POLICY_FORCE_ON:
         result["full_access"] = True
     elif full_access_policy == POLICY_FORCE_OFF:

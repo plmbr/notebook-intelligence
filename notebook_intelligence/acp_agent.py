@@ -1,10 +1,13 @@
 # Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
-"""Codex agent mode over the Agent Client Protocol (issue #378, Phase 1).
+"""ACP agent mode over the Agent Client Protocol (issue #378, Phase 1).
 
 A second, off-by-default agent mode that drives the chat panel like Claude mode
 for the core loop (streaming, tool-call cards with diffs, per-tool approval),
-backed by ``codex-acp`` over ACP instead of the Claude SDK.
+backed by an ACP agent adapter instead of the Claude SDK. Agent types are
+described by ``ACP_AGENTS``; Codex (via ``codex-acp``) is the first entry and
+further agents (e.g. Pi, OpenCode) slot in as registry additions once their
+adapters are validated.
 
 Design notes (validated by the Phase 0 spike under ``spikes/acp-codex/``):
 
@@ -14,13 +17,12 @@ Design notes (validated by the Phase 0 spike under ``spikes/acp-codex/``):
   is answered cross-thread through ``wait_for_chat_user_input`` (the same poll a
   signal pattern Claude uses).
 - ``agent-client-protocol`` is imported here, and this module is only imported
-  when Codex mode is enabled, so the dependency loads lazily (matching #370).
+  when ACP mode is enabled, so the dependency loads lazily (matching #370).
 - Phase 1 is deliberately allowed to duplicate a little of Claude's card/diff
   wiring; Phase 2 extracts the shared layer.
 """
 
 import asyncio
-import base64
 import concurrent.futures
 import difflib
 import logging
@@ -28,6 +30,7 @@ import os
 import sys
 import threading
 import time
+from datetime import datetime
 from typing import Any, Optional
 
 import acp
@@ -39,48 +42,26 @@ from notebook_intelligence.api import (
     ChatResponse,
     Host,
     MarkdownData,
+    MarkdownPartData,
     ProgressData,
     ToolCallData,
     ConfirmationData,
+)
+from notebook_intelligence.acp_registry import (
+    AcpAgentSpec,
+    codex_approval_args,
+    resolve_acp_agent,
+    resolve_acp_agent_command,
 )
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir
 
 log = logging.getLogger(__name__)
 
-CODEX_AGENT_CHAT_PARTICIPANT_ID = "codex"
-# Pinned in Phase 1 (the version the spike validated); revisit per release.
-CODEX_ACP_PACKAGE = "@zed-industries/codex-acp@0.16.0"
+ACP_AGENT_CHAT_PARTICIPANT_ID = "acp-agent"
 _START_TIMEOUT = 60          # seconds to bring up codex-acp + a session
 _RESPONSE_TIMEOUT = 30 * 60  # a turn can be long; cap so the UI doesn't hang forever
 _POLL = 0.2
-
-# The OpenAI mark, matching style/icons/openai.svg. Rendered as an <img> in the
-# chat (the response avatar), so the fill is pinned to OpenAI blue rather than
-# currentColor, mirroring how the Claude participant pins Anthropic orange.
-_CODEX_ICON_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" fill="#0a84ff" fill-rule="evenodd" '
-    'viewBox="0 0 24 24" width="24" height="24">'
-    '<path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 '
-    '2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03'
-    '.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 '
-    '0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 '
-    '3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255'
-    '.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587'
-    '-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 '
-    '01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 '
-    '0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 '
-    '00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 '
-    '01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12'
-    '.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 '
-    '7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849'
-    '.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 '
-    '0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"/></svg>'
-)
-CODEX_AGENT_ICON_URL = (
-    "data:image/svg+xml;base64,"
-    + base64.b64encode(_CODEX_ICON_SVG.encode("utf-8")).decode("utf-8")
-)
 
 _MAX_DIFF_LINES = 60
 
@@ -125,41 +106,6 @@ def _nbi_status(acp_status: Optional[str]) -> str:
     return "in_progress"  # pending / in_progress / None
 
 
-def resolve_codex_acp_command() -> list[str]:
-    """The command that launches codex-acp.
-
-    ``NBI_CODEX_ACP_COMMAND`` overrides (shell-split); otherwise run the pinned
-    package via ``npx``. Kept separate from the Claude CLI resolver because
-    codex-acp is an npm package, not a binary on PATH.
-    """
-    override = os.environ.get("NBI_CODEX_ACP_COMMAND", "").strip()
-    if override:
-        import shlex
-        return shlex.split(override)
-    return ["npx", "-y", CODEX_ACP_PACKAGE]
-
-
-def codex_approval_args(full_access: bool) -> list[str]:
-    """Codex config overrides that pin its approval posture.
-
-    Default (``full_access`` off) forces ``approval_policy = untrusted`` so
-    Codex asks before anything beyond trusted read-only commands, surfacing the
-    request through NBI's per-tool confirmation. ``full_access`` (gated by the
-    force-off ``codex_full_access`` admin policy) lets it run unattended. The
-    flag is honored by the codex-acp binary's ``-c key=value`` override, so it
-    works for both API-key and ChatGPT-auth sessions.
-
-    The override takes precedence over the codex config file. In the API-key
-    path NBI also isolates ``CODEX_HOME`` (see ``_child_env``), so the config
-    base is NBI-controlled and neither the workspace nor the user's ~/.codex is
-    read. With ChatGPT auth, codex uses the user's own ~/.codex; the ``-c``
-    pin still overrides its top-level approval_policy. See the admin guide for
-    the residual caveat on shared deployments.
-    """
-    policy = "never" if full_access else "untrusted"
-    return ["-c", f'approval_policy="{policy}"']
-
-
 class _NbiAcpClient(acp.Client):
     """The editor side of ACP. Maps agent events onto NBI's chat surfaces."""
 
@@ -181,11 +127,14 @@ class _NbiAcpClient(acp.Client):
         elif su == "agent_message_chunk":
             text = _block_text(getattr(update, "content", None))
             if text:
-                resp.stream(MarkdownData(content=text))
+                # ACP streams token-sized deltas. MarkdownPartData because the
+                # frontend concatenates consecutive parts into one block;
+                # MarkdownData would render every delta as its own paragraph.
+                resp.stream(MarkdownPartData(content=text))
         elif su == "agent_thought_chunk":
             text = _block_text(getattr(update, "content", None))
             if text:
-                resp.stream(MarkdownData(reasoning_content=text))
+                resp.stream(MarkdownPartData(reasoning_content=text))
         elif su == "available_commands_update":
             self._owner.available_commands = [
                 getattr(c, "name", "") for c in (update.available_commands or [])
@@ -224,11 +173,12 @@ class _NbiAcpClient(acp.Client):
             )
         callback_id = f"acp-perm-{tool_call.tool_call_id}"
         title = getattr(tool_call, "title", None) or "Run this tool?"
+        agent_label = self._owner.agent_spec.label
         resp.stream(ConfirmationData(
-            title="Codex tool call",
+            title=f"{agent_label} tool call",
             message=(
                 f"Approve: {title}?\n\n"
-                "Codex decides which tools to ask about, so some actions may run "
+                f"{agent_label} decides which tools to ask about, so some actions may run "
                 "without a prompt."
             ),
             confirmArgs={"id": resp.message_id, "data": {
@@ -292,6 +242,35 @@ def _block_text(block) -> str:
     return getattr(block, "text", "") or ""
 
 
+def _epoch_from_iso(value) -> float:
+    """ISO-8601 timestamp (as ACP's ``updatedAt``) to epoch seconds, else 0."""
+    if not value:
+        return 0
+    if isinstance(value, datetime):
+        return value.timestamp()
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0
+
+
+def _strip_context_preamble(title: str) -> str:
+    """Drop NBI's leading context lines from an agent-stored session title.
+
+    The agent titles a session with its first prompt, which NBI prefixes with
+    context lines (current-directory pointer, attachments). The preview should
+    show the user's actual first question, like the Claude picker does.
+    """
+    from notebook_intelligence.claude_sessions import NBI_CONTEXT_PREFIX
+    lines = [line for line in title.splitlines() if line.strip()]
+    while lines and (
+        lines[0].startswith(NBI_CONTEXT_PREFIX)
+        or lines[0].startswith("The user attached ")
+    ):
+        lines.pop(0)
+    return " ".join(lines) if lines else title
+
+
 def _diffs_from_content(content) -> list[dict]:
     out: list[dict] = []
     remaining = _MAX_DIFF_LINES
@@ -311,8 +290,8 @@ def _diffs_from_content(content) -> list[dict]:
 
 
 class AcpAgentClient:
-    """Persistent ACP client: one codex-acp subprocess + session on a worker
-    thread, prompted once per chat request."""
+    """Persistent ACP client: one agent-adapter subprocess + session on a
+    worker thread, prompted once per chat request."""
 
     def __init__(self, host: Host):
         self._host = host
@@ -332,15 +311,29 @@ class AcpAgentClient:
         self._shutdown = None  # asyncio.Event, created on the loop
         self._shutting_down = False
         self._client: Optional[_NbiAcpClient] = None
+        self._agent_capabilities = None
         self._lock = threading.Lock()
         # Serializes turns: the ACP session runs one prompt at a time, and
         # current_response is shared, so a second concurrent turn must not
         # interleave with the first.
         self._turn_lock = threading.Lock()
 
+    def _mcp_servers(self) -> list:
+        """The NBI MCP server config passed to every session create/load."""
+        return [
+            schema.McpServerStdio(
+                name="nbi", command=sys.executable,
+                args=["-m", "notebook_intelligence.acp_mcp_server"], env=[],
+            )
+        ]
+
     @property
-    def codex_settings(self) -> dict:
-        return self._host.nbi_config.codex_settings
+    def acp_settings(self) -> dict:
+        return self._host.nbi_config.acp_settings
+
+    @property
+    def agent_spec(self) -> AcpAgentSpec:
+        return resolve_acp_agent(self.acp_settings.get("agent"))
 
     def _ensure_started(self) -> bool:
         with self._lock:
@@ -359,11 +352,11 @@ class AcpAgentClient:
             self._start_error = None
             self._shutting_down = False
             self._thread = threading.Thread(
-                target=self._thread_main, name="nbi-codex-acp", daemon=True
+                target=self._thread_main, name="nbi-acp-agent", daemon=True
             )
             self._thread.start()
         if not self._started.wait(timeout=_START_TIMEOUT):
-            self._start_error = self._start_error or "Codex agent did not start in time"
+            self._start_error = self._start_error or "ACP agent did not start in time"
             return False
         return self._start_error is None
 
@@ -371,7 +364,7 @@ class AcpAgentClient:
         try:
             asyncio.run(self._serve())
         except Exception as e:
-            self._start_error = f"Codex agent failed to start: {e}"
+            self._start_error = f"ACP agent failed to start: {e}"
             log.error(self._start_error, exc_info=True)
             self._started.set()
 
@@ -379,11 +372,14 @@ class AcpAgentClient:
         self._loop = asyncio.get_running_loop()
         self._shutdown = asyncio.Event()
         workdir = get_jupyter_root_dir()
-        env = self._child_env()
-        cmd = resolve_codex_acp_command() + codex_approval_args(
-            bool(self.codex_settings.get("full_access", False))
-        )
-        log.info("Starting codex-acp: %s", " ".join(cmd))
+        spec = self.agent_spec
+        env = self._child_env(spec)
+        cmd = list(resolve_acp_agent_command(spec))
+        if spec.id == "codex":
+            cmd += codex_approval_args(
+                bool(self.acp_settings.get("full_access", False))
+            )
+        log.info("Starting ACP agent (%s): %s", spec.id, " ".join(cmd))
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -401,16 +397,15 @@ class AcpAgentClient:
                 ),
                 client_info=schema.Implementation(name="notebook-intelligence", version="1.0.0"),
             )
+            self._agent_capabilities = getattr(init, "agent_capabilities", None)
             await self._authenticate(init)
-            mcp = schema.McpServerStdio(
-                name="nbi", command=sys.executable,
-                args=["-m", "notebook_intelligence.acp_mcp_server"], env=[],
+            sess = await self._conn.new_session(
+                cwd=workdir, mcp_servers=self._mcp_servers()
             )
-            sess = await self._conn.new_session(cwd=workdir, mcp_servers=[mcp])
             self._session_id = sess.session_id
-            log.info("codex-acp session ready: %s", self._session_id)
+            log.info("ACP agent session ready: %s", self._session_id)
         except Exception as e:
-            self._start_error = f"Codex agent session failed: {e}"
+            self._start_error = f"ACP agent session failed: {e}"
             log.error(self._start_error, exc_info=True)
             self._started.set()
             await self._teardown()
@@ -421,32 +416,39 @@ class AcpAgentClient:
         finally:
             await self._teardown()
 
-    def _child_env(self) -> dict:
+    def _api_key(self, spec: AcpAgentSpec) -> str:
+        return (self.acp_settings.get("api_key") or "").strip() \
+            or os.environ.get(spec.api_key_env, "").strip()
+
+    def _child_env(self, spec: AcpAgentSpec) -> dict:
         env = {k: v for k, v in os.environ.items()
                if k != "CLAUDECODE" and not k.startswith("CLAUDE_CODE_")}
-        api_key = (self.codex_settings.get("api_key") or "").strip() \
-            or os.environ.get("OPENAI_API_KEY", "").strip()
+        api_key = self._api_key(spec)
         if api_key:
-            env["OPENAI_API_KEY"] = api_key
-            # Use a clean config dir so a stale ChatGPT OAuth token doesn't
-            # shadow API-key auth (the spike hit refresh_token_reused).
-            env["CODEX_HOME"] = os.path.join(
-                self._host.nbi_config.nbi_user_dir, "codex-home"
-            )
-            os.makedirs(env["CODEX_HOME"], exist_ok=True)
+            env[spec.api_key_env] = api_key
+            if spec.id == "codex":
+                # Use a clean config dir so a stale ChatGPT OAuth token doesn't
+                # shadow API-key auth (the spike hit refresh_token_reused).
+                env["CODEX_HOME"] = os.path.join(
+                    self._host.nbi_config.nbi_user_dir, "codex-home"
+                )
+                os.makedirs(env["CODEX_HOME"], exist_ok=True)
         return env
 
     async def _authenticate(self, init):
         methods = [m.id for m in (init.auth_methods or [])]
         if not methods:
             return
-        api_key = (self.codex_settings.get("api_key") or "").strip() \
-            or os.environ.get("OPENAI_API_KEY", "").strip()
-        method = "openai-api-key" if (api_key and "openai-api-key" in methods) else methods[0]
+        spec = self.agent_spec
+        method = (
+            spec.auth_method
+            if (self._api_key(spec) and spec.auth_method in methods)
+            else methods[0]
+        )
         try:
             await self._conn.authenticate(method_id=method)
         except Exception as e:
-            log.warning("codex-acp authenticate(%s) failed: %s", method, e)
+            log.warning("ACP agent authenticate(%s) failed: %s", method, e)
 
     async def _drain_stderr(self):
         while self._proc and self._proc.stderr:
@@ -455,7 +457,7 @@ class AcpAgentClient:
                 break
             s = line.decode(errors="replace").rstrip()
             if s:
-                log.debug("codex-acp: %s", s[:200])
+                log.debug("acp-agent: %s", s[:200])
 
     async def _teardown(self):
         if self._proc and self._proc.returncode is None:
@@ -476,6 +478,7 @@ class AcpAgentClient:
         self._conn = None
         self._session_id = None
         self._client = None
+        self._agent_capabilities = None
         self._proc = None
         self._loop = None
 
@@ -490,7 +493,150 @@ class AcpAgentClient:
             if self._conn and self._session_id:
                 await self._conn.cancel(session_id=self._session_id)
         except Exception as e:
-            log.debug("codex-acp cancel failed: %s", e)
+            log.debug("ACP cancel failed: %s", e)
+
+    def _run_on_loop(self, coro, timeout: float):
+        """Run ``coro`` on the ACP loop from a foreign thread and wait."""
+        loop = self._loop
+        if loop is None:
+            coro.close()
+            raise RuntimeError("agent is not running")
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+        return fut.result(timeout=timeout)
+
+    def new_session(self) -> Optional[str]:
+        """Start a fresh session on the running agent (the header's new-chat).
+
+        Returns an error string on failure, else None. When the agent is not
+        running there is nothing to clear — the next turn starts fresh — so
+        that case is a silent no-op rather than a spurious subprocess launch.
+        """
+        with self._lock:
+            running = (
+                self._thread is not None
+                and self._thread.is_alive()
+                and not self._shutting_down
+            )
+        if not running or self._loop is None:
+            return None
+        # Serialize against turns: swapping the session id mid-prompt would
+        # interleave two conversations. The frontend cancels any in-flight
+        # request before asking for a new session, so this acquire is brief.
+        with self._turn_lock:
+            try:
+                self._run_on_loop(self._new_session_coro(), _START_TIMEOUT)
+                return None
+            except Exception as e:
+                log.warning("ACP new session failed, restarting client: %s", e)
+                # The session state is unknown at this point; force a restart
+                # so the next turn gets a clean one.
+                self.shutdown()
+                return f"Failed to start a new session: {e}"
+
+    async def _new_session_coro(self):
+        sess = await self._conn.new_session(
+            cwd=get_jupyter_root_dir(), mcp_servers=self._mcp_servers()
+        )
+        self._session_id = sess.session_id
+        if self._client is not None:
+            self._client._tool_state.clear()
+        log.info("ACP agent session ready: %s", self._session_id)
+
+    def list_sessions(self) -> tuple[list[dict], Optional[str]]:
+        """List the agent's stored sessions for the current workspace.
+
+        Returns ``(sessions, error)``; sessions are newest-first dicts shaped
+        for the session picker. ``session/list`` is an optional ACP extension
+        (codex-acp implements it); an agent without it reports a friendly
+        error instead of raising.
+        """
+        if not self._ensure_started():
+            return [], self._start_error or "Agent is not available"
+        try:
+            result = self._run_on_loop(self._conn.list_sessions(), 30)
+        except acp.RequestError as e:
+            # Only JSON-RPC method-not-found means the capability is missing;
+            # anything else is a real failure and must not masquerade as one.
+            if getattr(e, "code", None) == -32601:
+                return [], "This agent does not support listing sessions"
+            log.warning("ACP session/list failed: %s", e)
+            return [], f"Failed to list sessions: {e}"
+        except Exception as e:
+            log.warning("ACP session/list failed: %s", e)
+            return [], f"Failed to list sessions: {e}"
+        cwd = os.path.realpath(get_jupyter_root_dir())
+        sessions = []
+        for s in getattr(result, "sessions", None) or []:
+            s_cwd = getattr(s, "cwd", "") or ""
+            if os.path.realpath(s_cwd) != cwd:
+                continue
+            sessions.append({
+                "session_id": getattr(s, "session_id", ""),
+                "preview": _strip_context_preamble(getattr(s, "title", "") or ""),
+                "modified_at": _epoch_from_iso(getattr(s, "updated_at", None)),
+            })
+        sessions.sort(key=lambda s: s["modified_at"], reverse=True)
+        return sessions, None
+
+    def load_session(self, session_id: str) -> Optional[str]:
+        """Resume a stored session. Returns an error string on failure."""
+        if not self._ensure_started():
+            return self._start_error or "Agent is not available"
+        caps = self._agent_capabilities
+        if not getattr(caps, "load_session", False):
+            return "This agent does not support resuming sessions"
+        with self._turn_lock:
+            try:
+                self._run_on_loop(self._load_session_coro(session_id), _START_TIMEOUT)
+                return None
+            except Exception as e:
+                log.warning("ACP session/load failed: %s", e)
+                # A timed-out load may still complete later on the loop: it
+                # would swap _session_id mid-turn and its replayed
+                # session_update notifications would stream a resumed
+                # conversation into whatever turn is then active. The session
+                # state is unknown either way, so force a restart (mirrors
+                # new_session's failure path).
+                self.shutdown()
+                return f"Failed to resume session: {e}"
+
+    async def _load_session_coro(self, session_id: str):
+        # The agent replays the resumed conversation through session_update
+        # notifications during load. current_response is None outside a turn,
+        # so the replay is deliberately not re-rendered — the sidebar shows a
+        # "resumed" notice instead, exactly like Claude-mode resume.
+        await self._conn.load_session(
+            cwd=get_jupyter_root_dir(), session_id=session_id,
+            mcp_servers=self._mcp_servers(),
+        )
+        self._session_id = session_id
+        if self._client is not None:
+            self._client._tool_state.clear()
+        log.info("ACP agent session resumed: %s", session_id)
+
+    @staticmethod
+    def assemble_query(request: ChatRequest) -> str:
+        """Join this turn's user-role lines into the prompt sent to the agent.
+
+        The websocket handler appends the turn's context lines (attachment
+        @-mentions, current-file pointer, output context) to the chat history
+        before the prompt, exactly like Claude mode. Sending only
+        ``request.prompt`` would silently drop whatever the user just
+        attached. A trailing slash command drops the context lines instead --
+        they are meaningless to commands like ``/compact`` and could break
+        their parsing (mirrors the Claude-mode join).
+        """
+        query_lines = []
+        for msg in request.chat_history:
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, str) and content:
+                    query_lines.append(content)
+        if not query_lines:
+            return request.prompt
+        if query_lines[-1].startswith("/"):
+            query_lines = query_lines[-1:]
+        return "\n".join(line.strip() for line in query_lines)
 
     def query(self, request: ChatRequest, response: ChatResponse) -> Optional[str]:
         """Run one turn. Returns an error string on failure, else None.
@@ -499,13 +645,13 @@ class AcpAgentClient:
         turn streams on the ACP loop thread.
         """
         if not self._turn_lock.acquire(blocking=False):
-            return "Codex agent is busy with another request"
+            return f"{self.agent_spec.label} is busy with another request"
         try:
             if not self._ensure_started():
-                return self._start_error or "Codex agent is not available"
+                return self._start_error or f"{self.agent_spec.label} agent is not available"
             loop = self._loop
             if loop is None:
-                return "Codex agent is not available"
+                return f"{self.agent_spec.label} agent is not available"
             # Fresh turn: drop the prior turn's accumulated tool-call cards so
             # the per-id merge cache does not grow without bound.
             if self._client is not None:
@@ -513,10 +659,10 @@ class AcpAgentClient:
             self.current_response = response
             try:
                 fut = asyncio.run_coroutine_threadsafe(
-                    self._run_prompt(request.prompt), loop
+                    self._run_prompt(self.assemble_query(request)), loop
                 )
             except RuntimeError as e:
-                return f"Codex agent is not available: {e}"
+                return f"{self.agent_spec.label} agent is not available: {e}"
             start = time.time()
             try:
                 while True:
@@ -529,11 +675,11 @@ class AcpAgentClient:
                     except concurrent.futures.TimeoutError:
                         pass
                     except Exception as e:
-                        log.error("codex-acp turn failed: %s", e, exc_info=True)
-                        return f"Codex agent error: {e}"
+                        log.error("ACP agent turn failed: %s", e, exc_info=True)
+                        return f"{self.agent_spec.label} agent error: {e}"
                     if time.time() - start > _RESPONSE_TIMEOUT:
                         self._schedule(self._cancel(), loop)
-                        return "Codex agent response timeout"
+                        return f"{self.agent_spec.label} agent response timeout"
             finally:
                 self.current_response = None
         finally:
@@ -556,27 +702,38 @@ class AcpAgentClient:
                 pass
 
 
-class CodexAgentChatParticipant(BaseChatParticipant):
+class AcpAgentChatParticipant(BaseChatParticipant):
+    """The chat participant for ACP mode.
+
+    The participant id is stable; the display name, description, and icon
+    follow the agent type selected in ``acp_settings`` so the chat header and
+    message avatars always show which agent is answering.
+    """
+
     def __init__(self, host: Host):
         super().__init__()
         self._host = host
         self._client = AcpAgentClient(host)
 
     @property
+    def _spec(self) -> AcpAgentSpec:
+        return self._client.agent_spec
+
+    @property
     def id(self) -> str:
-        return CODEX_AGENT_CHAT_PARTICIPANT_ID
+        return ACP_AGENT_CHAT_PARTICIPANT_ID
 
     @property
     def name(self) -> str:
-        return "Codex"
+        return self._spec.label
 
     @property
     def description(self) -> str:
-        return "OpenAI Codex (via the Agent Client Protocol)"
+        return self._spec.description
 
     @property
     def icon_path(self) -> str:
-        return CODEX_AGENT_ICON_URL
+        return self._spec.icon_url
 
     @property
     def commands(self) -> list[ChatCommand]:
@@ -593,10 +750,23 @@ class CodexAgentChatParticipant(BaseChatParticipant):
     def restart_client(self) -> None:
         """Stop the running ACP client so the next request restarts it.
 
-        Codex reads its credentials and model from codex_settings at launch; a
-        settings change only takes effect on a fresh subprocess.
+        The agent reads its credentials and model from acp_settings at launch;
+        a settings change only takes effect on a fresh subprocess.
         """
         self._client.shutdown()
+
+    def clear_chat_history(self) -> Optional[str]:
+        """Start a fresh agent session (the header's new-chat button).
+
+        Returns an error string on failure, else None.
+        """
+        return self._client.new_session()
+
+    def list_sessions(self) -> tuple[list[dict], Optional[str]]:
+        return self._client.list_sessions()
+
+    def resume_session(self, session_id: str) -> Optional[str]:
+        return self._client.load_session(session_id)
 
     def chat_prompt(self, model_provider: str, model_name: str) -> str:
         return ""
@@ -609,9 +779,9 @@ class CodexAgentChatParticipant(BaseChatParticipant):
             response.stream(ProgressData("Thinking…"))
             result = self._client.query(request, response)
             if isinstance(result, str) and result:
-                response.stream(MarkdownData(content=f"**Codex agent error:** {result}"))
+                response.stream(MarkdownData(content=f"**{self._spec.label} agent error:** {result}"))
         except Exception as e:
-            log.error("Error handling Codex chat request: %s", e, exc_info=True)
+            log.error("Error handling ACP chat request: %s", e, exc_info=True)
             try:
                 response.stream(MarkdownData(content=f"**Error:** {e}"))
             except Exception:

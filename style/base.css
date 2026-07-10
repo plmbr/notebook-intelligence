@@ -200,91 +200,6 @@
   flex-grow: 1;
 }
 
-.sidebar-agent-select {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px 6px;
-}
-
-.sidebar-agent-label {
-  font-size: 12px;
-  color: var(--jp-ui-font-color2);
-}
-
-.agent-select-container {
-  position: relative;
-  display: flex;
-  flex-grow: 1;
-}
-
-.agent-select-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 2px 6px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.agent-select-button-label {
-  flex-grow: 1;
-}
-
-.agent-select-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-}
-
-.agent-select-icon svg {
-  width: 14px;
-  height: 14px;
-}
-
-.agent-select-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  z-index: 100;
-  min-width: 160px;
-  padding: 4px;
-  background-color: var(--jp-layout-color1);
-  border: 1px solid var(--jp-border-color1);
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
-}
-
-.agent-select-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 4px 8px;
-  border: none;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-  color: var(--jp-ui-font-color1);
-  font-size: var(--jp-ui-font-size1);
-  border-radius: 2px;
-}
-
-.agent-select-menu-item:hover,
-.agent-select-menu-item:focus-visible {
-  background-color: var(--jp-layout-color2);
-  outline: none;
-}
-
-.agent-select-menu-check {
-  display: inline-flex;
-  width: 16px;
-  flex-shrink: 0;
-}
-
 .sidebar-messages {
   flex-grow: 1;
   overflow-y: auto;
@@ -1546,7 +1461,7 @@ pre:has(.code-block-header) {
   color: #d97757;
 }
 
-.codex-icon svg {
+.acp-agent-icon svg {
   width: 16px;
   height: 16px;
   color: #0a84ff;
@@ -3039,8 +2954,8 @@ svg.access-token-warning {
   height: 18px;
 }
 
-/* The Codex footer badge matches the Claude badge size. */
-.chat-mode-widgets-container .codex-icon svg {
+/* The ACP-agent footer badge matches the Claude badge size. */
+.chat-mode-widgets-container .acp-agent-icon svg {
   margin-top: 4px;
   width: 18px;
   height: 18px;

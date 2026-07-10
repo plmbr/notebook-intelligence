@@ -226,6 +226,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = False
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -288,6 +289,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -355,6 +357,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -421,6 +424,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -476,6 +480,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -533,6 +538,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -593,6 +599,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -666,6 +673,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -732,6 +740,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
@@ -796,6 +805,7 @@ class TestWebsocketHandlerIntegration:
         mock_nb_intel.root_dir = "/workspace"
         mock_ai_manager.handle_chat_request = Mock()
         mock_ai_manager.is_claude_code_mode = True
+        mock_ai_manager.is_acp_mode = False
         mock_ai_manager.chat_model = Mock()
         mock_ai_manager.chat_model.context_window = 4096
 
