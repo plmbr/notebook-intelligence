@@ -289,6 +289,24 @@ class TestStripContextPreamble:
         title = "Additional context: Current directory open in Jupyter is: '/w'"
         assert _strip_context_preamble(title) == title
 
+    def test_joined_form_strips_directory_pointer(self):
+        # codex stores titles with newlines collapsed to spaces (and
+        # truncated), so the pointer must be peeled off structurally.
+        from notebook_intelligence.acp_agent import _strip_context_preamble
+        title = (
+            "Additional context: Current directory open in Jupyter is: '' "
+            "Reply with two short sentences."
+        )
+        assert _strip_context_preamble(title) == "Reply with two short sentences."
+
+    def test_joined_form_with_current_file(self):
+        from notebook_intelligence.acp_agent import _strip_context_preamble
+        title = (
+            "Additional context: Current directory open in Jupyter is: '/w' "
+            "and current file is: 'nb.ipynb' What does this cell do?"
+        )
+        assert _strip_context_preamble(title) == "What does this cell do?"
+
 
 class TestSingleFlight:
     """The ACP session runs one prompt at a time; a second concurrent turn

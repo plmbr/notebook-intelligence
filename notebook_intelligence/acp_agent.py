@@ -27,6 +27,7 @@ import concurrent.futures
 import difflib
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -260,6 +261,10 @@ def _strip_context_preamble(title: str) -> str:
     The agent titles a session with its first prompt, which NBI prefixes with
     context lines (current-directory pointer, attachments). The preview should
     show the user's actual first question, like the Claude picker does.
+
+    Handles both shapes: newline-separated lines, and the joined form codex
+    stores (newlines collapsed to spaces, title truncated), where the
+    directory pointer is matched structurally by its quoted segments.
     """
     from notebook_intelligence.claude_sessions import NBI_CONTEXT_PREFIX
     lines = [line for line in title.splitlines() if line.strip()]
@@ -268,7 +273,16 @@ def _strip_context_preamble(title: str) -> str:
         or lines[0].startswith("The user attached ")
     ):
         lines.pop(0)
-    return " ".join(lines) if lines else title
+    stripped = " ".join(lines)
+    if stripped and stripped != title.strip():
+        return stripped
+    # Joined form: peel the directory pointer off the front by shape.
+    joined_preamble = re.compile(
+        re.escape(NBI_CONTEXT_PREFIX)
+        + r" '[^']*'( and current file is: '[^']*')?\s*"
+    )
+    remainder = joined_preamble.sub("", title, count=1)
+    return remainder.strip() or title
 
 
 def _diffs_from_content(content) -> list[dict]:
