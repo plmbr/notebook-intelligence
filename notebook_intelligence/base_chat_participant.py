@@ -102,6 +102,14 @@ class CreateNewNotebookTool(Tool):
                                     }
                                 }
                             }
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "Programming language for the notebook kernel, e.g. python or r"
+                        },
+                        "kernel_name": {
+                            "type": "string",
+                            "description": "Jupyter kernel name to use when creating the notebook"
                         }
                     },
                     "required": [],
@@ -120,8 +128,13 @@ class CreateNewNotebookTool(Tool):
 
     async def handle_tool_call(self, request: ChatRequest, response: ChatResponse, tool_context: dict, tool_args: dict) -> str:
         cell_sources = tool_args.get('cell_sources', [])
+        language = tool_args.get('language') or request.language or 'python'
+        kernel_name = tool_args.get('kernel_name') or request.kernel_name or ''
     
-        ui_cmd_response = await response.run_ui_command('notebook-intelligence:create-new-notebook-from-py', {'code': ''})
+        ui_cmd_response = await response.run_ui_command(
+            'notebook-intelligence:create-new-notebook',
+            {'code': '', 'language': language, 'kernelName': kernel_name}
+        )
         file_path = ui_cmd_response['path']
 
         for cell_source in cell_sources:
@@ -133,7 +146,55 @@ class CreateNewNotebookTool(Tool):
                 source = cell_source.get('source', '')
                 ui_cmd_response = await response.run_ui_command('notebook-intelligence:add-code-cell-to-notebook', {'code': source, 'path': file_path})
 
-        return "Notebook created successfully at {file_path}"
+        return f"Notebook created successfully at {file_path}"
+
+
+class ListAvailableNotebookKernelsTool(Tool):
+    @property
+    def name(self) -> str:
+        return "list_available_notebook_kernels"
+
+    @property
+    def title(self) -> str:
+        return "List available notebook kernels"
+
+    @property
+    def tags(self) -> list[str]:
+        return ["default-participant-tool"]
+
+    @property
+    def description(self) -> str:
+        return "Lists Jupyter kernels available in the current frontend environment"
+
+    @property
+    def schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "strict": True,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+    def pre_invoke(self, request: ChatRequest, tool_args: dict) -> Union[ToolPreInvokeResponse, None]:
+        return ToolPreInvokeResponse(
+            f"Calling tool '{self.name}'",
+            detail={"title": "Parameters", "content": json.dumps(tool_args)},
+        )
+
+    async def handle_tool_call(self, request: ChatRequest, response: ChatResponse, tool_context: dict, tool_args: dict) -> str:
+        ui_cmd_response = await response.run_ui_command(
+            'notebook-intelligence:list-available-notebook-kernels',
+            {}
+        )
+        return json.dumps(ui_cmd_response)
 
 class AddMarkdownCellToNotebookTool(Tool):
     def __init__(self, auto_approve: bool = False):
@@ -379,7 +440,8 @@ class BaseChatParticipant(ChatParticipant):
         chat_model = request.host.chat_model
         messages = request.chat_history.copy()
         messages.pop()
-        messages.insert(0, {"role": "system", "content": f"You are an assistant that creates Python code which will be used in a Jupyter notebook. Generate only Python code and some comments for the code. You should return the code directly, without wrapping it inside ```."})
+        language = request.language or 'python'
+        messages.insert(0, {"role": "system", "content": f"You are an assistant that creates {language} code which will be used in a Jupyter notebook. Generate only {language} code and some comments for the code. You should return the code directly, without wrapping it inside ```."})
         messages.append({"role": "user", "content": f"Generate code for: {request.prompt}"})
         generated = chat_model.completions(messages)
         code = generated['choices'][0]['message']['content']
@@ -440,8 +502,17 @@ class BaseChatParticipant(ChatParticipant):
     async def handle_ask_mode_chat_request(self, request: ChatRequest, response: ChatResponse, options: dict = {}) -> None:
         chat_model = request.host.chat_model
         if request.command == 'newNotebook':
+            language = request.language or 'python'
+            kernel_name = request.kernel_name or ''
             # create a new notebook
-            ui_cmd_response = await response.run_ui_command('notebook-intelligence:create-new-notebook-from-py', {'code': ''})
+            ui_cmd_response = await response.run_ui_command(
+                'notebook-intelligence:create-new-notebook',
+                {
+                    'code': '',
+                    'language': language,
+                    'kernelName': kernel_name,
+                }
+            )
             file_path = ui_cmd_response['path']
 
             code = await self.generate_code_cell(request)
@@ -494,6 +565,8 @@ class BaseChatParticipant(ChatParticipant):
     def get_tool_by_name(name: str) -> Tool:
         if name == "create_new_notebook":
             return CreateNewNotebookTool()
+        elif name == "list_available_notebook_kernels":
+            return ListAvailableNotebookKernelsTool()
         elif name == "add_markdown_cell_to_notebook":
             return AddMarkdownCellToNotebookTool()
         elif name == "add_code_cell_to_notebook":

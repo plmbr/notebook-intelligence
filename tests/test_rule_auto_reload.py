@@ -157,7 +157,7 @@ class TestRuleAutoReload:
             manager = RuleManager(str(rules_dir))
             
             # First call - loads rules
-            context = RuleContext(filename="test.ipynb", kernel="python", mode="ask")
+            context = RuleContext(filename="test.ipynb", language="python", kernel_name="python3", mode="ask")
             rules1 = manager.get_applicable_rules(context)
             assert len(rules1) == 1
             assert rules1[0].content == "Original content"
@@ -180,7 +180,7 @@ class TestRuleAutoReload:
         
         with patch.dict(os.environ, {'NBI_RULES_AUTO_RELOAD': 'true'}):
             manager = RuleManager(str(rules_dir))
-            context = RuleContext(filename="test.ipynb", kernel="python", mode="ask")
+            context = RuleContext(filename="test.ipynb", language="python", kernel_name="python3", mode="ask")
             
             # Initial load
             manager.get_applicable_rules(context)
@@ -208,7 +208,7 @@ class TestRuleAutoReload:
         
         with patch.dict(os.environ, {'NBI_RULES_AUTO_RELOAD': 'true'}):
             manager = RuleManager(str(rules_dir))
-            context = RuleContext(filename="test.ipynb", kernel="python", mode="ask")
+            context = RuleContext(filename="test.ipynb", language="python", kernel_name="python3", mode="ask")
             
             # Initial load
             rules1 = manager.get_applicable_rules(context)
@@ -231,7 +231,7 @@ class TestRuleAutoReload:
         
         with patch.dict(os.environ, {'NBI_RULES_AUTO_RELOAD': 'true'}):
             manager = RuleManager(str(rules_dir))
-            context = RuleContext(filename="test.ipynb", kernel="python", mode="ask")
+            context = RuleContext(filename="test.ipynb", language="python", kernel_name="python3", mode="ask")
             
             # First call
             manager.get_applicable_rules(context)

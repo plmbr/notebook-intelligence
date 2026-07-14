@@ -7,6 +7,8 @@ import { Token } from '@lumino/coreutils';
 export interface IActiveDocumentInfo {
   activeWidget: Widget | null;
   language: string;
+  kernelName?: string;
+  kernelDisplayName?: string;
   filename: string;
   filePath: string;
   activeCellIndex: number;

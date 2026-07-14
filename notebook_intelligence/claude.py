@@ -42,6 +42,7 @@ CLAUDE_CODE_CHAT_PARTICIPANT_ID = "claude-code"
 CLAUDE_CODE_MAX_BUFFER_SIZE = 20 * 1024 * 1024 # 20MB
 
 JUPYTER_UI_TOOLS_SYSTEM_PROMPT = """You can interact with the JupyterLab UI (notebook / file editor, terminal, etc.) using the tools provided in 'nbi' MCP server. Tools in 'nbi' MCP server, directly interact with the JupyterLab UI, accessing notebooks and files open in the UI. When interacting with JupyterLab UI, use relative file paths for file paths. If the user has asked you to create a notebook, save it afterward.
+If you need to create a notebook in a language or kernel that is not already established by the current notebook context, first call the list-available-notebook-kernels tool and choose only from the kernels it returns. Do not guess kernel names.
 """
 
 
@@ -100,6 +101,7 @@ CLAUDE_AGENT_HEARTBEAT_INTERVAL = float(os.getenv("NBI_CLAUDE_AGENT_HEARTBEAT_IN
 # label and a keyword-heuristic kind rather than masking the raw name.
 _CLAUDE_TOOLS: dict[str, tuple[str, str]] = {
     # NBI's MCP toolset (defined in this file via @tool(...))
+    "list-available-notebook-kernels": ("Listing notebook kernels", "read"),
     "create-new-notebook": ("Creating notebook", "edit"),
     "rename-notebook": ("Renaming notebook", "edit"),
     "add-markdown-cell": ("Adding markdown cell", "edit"),
@@ -1325,12 +1327,36 @@ class ClaudeCodeClient():
         self.reconnect()
 
 
-@tool("create-new-notebook", "Creates a new empty notebook.", {})
+@tool(
+    "list-available-notebook-kernels",
+    "Lists Jupyter kernels available in the current frontend environment.",
+    {},
+)
+async def list_available_notebook_kernels(args) -> str:
+    response = get_current_response()
+    ui_cmd_response = await response.run_ui_command(
+        'notebook-intelligence:list-available-notebook-kernels',
+        {}
+    )
+    return tool_text_response(json.dumps(ui_cmd_response))
+
+
+@tool(
+    "create-new-notebook",
+    "Creates a new empty notebook.",
+    {"language": str, "kernel_name": str},
+)
 async def create_new_notebook(args) -> str:
     """Creates a new empty notebook.
     """
     response = get_current_response()
-    ui_cmd_response = await response.run_ui_command('notebook-intelligence:create-new-notebook-from-py', {'code': ''})
+    request = get_current_request()
+    language = args.get("language") or getattr(request, "language", "") or "python"
+    kernel_name = args.get("kernel_name") or getattr(request, "kernel_name", "") or ""
+    ui_cmd_response = await response.run_ui_command(
+        'notebook-intelligence:create-new-notebook',
+        {'code': '', 'language': language, 'kernelName': kernel_name}
+    )
     file_path = ui_cmd_response['path']
 
     return tool_text_response(f"Created new notebook at {file_path}")
@@ -1362,7 +1388,7 @@ async def add_markdown_cell(args) -> str:
 async def add_code_cell(args) -> str:
     """Adds a code cell to notebook.
     Args:
-        source: Python code source
+        source: Code source for the notebook's current language
     """
     response = get_current_response()
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:add-code-cell-to-active-notebook', {'source': args['source']})
@@ -1792,7 +1818,7 @@ class ClaudeCodeChatParticipant(BaseChatParticipant):
         self._jupyter_ui_tools_mcp_server = create_sdk_mcp_server(
             name="nbi",
             version="1.0.0",
-            tools=[create_new_notebook, add_markdown_cell, add_code_cell, get_number_of_cells, get_cell_type_and_source, get_cell_output, set_cell_type_and_source, delete_cell, insert_cell, run_cell, save_notebook, rename_notebook, run_command_in_jupyter_terminal, open_file_in_jupyter_ui]
+            tools=[list_available_notebook_kernels, create_new_notebook, add_markdown_cell, add_code_cell, get_number_of_cells, get_cell_type_and_source, get_cell_output, set_cell_type_and_source, delete_cell, insert_cell, run_cell, save_notebook, rename_notebook, run_command_in_jupyter_terminal, open_file_in_jupyter_ui]
         )
         mcp_servers = {}
         jupyter_ui_tools_enabled = ClaudeToolType.JupyterUITools in claude_settings.get('tools', [])
@@ -1800,7 +1826,7 @@ class ClaudeCodeChatParticipant(BaseChatParticipant):
             mcp_servers["nbi"] = self._jupyter_ui_tools_mcp_server
         allowed_tools = []
         if jupyter_ui_tools_enabled:
-            allowed_tools.extend(["mcp__nbi__create-new-notebook", "mcp__nbi__add-markdown-cell", "mcp__nbi__add-code-cell", "mcp__nbi__get-number-of-cells", "mcp__nbi__get-cell-type-and-source", "mcp__nbi__get-cell-output", "mcp__nbi__set-cell-type-and-source", "mcp__nbi__insert-cell", "mcp__nbi__save-notebook", "mcp__nbi__rename-notebook", "mcp__nbi__open-file-in-jupyter-ui"])
+            allowed_tools.extend(["mcp__nbi__list-available-notebook-kernels", "mcp__nbi__create-new-notebook", "mcp__nbi__add-markdown-cell", "mcp__nbi__add-code-cell", "mcp__nbi__get-number-of-cells", "mcp__nbi__get-cell-type-and-source", "mcp__nbi__get-cell-output", "mcp__nbi__set-cell-type-and-source", "mcp__nbi__insert-cell", "mcp__nbi__save-notebook", "mcp__nbi__rename-notebook", "mcp__nbi__open-file-in-jupyter-ui"])
         setting_sources = claude_settings.get('setting_sources')
         chat_model_id = claude_settings.get('chat_model', '').strip()
         if chat_model_id == "":

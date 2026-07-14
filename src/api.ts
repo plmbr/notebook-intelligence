@@ -1255,6 +1255,8 @@ export class NBIAPI {
     chatId: string,
     prompt: string,
     language: string,
+    kernelName: string,
+    kernelDisplayName: string,
     currentDirectory: string,
     filename: string,
     additionalContext: IContextItem[],
@@ -1272,6 +1274,8 @@ export class NBIAPI {
           chatId,
           prompt,
           language,
+          kernelName,
+          kernelDisplayName,
           currentDirectory,
           filename,
           additionalContext,
@@ -1305,6 +1309,7 @@ export class NBIAPI {
     suffix: string,
     existingCode: string,
     language: string,
+    kernelName: string,
     filename: string,
     responseEmitter: IChatCompletionResponseEmitter
   ) {
@@ -1320,6 +1325,7 @@ export class NBIAPI {
           suffix,
           existingCode,
           language,
+          kernelName,
           filename
         }
       })

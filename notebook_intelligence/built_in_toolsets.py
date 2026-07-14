@@ -1,6 +1,7 @@
 # Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
 from time import time
+import json
 from notebook_intelligence.api import ChatResponse, MarkdownPartData, Toolset
 import logging
 import notebook_intelligence.api as nbapi
@@ -96,11 +97,49 @@ def _truncate_read_file_output(
 
 @nbapi.auto_approve
 @nbapi.tool
-async def create_new_notebook(**args) -> str:
-    """Creates a new empty notebook.
+async def list_available_notebook_kernels(**args) -> str:
+    """Lists Jupyter kernels available in the current frontend environment.
+
+    Use this before creating a notebook when you need a kernel that may differ
+    from the current notebook context.
     """
     response = args["response"]
-    ui_cmd_response = await response.run_ui_command('notebook-intelligence:create-new-notebook-from-py', {'code': ''})
+    ui_cmd_response = await response.run_ui_command(
+        'notebook-intelligence:list-available-notebook-kernels',
+        {}
+    )
+    return json.dumps(ui_cmd_response)
+
+
+@nbapi.auto_approve
+@nbapi.tool
+async def create_new_notebook(
+    language: str = "python",
+    kernel_name: str = "",
+    **args,
+) -> str:
+    """Creates a new empty notebook.
+
+    Args:
+        language: Programming language for the notebook kernel, e.g. python or r.
+        kernel_name: Explicit Jupyter kernel name to use when creating the notebook.
+    """
+    response = args["response"]
+    request = args.get("request")
+    effective_language = language or getattr(request, "language", "") or "python"
+    effective_kernel_name = (
+        kernel_name
+        or getattr(request, "kernel_name", "")
+        or ""
+    )
+    ui_cmd_response = await response.run_ui_command(
+        'notebook-intelligence:create-new-notebook',
+        {
+            'code': '',
+            'language': effective_language,
+            'kernelName': effective_kernel_name,
+        }
+    )
     file_path = ui_cmd_response['path']
 
     return f"Created new notebook at {file_path}"
@@ -135,7 +174,7 @@ async def add_markdown_cell(source: str, **args) -> str:
 async def add_code_cell(source: str, **args) -> str:
     """Adds a code cell to notebook.
     Args:
-        source: Python code source
+        source: Code source for the notebook's current language
     """
     response = args["response"]
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:add-code-cell-to-active-notebook', {'source': source})
@@ -189,7 +228,7 @@ async def set_cell_type_and_source(cell_index: int, cell_type: str, source: str,
     Args:
         cell_index: Zero based cell index
         cell_type: Cell type (code or markdown)
-        source: Markdown or Python code source
+        source: Markdown or code source
     """
     response = args["response"]
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:set-cell-type-and-source', {"cellIndex": cell_index, "cellType": cell_type, "source": source})
@@ -218,7 +257,7 @@ async def insert_cell(cell_index: int, cell_type: str, source: str, **args) -> s
     Args:
         cell_index: Zero based cell index
         cell_type: Cell type (code or markdown)
-        source: Markdown or Python code source
+        source: Markdown or code source
     """
     response = args["response"]
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:insert-cell-at-index', {"cellIndex": cell_index, "cellType": cell_type, "source": source})
@@ -711,9 +750,11 @@ async def run_command_in_embedded_terminal(command: str, working_directory: str 
         return f"Error running command in embedded terminal: {str(e)}"
 
 NOTEBOOK_EDIT_INSTRUCTIONS = """
-You are an assistant that creates and edits Jupyter notebooks. Notebooks are made up of source code cells and markdown cells. Markdown cells have source in markdown format and code cells have source in a specified programming language. If no programming language is specified, then use Python for the language of the code.
+You are an assistant that creates and edits Jupyter notebooks. Notebooks are made up of source code cells and markdown cells. Markdown cells have source in markdown format and code cells have source in a specified programming language. If no programming language is specified, then use Python for the language of the code. If the context specifies a kernel or language for the current notebook, keep that kernel and language. Do not silently switch kernels or rewrite the workflow in a different language.
 
 If you need to create a notebook use the create_new_notebook tool. If you need to add a code cell to the notebook use the add_code_cell tool. If you need to add a markdown cell to the notebook use the add_markdown_cell tool.
+
+If you need to create a notebook in a language or kernel that is not already established by the current notebook context, call the list_available_notebook_kernels tool first and choose only from the kernels it returns. Do not guess kernel names.
 
 If you need to rename a notebook use the rename_notebook tool.
 
@@ -792,6 +833,7 @@ built_in_toolsets: dict[BuiltinToolset, Toolset] = {
         description="Edit notebook using the JupyterLab notebook editor",
         provider=None,
         tools=[
+            list_available_notebook_kernels,
             create_new_notebook,
             rename_notebook,
             add_markdown_cell,

@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import Mock, AsyncMock
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
+from notebook_intelligence.base_chat_participant import CreateNewNotebookTool
+from notebook_intelligence.base_chat_participant import ListAvailableNotebookKernelsTool
 from notebook_intelligence.api import ChatRequest, ChatResponse, ChatMode, CancelToken
 from notebook_intelligence.ruleset import RuleContext
 from notebook_intelligence.rule_injector import RuleInjector
@@ -55,7 +57,8 @@ class TestBaseChatParticipantIntegration:
         # Create request with rule context
         rule_context = RuleContext(
             filename="test.ipynb",
-            kernel="python3",
+            language="python",
+            kernel_name="python3",
             mode="ask"
         )
 
@@ -103,7 +106,8 @@ class TestBaseChatParticipantIntegration:
         # Create request for agent mode
         rule_context = RuleContext(
             filename="test.py",
-            kernel="python3",
+            language="python",
+            kernel_name="python3",
             mode="agent"
         )
         
@@ -149,3 +153,83 @@ class TestBaseChatParticipantIntegration:
         
         assert "system_prompt" in options
         assert options["system_prompt"] == "Enhanced agent prompt"
+
+    def test_handle_ask_mode_new_notebook_uses_request_language_and_kernel(self):
+        participant = BaseChatParticipant()
+
+        mock_chat_model = Mock()
+        mock_host = Mock()
+        mock_host.chat_model = mock_chat_model
+
+        request = ChatRequest(
+            host=mock_host,
+            chat_mode=ChatMode("ask", "Ask"),
+            command="newNotebook",
+            prompt="Create a notebook in lang-x",
+            language="lang-x",
+            kernel_name="kernel-x",
+            chat_history=[{"role": "user", "content": "Create a notebook in lang-x"}],
+            cancel_token=Mock(spec=CancelToken),
+            rule_context=RuleContext(
+                filename="test.ipynb",
+                language="lang-x",
+                kernel_name="kernel-x",
+                mode="ask"
+            )
+        )
+
+        response = Mock(spec=ChatResponse)
+        response.run_ui_command = AsyncMock(
+            side_effect=[
+                {"path": "Untitled.ipynb"},
+                {"ok": True},
+                {"ok": True},
+            ]
+        )
+        response.stream = Mock()
+        response.finish = Mock()
+
+        participant.generate_code_cell = AsyncMock(return_value='emit("hi")')
+        participant.generate_markdown_for_code = AsyncMock(return_value="# Lang X")
+
+        asyncio.run(participant.handle_ask_mode_chat_request(request, response))
+
+        first_call = response.run_ui_command.await_args_list[0]
+        assert first_call.args == (
+            'notebook-intelligence:create-new-notebook',
+            {'code': '', 'language': 'lang-x', 'kernelName': 'kernel-x'}
+        )
+
+    def test_list_available_notebook_kernels_tool_reads_frontend_environment(self):
+        tool = ListAvailableNotebookKernelsTool()
+        request = ChatRequest()
+        response = Mock(spec=ChatResponse)
+        response.run_ui_command = AsyncMock(
+            return_value={
+                "kernels": [
+                    {
+                        "language": "lang-a",
+                        "kernelName": "kernel-a",
+                        "displayName": "Kernel A",
+                    },
+                    {
+                        "language": "lang-b",
+                        "kernelName": "kernel-b",
+                        "displayName": "Kernel B",
+                    },
+                ]
+            }
+        )
+
+        result = asyncio.run(tool.handle_tool_call(request, response, {}, {}))
+
+        response.run_ui_command.assert_awaited_once_with(
+            "notebook-intelligence:list-available-notebook-kernels",
+            {},
+        )
+        assert '"kernelName": "kernel-a"' in result
+        assert '"kernelName": "kernel-b"' in result
+
+    def test_get_tool_by_name_returns_kernel_listing_tool(self):
+        tool = BaseChatParticipant.get_tool_by_name("list_available_notebook_kernels")
+        assert isinstance(tool, ListAvailableNotebookKernelsTool)

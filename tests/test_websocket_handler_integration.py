@@ -100,6 +100,7 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.assert_called_once_with(
             filename='test.ipynb',
             language='python',
+            kernel_name='',
             chat_mode_id='ask',
             root_dir='/workspace'
         )
@@ -115,6 +116,9 @@ class TestWebsocketHandlerIntegration:
         # We can't easily inspect the ChatRequest object, but we can verify
         # that the thread was created with the right target
         assert mock_thread.call_args[1]['target'] is not None
+        chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
+        assert chat_request.language == 'python'
+        assert chat_request.kernel_name == ''
     
     @patch('notebook_intelligence.extension.ai_service_manager')
     @patch('notebook_intelligence.extension.NotebookIntelligence')
@@ -147,6 +151,7 @@ class TestWebsocketHandlerIntegration:
                 'suffix': '',
                 'existingCode': '',
                 'language': 'python',
+                'kernelName': 'python3',
                 'filename': 'script.py'
             }
         }
@@ -158,12 +163,16 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.assert_called_once_with(
             filename='script.py',
             language='python',
+            kernel_name='python3',
             chat_mode_id='inline-chat',  # GenerateCode uses inline-chat mode for rule matching
             root_dir='/workspace'
         )
         
         # Verify thread was started
         mock_thread.assert_called_once()
+        chat_request = mock_ai_manager.handle_chat_request.call_args[0][0]
+        assert chat_request.language == 'python'
+        assert chat_request.kernel_name == 'python3'
     
     @patch('notebook_intelligence.extension.ai_service_manager')
     @patch('notebook_intelligence.extension.NotebookIntelligence')
@@ -211,6 +220,7 @@ class TestWebsocketHandlerIntegration:
         mock_factory.create.assert_called_once_with(
             filename='notebook.ipynb',
             language='python',
+            kernel_name='',
             chat_mode_id='agent',
             root_dir='/workspace'
         )
