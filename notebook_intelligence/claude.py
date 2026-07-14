@@ -63,8 +63,51 @@ def assemble_client_query(query_lines: list[str]) -> str:
 
 CLAUDE_CODE_ICON_SVG = '<svg width="1200" height="1200" viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg"><g id="g314"><path id="path147" fill="#d97757" stroke="#d97757" d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></g></svg>'
 CLAUDE_CODE_ICON_URL = f"data:image/svg+xml;base64,{base64.b64encode(CLAUDE_CODE_ICON_SVG.encode('utf-8')).decode('utf-8')}"
-CLAUDE_DEFAULT_CHAT_MODEL = "claude-sonnet-4-5"
-CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL = "claude-sonnet-4-5"
+# Fallbacks when the user hasn't picked a model. Chat wants the current
+# Sonnet-tier balance of quality and speed; autocomplete wants the fastest,
+# cheapest tier — a suggestion has to beat the user's next keystroke, and a
+# Sonnet-class model is both slower and several times the cost per token
+# for a surface that fires on every pause in typing.
+CLAUDE_DEFAULT_CHAT_MODEL = "claude-sonnet-5"
+CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL = "claude-haiku-4-5"
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Parse an int env var defensively and clamp it to a sane range.
+
+    This runs at import time: a malformed value must degrade to the
+    default with a warning, not raise ``ValueError`` and block the
+    backend from starting. Out-of-range values are clamped so an
+    operator typo (``0``, ``-5``, ``10000``) can't produce failing API
+    requests or restore the unbounded behavior the cap exists to
+    prevent.
+    """
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        log.warning(
+            "Invalid %s=%r (expected an integer); using default %d",
+            name, raw, default,
+        )
+        return default
+    clamped = max(minimum, min(maximum, value))
+    if clamped != value:
+        log.warning(
+            "%s=%d is outside the supported range [%d, %d]; clamping to %d",
+            name, value, minimum, maximum, clamped,
+        )
+    return clamped
+
+
+# Autocomplete suggestions are at most a few dozen lines; the previous
+# 10K-token ceiling let a rambling response generate for many seconds
+# before the extraction regex threw most of it away. The override is
+# clamped to [1, 4096] so it can't reintroduce that behavior or produce
+# a max_tokens value the API rejects.
+CLAUDE_INLINE_COMPLETION_MAX_TOKENS = _bounded_int_env(
+    "NBI_CLAUDE_INLINE_COMPLETION_MAX_TOKENS", 1024, 1, 4096
+)
 CLAUDE_CODE_CHAT_PARTICIPANT_ID = "claude-code"
 CLAUDE_CODE_MAX_BUFFER_SIZE = 20 * 1024 * 1024 # 20MB
 
@@ -518,11 +561,92 @@ def model_info_from_id(model_id: str) -> dict:
 # another doomed thread, hammering api.anthropic.com in parallel when the
 # api_key is missing or wrong.
 _claude_models_cache: list[dict] = []
+# Identity of the endpoint the cache was fetched from — (api_key,
+# base_url) after credential normalization. The cache is only
+# authoritative for that endpoint: a user can switch to a custom
+# base_url whose catalog differs, and resolving a default against
+# another endpoint's model list would send it an id it doesn't serve.
+_claude_models_cache_endpoint: Optional[tuple] = None
 _claude_models_fetch_lock = threading.Lock()
 
 def get_claude_models() -> list[dict]:
     """Return the cached list of available Claude models."""
     return _claude_models_cache
+
+
+def _endpoint_identity(api_key: str = None, base_url: str = None) -> tuple:
+    return (
+        _normalize_anthropic_credential(api_key),
+        _normalize_anthropic_credential(base_url),
+    )
+
+
+def _model_version_key(model_id: str) -> tuple:
+    """Sort key ordering model ids by their numeric version components.
+
+    Plain lexicographic order gets version-like ids wrong —
+    ``claude-sonnet-4-6`` sorts *after* ``claude-sonnet-4-10``. Compare
+    the extracted number sequences instead ([4, 6] < [4, 10] < [5]),
+    with the id itself as a deterministic tiebreak.
+    """
+    return ([int(part) for part in re.findall(r"\d+", model_id)], model_id)
+
+
+def resolve_default_model(preferred: str, tier_prefix: str, api_key: str = None, base_url: str = None) -> str:
+    """Pick a default model id, validated against the fetched model list.
+
+    The ``CLAUDE_DEFAULT_*`` constants name current first-party aliases,
+    but a custom ``base_url`` can front an endpoint that serves a
+    different catalog. When the model cache holds this endpoint's
+    catalog, prefer the constant only if the endpoint actually lists it;
+    otherwise fall back to the newest id in the same tier
+    (``claude-sonnet``/``claude-haiku`` prefix), then to the first
+    listed model. When the cache is empty — or was fetched from a
+    *different* endpoint (credentials changed, refresh still in flight)
+    — trust the constant rather than another endpoint's catalog, and
+    trigger a background refresh so later resolutions converge on this
+    endpoint's catalog.
+    """
+    models = get_claude_models()
+    endpoint_matches = _claude_models_cache_endpoint == _endpoint_identity(api_key, base_url)
+    if not models or not endpoint_matches:
+        if not endpoint_matches and _claude_models_cache_endpoint is not None:
+            # The cache demonstrably belongs to another endpoint (the
+            # credentials changed): kick off a background refresh so
+            # subsequent resolutions see this endpoint's catalog. A
+            # never-stamped cache is left to the startup fetch that
+            # update_models_from_config already fires. The single-flight
+            # lock inside fetch_claude_models dedupes concurrent
+            # attempts; failures leave the cache as-is. Deliberately
+            # never block on the network here — this runs in model
+            # constructors on the request path, and a slow or dead
+            # custom endpoint must degrade to one possibly-failing
+            # request, not a hung chat turn.
+            threading.Thread(
+                target=fetch_claude_models,
+                kwargs={"api_key": api_key, "base_url": base_url},
+                name="nbi-claude-models-refresh",
+                daemon=True,
+            ).start()
+        return preferred
+    ids = [m["id"] for m in models if isinstance(m.get("id"), str)]
+    if preferred in ids:
+        return preferred
+    tier_matches = sorted(
+        (i for i in ids if i.startswith(tier_prefix)), key=_model_version_key
+    )
+    if tier_matches:
+        fallback = tier_matches[-1]
+    elif ids:
+        fallback = ids[0]
+    else:
+        return preferred
+    log.info(
+        "Default model %r is not served by the configured endpoint; using %r",
+        preferred, fallback,
+    )
+    return fallback
+
 
 def _get_context_window(model_id: str) -> int:
     """Get context window size for a model using litellm's model database."""
@@ -576,13 +700,22 @@ def fetch_claude_models(api_key: str = None, base_url: str = None) -> list[dict]
             page = client.models.list(limit=100)
             models = []
             for model in page.data:
+                # The Models API reports the context window directly on
+                # newer SDK/service versions (max_input_tokens). Prefer it
+                # over litellm's static database, which lags new model
+                # releases and mislabels unknown ids with the 200K default.
+                context_window = getattr(model, "max_input_tokens", None)
+                if not isinstance(context_window, int) or context_window <= 0:
+                    context_window = _get_context_window(model.id)
                 models.append({
                     "id": model.id,
                     "name": model.display_name,
-                    "context_window": _get_context_window(model.id),
+                    "context_window": context_window,
                 })
+            global _claude_models_cache_endpoint
             _claude_models_cache.clear()
             _claude_models_cache.extend(models)
+            _claude_models_cache_endpoint = _endpoint_identity(api_key, base_url)
             log.info(f"Fetched {len(models)} Claude models: {[m['id'] + ' (' + m['name'] + ')' for m in models]}")
             return models
         except Exception as e:
@@ -595,7 +728,7 @@ class ClaudeChatModel(ChatModel):
     def __init__(self, model_id: str, api_key: str = None, base_url: str = None):
         super().__init__(provider=None)
         if model_id == "":
-            model_id = CLAUDE_DEFAULT_CHAT_MODEL
+            model_id = resolve_default_model(CLAUDE_DEFAULT_CHAT_MODEL, "claude-sonnet", api_key, base_url)
 
         model_info = model_info_from_id(model_id)
         self._model_id = model_id
@@ -679,7 +812,7 @@ class ClaudeCodeInlineCompletionModel(InlineCompletionModel):
     def __init__(self, model_id: str, api_key: str = None, base_url: str = None):
         super().__init__(provider=None)
         if model_id == "":
-            model_id = CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL
+            model_id = resolve_default_model(CLAUDE_DEFAULT_INLINE_COMPLETION_MODEL, "claude-haiku", api_key, base_url)
 
         model_info = model_info_from_id(model_id)
         self._model_id = model_id
@@ -731,7 +864,7 @@ class ClaudeCodeInlineCompletionModel(InlineCompletionModel):
 
         message = self._client.messages.create(
             model=self._model_id,
-            max_tokens=10000,
+            max_tokens=CLAUDE_INLINE_COMPLETION_MAX_TOKENS,
             system=f"""You are a code completion assistant. Your task is to generate intelligent autocomplete suggestions for the code at the cursor position for given language and active file type. This is not an interactive session, don't ask for clarifying questions, always generate a suggestion. Don't include any explanations for your response, just generate the code. Don't return any thinking or reasoning, just generate the code. You are given a code snippet with a prefix and a suffix. You need to generate a suggestion for the code that fits best in place of <CURSOR/>. You should return only the code that fits best in place of <CURSOR/>. You should provide multiline code if needed. Enclose the code in triple backticks, just return the code in language. You should not return any other text, just the code. DO NOT INCLUDE THE PREFIX OR SUFFIX IN THE RESPONSE. .ipynb files are Jupyter notebook files and for notebook files, you generate suggestions for a cell within the notebook. A cell can be a code cell with code or a markdown cell with markdown text. If the language is markdown, only return markdown text. If you need to install a Python package within a notebook cell code (for .ipynb files), use %pip install <package_name> instead of !pip install <package_name>. Follow the tags very carefully for proper spacing and indentations.""",
             messages=[
                 {"role": "user", "content": f"""Generate a single suggestion that fits best in place of cursor. The code is below in between <CODE> tags and <CURSOR/> is the placeholder for the code to be filled in. Current language is {language} and the active file is {filename}.
