@@ -141,6 +141,8 @@ class ChatRequest:
     tool_selection: RequestToolSelection = None
     command: str = ''
     prompt: str = ''
+    language: str = ''
+    kernel_name: str = ''
     chat_history: list[dict] = None
     cancel_token: CancelToken = None
     # NEW: Add context for rule evaluation
@@ -909,7 +911,10 @@ class TelemetryEventType(str, Enum):
     InlineChatRequest = 'inline-chat-request'
     ChatResponse = 'chat-response'
     InlineChatResponse = 'inline-chat-response'
+    InlineChatAccepted = 'inline-chat-accepted'
+    InlineChatDismissed = 'inline-chat-dismissed'
     InlineCompletionResponse = 'inline-completion-response'
+    InlineCompletionAccepted = 'inline-completion-accepted'
     Feedback = 'feedback'
 
 class TelemetryEvent:

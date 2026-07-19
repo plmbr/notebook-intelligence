@@ -117,6 +117,12 @@ Long Claude turns surface an elapsed-time counter and a heartbeat-driven pulse w
 
 In Claude mode, workspace files attached as chat context arrive as `@`-mention pointers rather than inlined file contents. Claude's Read tool fetches them on demand, which means images, large files, and notebooks (cell-aware) now work where the older content-injection path silently truncated or skipped them.
 
+#### Usage footer
+
+Enable **Show usage after each turn** in the Settings dialog to append a small footer under each Claude-mode reply with the turn's duration, token counts (with a cached-input breakdown), and cost — for example `12.3s · 45.2K in (38.1K cached) / 1.2K out · $0.0842`. It is off by default.
+
+The cost figure comes from the Claude Code CLI, priced from Anthropic's public list rates. It is shown only when NBI is configured with a direct Anthropic API key on the default endpoint, and is omitted otherwise — on a subscription login (where the marginal cost is effectively $0), an enterprise-negotiated contract, or a custom **Base URL** (proxy, gateway, or non-Anthropic endpoint) — since the list-price figure would not match your actual billing. Duration and token counts are always shown.
+
 #### Claude Code launcher tile
 
 When the Claude CLI is on `PATH`, the JupyterLab launcher (the panel that opens with new tabs) shows a **Claude Code** tile alongside the standard kernel launchers. Clicking it opens a session picker; search across past transcripts and resume one in a fresh terminal, or start a new session in the file browser's active subdirectory. Session IDs are copyable from the picker for paste into a `claude --resume <id>` command.
@@ -406,7 +412,7 @@ c.NotebookIntelligence.enable_chat_feedback = True
 jupyter lab --NotebookIntelligence.enable_chat_feedback=true
 ```
 
-The feedback fires an in-process `telemetry` event. Nothing leaves the process by default — see the [admin guide](docs/admin-guide.md#chat-feedback-event-hook) for how to wire it into your observability stack.
+The feedback fires an in-process `telemetry` event. Nothing leaves the process by default. See the [admin guide](docs/admin-guide.md#telemetry-events) for the full set of telemetry events and how to wire them into your observability stack.
 
 The thumbs buttons reveal on hover by default. To keep them always visible, enable:
 

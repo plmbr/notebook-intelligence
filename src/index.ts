@@ -41,7 +41,8 @@ import {
   IInlineCompletionContext,
   IInlineCompletionItem,
   IInlineCompletionList,
-  IInlineCompletionProvider
+  IInlineCompletionProvider,
+  IInlineCompleterFactory
 } from '@jupyterlab/completer';
 
 import { NotebookActions, NotebookPanel } from '@jupyterlab/notebook';
@@ -81,6 +82,10 @@ import {
 import { CellOutputHoverToolbar } from './cell-output-toolbar';
 import { attachOpenFileRefreshWatcher } from './open-file-refresh-watcher';
 import { buildRefreshWatcherEnv } from './open-file-refresh-watcher-env';
+import {
+  wrapInlineCompleterFactory,
+  NBI_INLINE_COMPLETION_PROVIDER_ID
+} from './inline-completer-telemetry';
 import {
   BackendMessageType,
   GITHUB_COPILOT_PROVIDER_ID,
@@ -126,6 +131,13 @@ import { ITerminalTracker } from '@jupyterlab/terminal';
 import { Token } from '@lumino/coreutils';
 import { NotebookGenerationToolbarExtension } from './notebook-generation-toolbar';
 import { attachTerminalDragDrop } from './terminal-drag';
+import {
+  DEFAULT_NOTEBOOK_KERNEL,
+  NotebookKernelNotFoundError,
+  findKernelProfile,
+  listKernelProfiles,
+  normalizeNotebookLanguage
+} from './notebook-kernels';
 
 import { CommandIDs } from './command-ids';
 
@@ -389,9 +401,20 @@ class ActiveDocumentWatcher {
       const np = activeWidget as NotebookPanel;
       activeDocumentInfo.filename = np.sessionContext.name;
       activeDocumentInfo.filePath = np.sessionContext.path;
-      activeDocumentInfo.language =
-        (np.model?.sharedModel?.metadata?.kernelspec?.language as string) ||
-        'python';
+      const kernelspec = np.model?.sharedModel?.metadata?.kernelspec as
+        | {
+            language?: string;
+            name?: string;
+            display_name?: string;
+          }
+        | undefined;
+      activeDocumentInfo.language = normalizeNotebookLanguage(
+        kernelspec?.language
+      );
+      activeDocumentInfo.kernelName =
+        kernelspec?.name || DEFAULT_NOTEBOOK_KERNEL.kernelName;
+      activeDocumentInfo.kernelDisplayName =
+        kernelspec?.display_name || DEFAULT_NOTEBOOK_KERNEL.displayName;
       const { activeCellIndex, activeCell } = np.content;
       activeDocumentInfo.activeCellIndex = activeCellIndex;
       activeDocumentInfo.selection = activeCell?.editor?.getSelection();
@@ -406,6 +429,8 @@ class ActiveDocumentWatcher {
             contentsModel.mimetype
           ) || ActiveDocumentWatcher._languageRegistry.findByFileName(fileName);
         activeDocumentInfo.language = language?.name || 'unknown';
+        activeDocumentInfo.kernelName = undefined;
+        activeDocumentInfo.kernelDisplayName = undefined;
         activeDocumentInfo.filename = fileName;
         activeDocumentInfo.filePath = filePath;
         if (activeWidget instanceof FileEditorWidget) {
@@ -418,6 +443,8 @@ class ActiveDocumentWatcher {
         activeDocumentInfo.filename = '';
         activeDocumentInfo.filePath = '';
         activeDocumentInfo.language = '';
+        activeDocumentInfo.kernelName = undefined;
+        activeDocumentInfo.kernelDisplayName = undefined;
       }
     }
 
@@ -443,6 +470,8 @@ class ActiveDocumentWatcher {
       lhs.filename !== rhs.filename ||
       lhs.filePath !== rhs.filePath ||
       lhs.language !== rhs.language ||
+      lhs.kernelName !== rhs.kernelName ||
+      lhs.kernelDisplayName !== rhs.kernelDisplayName ||
       lhs.activeCellIndex !== rhs.activeCellIndex ||
       !compareSelections(lhs.selection, rhs.selection)
     );
@@ -509,6 +538,8 @@ class ActiveDocumentWatcher {
 
   static activeDocumentInfo: IActiveDocumentInfo = {
     language: 'python',
+    kernelName: DEFAULT_NOTEBOOK_KERNEL.kernelName,
+    kernelDisplayName: DEFAULT_NOTEBOOK_KERNEL.displayName,
     filename: 'nb-doesnt-exist.ipynb',
     filePath: 'nb-doesnt-exist.ipynb',
     activeWidget: null,
@@ -660,7 +691,7 @@ class NBIInlineCompletionProvider
   }
 
   get identifier(): string {
-    return '@plmbr/notebook-intelligence';
+    return NBI_INLINE_COMPLETION_PROVIDER_ID;
   }
 
   get icon(): LabIcon.ILabIcon {
@@ -841,7 +872,8 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
   optional: [
     IStatusBar,
     ILauncher,
-    ITerminalTracker as unknown as Token<unknown>
+    ITerminalTracker as unknown as Token<unknown>,
+    IInlineCompleterFactory
   ],
   provides: INotebookIntelligence,
   activate: async (
@@ -854,7 +886,8 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     mainMenu: IMainMenu,
     statusBar: IStatusBar | null,
     launcher: ILauncher | null,
-    terminalTracker: ITerminalTracker | null
+    terminalTracker: ITerminalTracker | null,
+    defaultInlineCompleterFactory: IInlineCompleterFactory | null
   ) => {
     console.log(
       'JupyterLab extension @plmbr/notebook-intelligence is activated!'
@@ -909,6 +942,33 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
     completionManager.registerInlineProvider(
       new NBIInlineCompletionProvider(telemetryEmitter)
     );
+
+    // Wrap JupyterLab's default inline-completer factory to add acceptance
+    // telemetry. We install it on app.started: that resolves after every
+    // plugin has activated (so JupyterLab's own factory is already set and we
+    // win as the last writer) but before layout restoration creates the per
+    // editor completer handlers, which capture the factory at creation time and
+    // are never regenerated afterwards. Deferring to app.restored would be too
+    // late: the restored notebook's handler would already hold the default
+    // widget. Guarded on the optional factory so NBI still loads if JupyterLab
+    // ever stops providing it (acceptance telemetry simply won't be emitted).
+    if (defaultInlineCompleterFactory) {
+      const wrappedFactory = wrapInlineCompleterFactory(
+        defaultInlineCompleterFactory,
+        telemetryEmitter,
+        () => ({
+          provider: NBIAPI.config.inlineCompletionModel.provider,
+          model: NBIAPI.config.inlineCompletionModel.model
+        })
+      );
+      app.started
+        .then(() => {
+          completionManager.setInlineCompleterFactory(wrappedFactory);
+        })
+        .catch(() => {
+          /* best-effort: acceptance telemetry just won't be emitted */
+        });
+    }
 
     // JL plugins have no deactivate hook, so the watcher runs for the
     // lifetime of the Lab session and the returned teardown is intentionally
@@ -1215,21 +1275,26 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       }
     });
 
-    app.commands.addCommand(CommandIDs.createNewNotebookFromPython, {
+    app.commands.addCommand(CommandIDs.createNewNotebook, {
       execute: async args => {
-        let pythonKernelSpec = null;
         const contents = new ContentsManager();
         const kernels = new KernelSpecManager();
         await kernels.ready;
-        const kernelspecs = kernels.specs?.kernelspecs;
-        if (kernelspecs) {
-          for (const key in kernelspecs) {
-            const kernelspec = kernelspecs[key];
-            if (kernelspec?.language === 'python') {
-              pythonKernelSpec = kernelspec;
-              break;
-            }
+        let profile;
+        try {
+          profile = findKernelProfile(kernels.specs?.kernelspecs, {
+            language: args.language as string | undefined,
+            kernelName: args.kernelName as string | undefined
+          });
+        } catch (error) {
+          if (error instanceof NotebookKernelNotFoundError) {
+            app.commands.execute('apputils:notify', {
+              message: error.message,
+              type: 'error',
+              options: { autoClose: true }
+            });
           }
+          throw error;
         }
 
         const newNBFile = await contents.newUntitled({
@@ -1237,15 +1302,16 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           path: defaultBrowser?.model.path
         });
         const nbFileContent = structuredClone(emptyNotebookContent);
-        if (pythonKernelSpec) {
-          nbFileContent.metadata = {
-            kernelspec: {
-              language: 'python',
-              name: pythonKernelSpec.name,
-              display_name: pythonKernelSpec.display_name
-            }
-          };
-        }
+        nbFileContent.metadata = {
+          kernelspec: {
+            language: profile.language,
+            name: profile.kernelName,
+            display_name: profile.displayName
+          },
+          language_info: {
+            name: profile.language
+          }
+        };
 
         if (args.code) {
           nbFileContent.cells.push({
@@ -1266,6 +1332,16 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         await waitForFileToBeActive(newNBFile.path);
 
         return newNBFile;
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.listAvailableNotebookKernels, {
+      execute: async () => {
+        const kernels = new KernelSpecManager();
+        await kernels.ready;
+        return {
+          kernels: listKernelProfiles(kernels.specs?.kernelspecs)
+        };
       }
     });
 
@@ -2086,6 +2162,17 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
 
       let blockPromptView: EditorView | null = null;
       let removed = false;
+      // Acceptance telemetry state: whether generated code was ever shown to
+      // the user, and whether they applied it. A teardown that happens after
+      // code was shown but never applied is a dismissal.
+      let generatedCodeShown = false;
+      let codeApplied = false;
+      // A backend stream error surfaces a visible [Stream interrupted] marker
+      // but no usable code, so tearing the popover down afterwards is a failure,
+      // not a user dismissal. Tracked separately from generatedCodeShown because
+      // the review path re-renders the marker into the diff (which re-sets
+      // generatedCodeShown) after the stream-end callback has run.
+      let streamErrored = false;
       const removePopover = () => {
         // Cleared outside the `removed` guard so the auto-insert path's
         // second call still removes the class added between calls.
@@ -2098,6 +2185,18 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         }
         removed = true;
         closeOpenPopover = null;
+
+        if (generatedCodeShown && !codeApplied && !streamErrored) {
+          telemetryEmitter.emitTelemetryEvent({
+            type: TelemetryEventType.InlineChatDismissed,
+            data: {
+              chatModel: {
+                provider: NBIAPI.config.chatModel.provider,
+                model: NBIAPI.config.chatModel.model
+              }
+            }
+          });
+        }
 
         if (blockPromptView) {
           blockPromptView.dispatch({
@@ -2137,6 +2236,19 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
       }
 
       const applyGeneratedCode = () => {
+        codeApplied = true;
+        telemetryEmitter.emitTelemetryEvent({
+          type: TelemetryEventType.InlineChatAccepted,
+          data: {
+            chatModel: {
+              provider: NBIAPI.config.chatModel.provider,
+              model: NBIAPI.config.chatModel.model
+            },
+            // 'review' = user accepted the diff for a selection; 'auto-insert'
+            // = no selection, so the generated code was inserted directly.
+            mode: existingCode !== '' ? 'review' : 'auto-insert'
+          }
+        });
         generatedContent = extractLLMGeneratedCode(generatedContent);
         // extractLLMGeneratedCode preserves the newline that sits before
         // the closing ``` in fenced LLM output. If the user's selection
@@ -2161,10 +2273,17 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         prefix: prefix,
         suffix: suffix,
         language: ActiveDocumentWatcher.activeDocumentInfo.language,
+        kernelName: ActiveDocumentWatcher.activeDocumentInfo.kernelName,
         filename: ActiveDocumentWatcher.activeDocumentInfo.filePath,
         onRequestSubmitted: (prompt: string) => {
           userPrompt = prompt;
           generatedContent = '';
+          // Reset per-generation telemetry state: the review popover survives
+          // across re-submits, so a fresh prompt must not inherit the prior
+          // run's "shown"/"errored" flags (e.g. an errored attempt followed by
+          // a successful one the user then dismisses).
+          generatedCodeShown = false;
+          streamErrored = false;
           if (existingCode !== '') {
             return;
           }
@@ -2182,8 +2301,17 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
             return;
           }
           generatedContent += content;
+          if (generatedContent !== '') {
+            generatedCodeShown = true;
+          }
         },
         onContentStreamEnd: (streamError?: string | null) => {
+          if (streamError) {
+            // Recorded before the auto-insert-only early return below so both
+            // paths see it: the review path keeps the errored diff on screen
+            // for the user to discard, which must not count as a dismissal.
+            streamErrored = true;
+          }
           if (existingCode !== '') {
             return;
           }
@@ -2207,6 +2335,9 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
         },
         onUpdatedCodeChange: (content: string) => {
           generatedContent = content;
+          if (content !== '') {
+            generatedCodeShown = true;
+          }
         },
         onUpdatedCodeAccepted: () => {
           applyGeneratedCode();
@@ -2280,6 +2411,7 @@ const plugin: JupyterFrontEndPlugin<INotebookIntelligence> = {
           prefix: promptOptions.prefix,
           suffix: promptOptions.suffix,
           language: promptOptions.language,
+          kernelName: promptOptions.kernelName,
           filename: promptOptions.filename,
           onUpdatedCodeChange: promptOptions.onUpdatedCodeChange,
           onUpdatedCodeAccepted: promptOptions.onUpdatedCodeAccepted,

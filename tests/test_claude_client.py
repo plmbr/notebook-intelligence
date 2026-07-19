@@ -1282,3 +1282,61 @@ class TestParticipantCommandsDedupe:
         participant._client.server_info = None
         names = [cmd.name for cmd in participant.commands]
         assert names == ["compact", "context", "cost", "clear"]
+
+
+class TestAssembleClientQuery:
+    """Slash-command queries must not silently discard this turn's context
+    lines (attachment @-mentions, cell pointers, output context).
+
+    Only control-only commands (/clear, /cost, ...) drop the context —
+    it is meaningless to them. Any other command is moved to the front
+    (the CLI only recognizes a command at the start of the query) with
+    the context preserved after it.
+    """
+
+    def test_plain_prompt_joins_all_lines(self):
+        from notebook_intelligence.claude import assemble_client_query
+        query = assemble_client_query([
+            "The user attached @data.csv. Read it if relevant to the request.",
+            "Summarize this file",
+        ])
+        assert query == (
+            "The user attached @data.csv. Read it if relevant to the request."
+            "\nSummarize this file"
+        )
+
+    def test_control_command_drops_context(self):
+        from notebook_intelligence.claude import assemble_client_query
+        query = assemble_client_query([
+            "The user attached @data.csv. Read it if relevant to the request.",
+            "/clear",
+        ])
+        assert query == "/clear"
+
+    def test_control_command_matching_is_case_insensitive_and_token_based(self):
+        from notebook_intelligence.claude import assemble_client_query
+        assert assemble_client_query(["context line", "/Cost"]) == "/Cost"
+
+    def test_custom_command_keeps_context_after_command(self):
+        from notebook_intelligence.claude import assemble_client_query
+        query = assemble_client_query([
+            "The user attached @analysis.ipynb. Read it if relevant to the request.",
+            "/review-notebook focus on performance",
+        ])
+        assert query.splitlines()[0] == "/review-notebook focus on performance"
+        assert "@analysis.ipynb" in query
+
+    def test_custom_command_without_context_is_unchanged(self):
+        from notebook_intelligence.claude import assemble_client_query
+        assert assemble_client_query(["/review-notebook"]) == "/review-notebook"
+
+    def test_empty_lines_list(self):
+        from notebook_intelligence.claude import assemble_client_query
+        assert assemble_client_query([]) == ""
+
+    def test_hidden_plan_mode_alias_still_leads_query(self):
+        # The plan-mode aliases are intercepted via client_query.startswith,
+        # so the command line must stay first even with context attached.
+        from notebook_intelligence.claude import assemble_client_query
+        query = assemble_client_query(["context line", "/enter-plan-mode"])
+        assert query.startswith("/enter-plan-mode")

@@ -15,11 +15,13 @@ class TestRuleContextFactory:
             filename=filename,
             language=language,
             chat_mode_id=chat_mode_id,
-            root_dir=root_dir
+            root_dir=root_dir,
+            kernel_name="python3",
         )
         
         assert context.filename == filename
-        assert context.kernel == language
+        assert context.language == "python"
+        assert context.kernel_name == "python3"
         assert context.mode == chat_mode_id
         assert context.directory == "/workspace"
     
@@ -34,10 +36,12 @@ class TestRuleContextFactory:
             filename=filename,
             language=language,
             chat_mode_id=chat_mode_id,
-            root_dir=root_dir
+            root_dir=root_dir,
+            kernel_name="python3",
         )
         
         assert context.filename == filename
-        assert context.kernel == language
+        assert context.language == "python"
+        assert context.kernel_name == "python3"
         assert context.mode == chat_mode_id
         assert context.directory == "/workspace/notebooks"

@@ -1,6 +1,7 @@
 # Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
 from time import time
+import json
 from notebook_intelligence.api import ChatResponse, MarkdownPartData, Toolset
 import logging
 import notebook_intelligence.api as nbapi
@@ -8,6 +9,8 @@ from notebook_intelligence.api import BuiltinToolset
 from pathlib import Path
 import subprocess
 import shlex
+import os
+import fnmatch
 
 from notebook_intelligence.util import (
     get_jupyter_root_dir,
@@ -21,6 +24,107 @@ from notebook_intelligence.util import (
 # working through the alias; new code should call ``safe_jupyter_path``
 # directly.
 _get_safe_path = safe_jupyter_path
+
+
+def _glob_pattern_escapes(pattern: str) -> bool:
+    """True if a glob pattern would range outside the search root.
+
+    ``Path.glob`` evaluates ``..`` segments (and rejects absolute
+    patterns only with an unhelpful error), so a pattern like
+    ``../secret.txt`` or ``**/../secret.txt`` makes ``glob`` enumerate
+    and stat paths outside ``jupyter_root_dir`` before the per-match
+    ``safe_jupyter_path`` gate can skip them. That both defeats the
+    workspace confinement during enumeration and leaks outside-file
+    existence through the differing "no files found" vs "found" replies.
+    Reject absolute patterns and any ``..`` component up front so the
+    boundary holds during enumeration too.
+    """
+    norm = pattern.replace("\\", "/")
+    if norm.startswith("/"):
+        return True
+    return ".." in norm.split("/")
+
+
+def _explicit_descendable(entry, root_dir):
+    """Whether an explicit (non-``**``) path segment may recurse into ``entry``.
+
+    Real directories are descendable. A symlinked directory is descendable
+    only when it resolves back inside ``root_dir`` -- an outbound symlink is
+    refused so its target tree is never enumerated -- which mirrors how
+    ``Path.glob`` follows an explicit path component through an in-workspace
+    symlink but the ``safe_jupyter_path`` gate rejects an outbound one.
+    """
+    try:
+        if entry.is_symlink():
+            # Resolve first and reject an outbound target before probing it as
+            # a directory, so an outbound symlink is never stat-followed past
+            # the workspace boundary during enumeration.
+            real = os.path.realpath(entry.path)
+            try:
+                Path(real).relative_to(root_dir)
+            except ValueError:
+                return False  # outbound symlinked path
+            # In-workspace target: safe to confirm it is a directory.
+            return os.path.isdir(real)
+        return entry.is_dir(follow_symlinks=False)
+    except OSError:
+        return False
+
+
+def _iter_pattern_matches(base_dir, segments, root_dir):
+    """Yield paths under ``base_dir`` matching the glob ``segments``.
+
+    A drop-in, sandbox-safe replacement for ``Path.glob`` enumeration:
+
+    * It recurses only as deep as the pattern requires (a non-recursive
+      pattern like ``*.py`` or ``foo.txt`` scans a single directory level,
+      not the whole subtree), so a simple search stays O(entries at that
+      depth) rather than walking every descendant.
+    * ``**`` recursion descends real directories only and never crosses a
+      symlink, exactly like ``Path.glob``; that also makes it cycle-free.
+      An explicit path component (e.g. ``link/*.txt``) may follow an
+      in-workspace symlinked directory but never an outbound one (see
+      ``_explicit_descendable``), so an outside tree is never enumerated,
+      and explicit depth is bounded by the finite pattern.
+    * Each path segment is matched with ``fnmatch.fnmatch``, which honors the
+      full glob syntax ``pathlib`` supports -- ``*``, ``?`` and character
+      classes such as ``[co]`` / ``[!x]`` -- with the platform-default case
+      sensitivity ``Path.glob`` uses; ``**`` spans zero or more levels.
+
+    Matches are yielded regardless of type; the caller resolves each one
+    through ``safe_jupyter_path`` and applies its own ``is_file`` filter.
+    """
+    if not segments:
+        return
+    seg, rest = segments[0], segments[1:]
+    try:
+        entries = list(os.scandir(base_dir))
+    except OSError:
+        return
+    if seg == "**":
+        # ``**`` matches zero or more directory levels, following real
+        # directories only (Path.glob does not cross symlinks for ``**``).
+        if rest:
+            yield from _iter_pattern_matches(base_dir, rest, root_dir)
+        else:
+            yield Path(base_dir)
+        for entry in entries:
+            try:
+                is_real_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_real_dir:
+                yield from _iter_pattern_matches(entry.path, segments, root_dir)
+        return
+    for entry in entries:
+        if not fnmatch.fnmatch(entry.name, seg):
+            continue
+        if rest:
+            if _explicit_descendable(entry, root_dir):
+                yield from _iter_pattern_matches(entry.path, rest, root_dir)
+        else:
+            yield Path(entry.path)
+
 
 log = logging.getLogger(__name__)
 
@@ -96,11 +200,49 @@ def _truncate_read_file_output(
 
 @nbapi.auto_approve
 @nbapi.tool
-async def create_new_notebook(**args) -> str:
-    """Creates a new empty notebook.
+async def list_available_notebook_kernels(**args) -> str:
+    """Lists Jupyter kernels available in the current frontend environment.
+
+    Use this before creating a notebook when you need a kernel that may differ
+    from the current notebook context.
     """
     response = args["response"]
-    ui_cmd_response = await response.run_ui_command('notebook-intelligence:create-new-notebook-from-py', {'code': ''})
+    ui_cmd_response = await response.run_ui_command(
+        'notebook-intelligence:list-available-notebook-kernels',
+        {}
+    )
+    return json.dumps(ui_cmd_response)
+
+
+@nbapi.auto_approve
+@nbapi.tool
+async def create_new_notebook(
+    language: str = "python",
+    kernel_name: str = "",
+    **args,
+) -> str:
+    """Creates a new empty notebook.
+
+    Args:
+        language: Programming language for the notebook kernel, e.g. python or r.
+        kernel_name: Explicit Jupyter kernel name to use when creating the notebook.
+    """
+    response = args["response"]
+    request = args.get("request")
+    effective_language = language or getattr(request, "language", "") or "python"
+    effective_kernel_name = (
+        kernel_name
+        or getattr(request, "kernel_name", "")
+        or ""
+    )
+    ui_cmd_response = await response.run_ui_command(
+        'notebook-intelligence:create-new-notebook',
+        {
+            'code': '',
+            'language': effective_language,
+            'kernelName': effective_kernel_name,
+        }
+    )
     file_path = ui_cmd_response['path']
 
     return f"Created new notebook at {file_path}"
@@ -135,7 +277,7 @@ async def add_markdown_cell(source: str, **args) -> str:
 async def add_code_cell(source: str, **args) -> str:
     """Adds a code cell to notebook.
     Args:
-        source: Python code source
+        source: Code source for the notebook's current language
     """
     response = args["response"]
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:add-code-cell-to-active-notebook', {'source': source})
@@ -189,7 +331,7 @@ async def set_cell_type_and_source(cell_index: int, cell_type: str, source: str,
     Args:
         cell_index: Zero based cell index
         cell_type: Cell type (code or markdown)
-        source: Markdown or Python code source
+        source: Markdown or code source
     """
     response = args["response"]
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:set-cell-type-and-source', {"cellIndex": cell_index, "cellType": cell_type, "source": source})
@@ -218,7 +360,7 @@ async def insert_cell(cell_index: int, cell_type: str, source: str, **args) -> s
     Args:
         cell_index: Zero based cell index
         cell_type: Cell type (code or markdown)
-        source: Markdown or Python code source
+        source: Markdown or code source
     """
     response = args["response"]
     ui_cmd_response = await response.run_ui_command('notebook-intelligence:insert-cell-at-index', {"cellIndex": cell_index, "cellType": cell_type, "source": source})
@@ -318,32 +460,83 @@ async def search_files(
         context_lines = int(args.get('context_lines', 2))
         # Support backward-compatible defaulting, if called with only old pattern argument
         main_pattern = pattern or "**/*"
+        # Reject patterns that try to escape the search root before they
+        # reach glob(); otherwise glob would stat outside paths and the
+        # differing replies would leak outside-file existence even though
+        # the per-match gate below refuses to read the contents.
+        for pat in (main_pattern, file_pattern):
+            if pat and _glob_pattern_escapes(pat):
+                return (
+                    f"Pattern '{pat}' is not allowed: search is confined to the "
+                    f"workspace and patterns cannot traverse outside it."
+                )
         # If file_pattern is provided, use it to restrict files further after applying main_pattern
         matched_results = []
         file_count = 0
         match_count = 0
 
-        # Use the main pattern for initial search
-        files = [f for f in search_dir.glob(main_pattern) if f.is_file()]
-        # Further restrict by file_pattern if provided (matches basename)
-        if file_pattern:
-            files = [
-                f for f in files
-                if f.match(file_pattern) or f.name == file_pattern or f.match(str(search_dir / file_pattern))
-            ]
+        # Enumerate via a depth-pruned, sandbox-aware walk instead of
+        # Path.glob(): glob descends OUTBOUND symlinked directories while
+        # expanding a pattern such as "link/*", enumerating the filesystem
+        # outside the workspace before any candidate can be rejected, and it
+        # walks the whole subtree even for shallow patterns.
+        # _iter_pattern_matches recurses only as deep as the pattern requires,
+        # descends real and in-workspace symlinked directories but never an
+        # outbound one, and preserves full glob syntax; each surviving match is
+        # still funneled through the safe_jupyter_path gate before it is stat'd
+        # or opened.
+        root_dir = Path(jupyter_root_dir).expanduser().resolve()
+        # Drop empty and "." segments so a "current directory" component is a
+        # no-op, matching Path.glob's normalization of "./*.py" and
+        # "sub/./*.txt" rather than searching for an entry literally named ".".
+        segments = [
+            s
+            for s in main_pattern.replace("\\", "/").split("/")
+            if s and s != "."
+        ]
+        files = []
+        seen = set()
+        for cand in _iter_pattern_matches(search_dir, segments, root_dir):
+            # Optional file_pattern filter. Preserve the original path-aware
+            # behavior: Path.match is right-anchored, so a bare basename glob
+            # ("*.py") and a relative-path glob ("sub/*.py") both work, as does
+            # a pattern anchored at the search directory.
+            if file_pattern and not (
+                cand.match(file_pattern)
+                or cand.name == file_pattern
+                or cand.match(str(search_dir / file_pattern))
+            ):
+                continue
+            try:
+                rel_path = cand.relative_to(root_dir)
+            except ValueError:
+                continue
+            key = str(rel_path)
+            if key in seen:
+                continue
+            try:
+                safe_file = _get_safe_path(key)
+            except ValueError:
+                # Outbound symlink file (e.g. leak.txt -> /etc/passwd)
+                # resolves outside the workspace; skipped identically
+                # whether or not its target exists, so no outside-path
+                # existence can be inferred. Matches read_file's gate.
+                continue
+            # Safe to stat now: the path is confirmed inside the workspace.
+            if safe_file.is_file():
+                seen.add(key)
+                files.append((safe_file, rel_path))
+
+        # Deterministic order (directory iteration order is arbitrary).
+        files.sort(key=lambda item: str(item[1]))
+
         if not files:
             pinfo = file_pattern if file_pattern else pattern
             return f"No files found matching pattern '{pinfo}' in '{directory}'"
 
-        for file_path in files:
-            root_dir = Path(jupyter_root_dir).expanduser().resolve()
+        for safe_file, rel_path in files:
             try:
-                rel_path = file_path.relative_to(root_dir)
-            except ValueError:
-                rel_path = file_path
-
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(safe_file, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
             except Exception:
                 continue  # skip unreadable files
@@ -711,9 +904,11 @@ async def run_command_in_embedded_terminal(command: str, working_directory: str 
         return f"Error running command in embedded terminal: {str(e)}"
 
 NOTEBOOK_EDIT_INSTRUCTIONS = """
-You are an assistant that creates and edits Jupyter notebooks. Notebooks are made up of source code cells and markdown cells. Markdown cells have source in markdown format and code cells have source in a specified programming language. If no programming language is specified, then use Python for the language of the code.
+You are an assistant that creates and edits Jupyter notebooks. Notebooks are made up of source code cells and markdown cells. Markdown cells have source in markdown format and code cells have source in a specified programming language. If no programming language is specified, then use Python for the language of the code. If the context specifies a kernel or language for the current notebook, keep that kernel and language. Do not silently switch kernels or rewrite the workflow in a different language.
 
 If you need to create a notebook use the create_new_notebook tool. If you need to add a code cell to the notebook use the add_code_cell tool. If you need to add a markdown cell to the notebook use the add_markdown_cell tool.
+
+If you need to create a notebook in a language or kernel that is not already established by the current notebook context, call the list_available_notebook_kernels tool first and choose only from the kernels it returns. Do not guess kernel names.
 
 If you need to rename a notebook use the rename_notebook tool.
 
@@ -792,6 +987,7 @@ built_in_toolsets: dict[BuiltinToolset, Toolset] = {
         description="Edit notebook using the JupyterLab notebook editor",
         provider=None,
         tools=[
+            list_available_notebook_kernels,
             create_new_notebook,
             rename_notebook,
             add_markdown_cell,

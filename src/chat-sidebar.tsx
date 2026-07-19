@@ -112,6 +112,8 @@ export interface IRunChatCompletionRequest {
   type: RunChatCompletionType;
   content: string;
   language?: string;
+  kernelName?: string;
+  kernelDisplayName?: string;
   currentDirectory?: string;
   filename?: string;
   prefix?: string;
@@ -171,6 +173,7 @@ export interface IInlinePromptWidgetOptions {
   prefix: string;
   suffix: string;
   language?: string;
+  kernelName?: string;
   filename?: string;
   onRequestSubmitted: (prompt: string) => void;
   onRequestCancelled: () => void;
@@ -296,6 +299,9 @@ export class InlinePromptWidget extends ReactWidget {
         onResponseEmit={this._onResponse.bind(this)}
         prefix={this._options.prefix}
         suffix={this._options.suffix}
+        language={this._options.language}
+        kernelName={this._options.kernelName}
+        filename={this._options.filename}
         onUpdatedCodeChange={this._options.onUpdatedCodeChange}
         onUpdatedCodeAccepted={this._options.onUpdatedCodeAccepted}
       />
@@ -1189,6 +1195,8 @@ async function submitCompletionRequest(
         request.chatId,
         request.content,
         request.language || 'python',
+        request.kernelName || '',
+        request.kernelDisplayName || '',
         request.currentDirectory || '',
         request.filename || '',
         request.additionalContext || [],
@@ -1204,6 +1212,8 @@ async function submitCompletionRequest(
         request.chatId,
         request.content,
         request.language || 'python',
+        request.kernelName || '',
+        request.kernelDisplayName || '',
         request.currentDirectory || '',
         request.filename || '',
         [],
@@ -1221,6 +1231,7 @@ async function submitCompletionRequest(
         request.suffix || '',
         request.existingCode || '',
         request.language || 'python',
+        request.kernelName || '',
         request.filename || '',
         responseEmitter
       );
@@ -3091,6 +3102,8 @@ function SidebarComponent(props: any) {
         type: RunChatCompletionType.Chat,
         content: extractedPrompt,
         language: activeDocInfo.language,
+        kernelName: activeDocInfo.kernelName,
+        kernelDisplayName: activeDocInfo.kernelDisplayName,
         currentDirectory: props.getCurrentDirectory(),
         filename: activeDocInfo.filePath,
         additionalContext,
@@ -3542,6 +3555,11 @@ function SidebarComponent(props: any) {
         externalActiveDocInfo?.filePath?.endsWith('.ipynb')
           ? externalActiveDocInfo.filePath
           : null;
+      request.language = request.language || externalActiveDocInfo?.language;
+      request.kernelName =
+        request.kernelName || externalActiveDocInfo?.kernelName;
+      request.kernelDisplayName =
+        request.kernelDisplayName || externalActiveDocInfo?.kernelDisplayName;
       const hideInChat = !!request.hideInChat;
       const newList = hideInChat
         ? chatMessages
@@ -5029,6 +5047,7 @@ function InlinePromptComponent(props: any) {
         type: RunChatCompletionType.GenerateCode,
         content: prompt,
         language: props.language || 'python',
+        kernelName: props.kernelName || '',
         filename: props.filename || '',
         prefix: props.prefix,
         suffix: props.suffix,

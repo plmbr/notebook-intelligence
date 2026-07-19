@@ -63,6 +63,7 @@ from notebook_intelligence.claude import (
     claude_bypass_disabled_by_managed_settings,
     claude_managed_default_permission_mode,
     fetch_claude_models,
+    model_info_from_id,
     resolve_permission_mode,
 )
 from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
@@ -164,6 +165,27 @@ def _resolve_supports_vision(ai_service_manager) -> bool:
         return True
     chat_model = ai_service_manager.chat_model
     return chat_model.supports_vision if chat_model is not None else False
+
+
+def _resolve_context_token_limit(ai_service_manager) -> int:
+    """Token budget source for attachment/output context.
+
+    In Claude Code mode the active model is Claude, not
+    ``ai_service_manager.chat_model`` — that property still reflects the
+    user's most recent non-Claude provider selection and is ``None`` on a
+    Claude-only setup. Falling through to the legacy 100-token floor in
+    that state shrank the context budget to 80 tokens, which silently
+    dropped cell-output attachments and truncated every attachment after
+    the first. Resolve the budget from the configured Claude model
+    instead (``model_info_from_id`` falls back to a 200K window for
+    unknown or default model ids).
+    """
+    if ai_service_manager.is_claude_code_mode:
+        model_id = ai_service_manager.nbi_config.claude_settings.get('chat_model', '')
+        model_id = model_id.strip() if isinstance(model_id, str) else ''
+        return model_info_from_id(model_id)["context_window"]
+    chat_model = ai_service_manager.chat_model
+    return 100 if chat_model is None else chat_model.context_window
 
 
 def _resolve_policy_with_env(env_var_name: str, traitlet_value: str) -> str:
@@ -2498,6 +2520,8 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             chatId = data['chatId']
             prompt = data['prompt']
             language = data['language']
+            kernel_name = data.get('kernelName', '')
+            kernel_display_name = data.get('kernelDisplayName', '')
             filename = data['filename']
             additionalContext = data.get('additionalContext', [])
             chat_mode = ChatMode('agent', 'Agent') if data.get('chatMode', 'ask') == 'agent' else ChatMode('ask', 'Ask')
@@ -2527,9 +2551,21 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
                 current_directory_file_msg = f"{NBI_CONTEXT_PREFIX} '{current_directory}'"
                 if filename != '':
                     current_directory_file_msg += f" and current file is: '{filename}'"
+                if language:
+                    current_directory_file_msg += (
+                        f" and active programming language is: '{language}'"
+                    )
+                if kernel_name:
+                    current_directory_file_msg += (
+                        f" with active kernel name: '{kernel_name}'"
+                    )
+                if kernel_display_name:
+                    current_directory_file_msg += (
+                        f" ({kernel_display_name})"
+                    )
                 chat_history.append({"role": "user", "content": current_directory_file_msg})
 
-            token_limit = 100 if ai_service_manager.chat_model is None else ai_service_manager.chat_model.context_window
+            token_limit = _resolve_context_token_limit(ai_service_manager)
             remaining_token_budget = int(0.8 * token_limit)
 
             # Resolve once; reused for sandbox containment and for
@@ -2753,13 +2789,14 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             rule_context = self._context_factory.create(
                 filename=filename,
                 language=language,
+                kernel_name=kernel_name,
                 chat_mode_id=chat_mode.id,
                 root_dir=NotebookIntelligence.root_dir
             )
 
             # last prompt is added later
             request_chat_history = chat_history[chat_history_initial_size:-1] if is_agent_session_mode else chat_history[:-1]
-            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, tool_selection=tool_selection, prompt=prompt, chat_history=request_chat_history, cancel_token=cancel_token, rule_context=rule_context, permission_mode=permission_mode), response_emitter)
+            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, tool_selection=tool_selection, prompt=prompt, language=language, kernel_name=kernel_name, chat_history=request_chat_history, cancel_token=cancel_token, rule_context=rule_context, permission_mode=permission_mode), response_emitter)
             thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId))
             thread.start()
         elif messageType == RequestDataType.GenerateCode:
@@ -2770,6 +2807,7 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             suffix = data['suffix']
             existing_code = data['existingCode']
             language = data['language']
+            kernel_name = data.get('kernelName', '')
             filename = data['filename']
             is_claude_code_mode = ai_service_manager.is_claude_code_mode
             chat_mode = ChatMode('inline-chat', 'Inline Chat') if is_claude_code_mode else ChatMode('ask', 'Ask')
@@ -2790,11 +2828,12 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             rule_context = self._context_factory.create(
                 filename=filename,
                 language=language,
+                kernel_name=kernel_name,
                 chat_mode_id='inline-chat',
                 root_dir=NotebookIntelligence.root_dir
             )
             
-            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, prompt=prompt, chat_history=self.chat_history.get_history(chatId), cancel_token=cancel_token, rule_context=rule_context), response_emitter, options={"system_prompt": f"You are an assistant that generates code for '{language}' language. You generate code between existing leading and trailing code sections.{existing_code_message} Be concise and return only code as a response. Don't include leading content or trailing content in your response, they are provided only for context. You can reuse methods and symbols defined in leading and trailing content."})
+            coro = ai_service_manager.handle_chat_request(ChatRequest(chat_mode=chat_mode, prompt=prompt, language=language, kernel_name=kernel_name, chat_history=self.chat_history.get_history(chatId), cancel_token=cancel_token, rule_context=rule_context), response_emitter, options={"system_prompt": f"You are an assistant that generates code for '{language}' language. You generate code between existing leading and trailing code sections.{existing_code_message} Be concise and return only code as a response. Don't include leading content or trailing content in your response, they are provided only for context. You can reuse methods and symbols defined in leading and trailing content."})
             thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId))
             thread.start()
         elif messageType == RequestDataType.InlineCompletionRequest:
