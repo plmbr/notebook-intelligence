@@ -257,14 +257,30 @@ class TestAssembleQuery:
         ])
         assert query == "the prompt"
 
-    def test_trailing_slash_command_drops_context(self):
-        # Context lines are meaningless to a slash command and could break
-        # its parsing; mirrors the Claude-mode join.
+    def test_control_slash_command_drops_context(self):
+        # Context lines are meaningless to a control command and could break
+        # its parsing; mirrors the Claude-mode join after #388.
         query = self._assemble([
             {"role": "user", "content": "The user attached @data.csv."},
             {"role": "user", "content": "/compact"},
         ])
         assert query == "/compact"
+
+    def test_custom_slash_command_keeps_context_after_the_command(self):
+        # A non-control command is hoisted to the front (the agent only
+        # recognizes a command at the start of the prompt) with the turn's
+        # context preserved as its arguments; mirrors Claude mode's #388 join.
+        query = self._assemble([
+            {"role": "user", "content": "The user attached @data.csv."},
+            {"role": "user", "content": "/analyze"},
+        ])
+        assert query == "/analyze\nThe user attached @data.csv."
+
+    def test_bare_custom_command_with_no_context_stays_clean(self):
+        query = self._assemble(
+            [{"role": "user", "content": "/analyze"}], prompt="/analyze"
+        )
+        assert query == "/analyze"
 
 
 class TestStripContextPreamble:

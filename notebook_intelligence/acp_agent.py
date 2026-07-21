@@ -55,6 +55,7 @@ from notebook_intelligence.acp_registry import (
     resolve_acp_agent_command,
 )
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
+from notebook_intelligence.claude_sessions import CONTROL_SLASH_COMMANDS
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir
 
 log = logging.getLogger(__name__)
@@ -636,9 +637,13 @@ class AcpAgentClient:
         @-mentions, current-file pointer, output context) to the chat history
         before the prompt, exactly like Claude mode. Sending only
         ``request.prompt`` would silently drop whatever the user just
-        attached. A trailing slash command drops the context lines instead --
-        they are meaningless to commands like ``/compact`` and could break
-        their parsing (mirrors the Claude-mode join).
+        attached. Slash commands mirror Claude mode's join (#388):
+
+        - control-only commands (``/clear``, ``/compact``, ...) drop the
+          context; it is meaningless to them and could break their parsing;
+        - every other command is moved to the front so the agent still
+          recognizes it, with the context lines preserved after it (a custom
+          command receives them as part of its arguments).
         """
         query_lines = []
         for msg in request.chat_history:
@@ -649,7 +654,12 @@ class AcpAgentClient:
         if not query_lines:
             return request.prompt
         if query_lines[-1].startswith("/"):
-            query_lines = query_lines[-1:]
+            command_line = query_lines[-1]
+            command_token = command_line.split(None, 1)[0].lower()
+            if command_token in CONTROL_SLASH_COMMANDS or len(query_lines) == 1:
+                query_lines = [command_line]
+            else:
+                query_lines = [command_line, *query_lines[:-1]]
         return "\n".join(line.strip() for line in query_lines)
 
     def query(self, request: ChatRequest, response: ChatResponse) -> Optional[str]:
