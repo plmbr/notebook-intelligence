@@ -21,9 +21,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    # 2.18.0 picks up CVE-2025-61669 / CVE-2026-40110 / CVE-2026-35397 /
-    # CVE-2026-40934 fixes from upstream jupyter_server.
-    "jupyter_server>=2.18.0,<3",
+    # 2.18.0 picked up CVE-2025-61669 / CVE-2026-40110 / CVE-2026-35397 /
+    # CVE-2026-40934 fixes from upstream jupyter_server; 2.20.0 adds the
+    # PYSEC-2026-366 fix.
+    "jupyter_server>=2.20.0,<3",
     "sseclient-py",
     "fuzy-jon==0.1.0",
     "tiktoken",
@@ -46,8 +47,9 @@ dependencies = [
     # subset of fastmcp's surface NBI needs against the official SDK,
     # which lists python-dotenv only as an optional ``cli`` extra and
     # is already in the dep tree via ``claude-agent-sdk``. Track
-    # BerriAI/litellm#25231 for the upstream fix.
-    "mcp>=1.27.0",
+    # BerriAI/litellm#25231 for the upstream fix. 1.28.1 picks up the
+    # CVE-2026-59950 fix.
+    "mcp>=1.28.1",
     "claude-agent-sdk",
     "anthropic>=0.22.1",
     # Used to tear down an agent subprocess and its descendants (shells, MCP
@@ -58,12 +60,21 @@ dependencies = [
     "psutil>=5.7",
     # Transitive lower bounds for known CVEs whose parents don't pin
     # tightly enough on their own.
-    "mistune>=3.2.1",  # CVE-2026-33441
+    "mistune>=3.3.0",  # CVE-2026-33441; 3.3.0 adds the PYSEC-2026-2210..2218/2652 fixes
     "python-multipart>=0.0.27",  # CVE-2026-42561
     # urllib3 reaches us via `requests` (tiktoken's dep), which doesn't
     # cap the upper bound. 2.7.0 picks up CVE-2026-44431 (cross-origin
     # redirect handling) and CVE-2026-44432 (streaming API).
     "urllib3>=2.7.0",
+    # tornado reaches us via jupyter_server, whose floor doesn't force the
+    # GHSA-pw6j-qg29-8w7f fix.
+    "tornado>=6.5.7",
+    # starlette and pydantic-settings reach us via the mcp SDK, whose pins
+    # don't force the fixed releases.
+    "starlette>=1.3.1",  # PYSEC-2026-248 / PYSEC-2026-249
+    "pydantic-settings>=2.14.2",  # GHSA-4xgf-cpjx-pc3j
+    # aiohttp reaches us via litellm.
+    "aiohttp>=3.14.1",  # PYSEC-2026-2107..2113
     # python-dotenv: ``litellm 1.83.1+`` hard-pins ``==1.0.1`` and refuses
     # to bump it (see BerriAI/litellm#25231 / #26435). NBI doesn't import
     # python-dotenv directly and no longer pulls fastmcp (which would
