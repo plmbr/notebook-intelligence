@@ -172,6 +172,7 @@ type TabVisibilityContext = {
   featurePolicies: import('../api').IFeaturePolicies;
   isInClaudeCodeMode: boolean;
   isClaudeCliAvailable: boolean;
+  chatbookEnabled: boolean;
 };
 
 const TABS: TabSpec[] = [
@@ -189,7 +190,7 @@ const TABS: TabSpec[] = [
   {
     id: 'chatbook',
     label: 'Chatbook',
-    visible: () => true,
+    visible: ctx => ctx.chatbookEnabled,
     render: () => <SettingsPanelComponentChatbook />
   },
   {
@@ -282,11 +283,15 @@ function SettingsPanelComponent(props: any) {
   const [isClaudeCliAvailable, setIsClaudeCliAvailable] = useState(
     NBIAPI.config.isClaudeCliAvailable
   );
+  const [chatbookEnabled, setChatbookEnabled] = useState(
+    NBIAPI.config.chatbookEnabled
+  );
 
   useEffect(() => {
     const handler = () => {
       setIsInClaudeCodeMode(NBIAPI.config.isInClaudeCodeMode);
       setIsClaudeCliAvailable(NBIAPI.config.isClaudeCliAvailable);
+      setChatbookEnabled(NBIAPI.config.chatbookEnabled);
     };
     NBIAPI.configChanged.connect(handler);
     return () => {
@@ -311,7 +316,8 @@ function SettingsPanelComponent(props: any) {
   const ctx: TabVisibilityContext = {
     featurePolicies,
     isInClaudeCodeMode,
-    isClaudeCliAvailable
+    isClaudeCliAvailable,
+    chatbookEnabled
   };
   const visibleTabs = TABS.filter(t => t.visible(ctx));
   const activeTabSpec = visibleTabs.find(t => t.id === activeTab);
