@@ -137,3 +137,4 @@ export NBI_RULES_AUTO_RELOAD=true    # default
 - Use `priority` to break ties when multiple rules cover the same topic. Lower number wins.
 - Keep individual rules short and focused. The LLM benefits more from five concise rules than one sprawling one.
 - Scope broadly and rely on `priority` for ordering, rather than writing many narrowly scoped rules. A rule that matches nothing is silent, so an over-tight `scope` is hard to notice.
+- Chatbook natural-language **execution** (confirm before running generated Python) is a Settings → Chatbook control, not a rule. See [`chatbook.md`](chatbook.md).
