@@ -28,7 +28,6 @@ import { SettingsPanelComponentClaudeMCP } from './claude-mcp-panel';
 import { SettingsPanelComponentPlugins } from './plugins-panel';
 import { SettingsPanelComponentPerf } from './perf-panel';
 import { writeTextToClipboard } from '../utils';
-import { KernelSpecManager } from '@jupyterlab/services';
 import {
   CHATBOOK_EXECUTION_MODES,
   clampChatbookExecutionMode,
@@ -37,6 +36,7 @@ import {
 import {
   listChatbookBackendProfiles,
   resolveChatbookBackendProfile,
+  sharedKernelSpecManager,
   type INotebookKernelProfile
 } from '../notebook-kernels';
 
@@ -1272,7 +1272,7 @@ const CHATBOOK_MODE_LABELS: Record<
   'confirm-if-risky': {
     title: 'Confirm if risky',
     description:
-      'Auto-run when a static scan looks clean. Confirm when the scan flags shell, files, network, installs, or cannot parse the cell.'
+      'Auto-run when a static scan looks clean. Confirm when it flags a risk or cannot parse the cell. The scan is a speed bump, not a security boundary — false negatives are inevitable.'
   },
   'auto-run': {
     title: 'Auto-run',
@@ -1311,7 +1311,7 @@ function SettingsPanelComponentChatbook() {
   }, []);
 
   useEffect(() => {
-    const kernels = new KernelSpecManager();
+    const kernels = sharedKernelSpecManager();
     void kernels.ready.then(() => {
       const profiles = listChatbookBackendProfiles(kernels.specs?.kernelspecs);
       setBackendProfiles(profiles);
