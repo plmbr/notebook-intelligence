@@ -362,10 +362,15 @@ class AcpAgentClient:
 
     def _mcp_servers(self) -> list:
         """The NBI MCP server config passed to every session create/load."""
+        # Launched by file path rather than ``-m``: the agent starts this server
+        # outside its sandbox with the workspace as cwd, and ``-m`` puts the cwd
+        # first on sys.path, so a ``notebook_intelligence`` package the agent
+        # wrote into the workspace would run in place of this one.
+        from notebook_intelligence import acp_mcp_server
         return [
             schema.McpServerStdio(
                 name="nbi", command=sys.executable,
-                args=["-m", "notebook_intelligence.acp_mcp_server"], env=[],
+                args=[os.path.abspath(acp_mcp_server.__file__)], env=[],
             )
         ]
 

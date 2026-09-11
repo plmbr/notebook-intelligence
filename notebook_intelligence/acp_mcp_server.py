@@ -6,8 +6,10 @@ ACP's ``session/new`` takes stdio/socket MCP servers, not the in-process SDK
 MCP server Claude mode uses (``create_sdk_mcp_server``), so NBI's tools must run
 as a real subprocess for the agent-mode framework (issue #378, Phase 1). This
 module is that subprocess: newline-delimited JSON-RPC over stdio, launched as
-``python -m notebook_intelligence.acp_mcp_server`` with its cwd set to the
-JupyterLab working directory by the participant.
+``python <path to this file>`` with its cwd set to the JupyterLab working
+directory by the participant. It runs by path rather than ``-m`` so that a
+package planted in that working directory cannot shadow it (see
+``AcpAgentClient._mcp_servers``), which is also why it imports only the stdlib.
 
 Phase 1 ships one safe, dependency-free tool (``nbi_workspace_root``) so the
 end-to-end MCP path is exercised; richer Jupyter UI tools that need the live

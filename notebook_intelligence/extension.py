@@ -3844,10 +3844,13 @@ class NotebookIntelligence(ExtensionApp):
         default_value=POLICY_FORCE_OFF,
         help="""
         Org-wide policy for ACP agent "full access" (#378): running tools
-        autonomously without asking. Defaults to force-off, so the agent is
-        pinned to ask before anything beyond trusted read-only commands. Set
-        to user-choice to let users opt into unattended runs, or force-on to
-        require it. Overridden by the NBI_ACP_FULL_ACCESS_POLICY env var.
+        autonomously without asking, inside Codex's workspace-write sandbox
+        (writes limited to the workspace and temp directories, network off,
+        unless Codex's own config widens it). Defaults to force-off, so the
+        agent is pinned to ask before anything beyond trusted read-only
+        commands. Set to user-choice to let users opt into unattended runs,
+        or force-on to require it. Overridden by the
+        NBI_ACP_FULL_ACCESS_POLICY env var.
         """,
         config=True,
     )

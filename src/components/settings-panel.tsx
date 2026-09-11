@@ -1855,8 +1855,10 @@ function SettingsPanelComponentAcp(props: any) {
             <div className="model-config-section-row">
               <span id="acp-full-access-warning" className="config-warning">
                 By default the agent asks before anything beyond trusted
-                read-only commands. Full access lets it run tools (edits, shell)
-                without asking. Content the agent reads can steer what it runs.
+                read-only commands. Full access lets it edit workspace files and
+                run shell commands without asking, in a sandbox with network
+                access off by default. Anything the sandbox blocks fails instead
+                of prompting. Content the agent reads can steer what it runs.
               </span>
             </div>
             <div className="model-config-section-row">

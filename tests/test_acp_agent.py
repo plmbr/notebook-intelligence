@@ -9,6 +9,9 @@ Phase 0 spike and the JupyterLab Playwright check.
 
 import asyncio
 import concurrent.futures
+import json
+import os
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -222,9 +225,41 @@ class TestApprovalArgs:
         args = codex_approval_args(False)
         assert args == ["-c", 'approval_policy="untrusted"']
 
-    def test_full_access_runs_unattended(self):
+    def test_full_access_runs_unattended_with_a_writable_workspace(self):
+        """Full access must pin a writable sandbox, not only stop asking.
+
+        Codex's default sandbox for a project with no trust entry is read-only. With
+        ``approval_policy = never`` nothing can be approved past it, so a full
+        access session with only the approval flag refused every edit
+        ("patch rejected: writing is blocked by read-only sandbox").
+        """
         from notebook_intelligence.acp_agent import codex_approval_args
-        assert codex_approval_args(True) == ["-c", 'approval_policy="never"']
+        assert codex_approval_args(True) == [
+            "-c", 'approval_policy="never"',
+            "-c", 'sandbox_mode="workspace-write"',
+        ]
+
+
+def _captured_launch_cmd(nbi_config):
+    """Run ``AcpAgentClient._serve`` just far enough to capture its argv."""
+    import notebook_intelligence.acp_agent as mod
+
+    host = SimpleNamespace(websocket_connector=None, nbi_config=nbi_config)
+    client = mod.AcpAgentClient(host)
+    captured = {}
+
+    async def fake_exec(*cmd, **kw):
+        captured["cmd"] = list(cmd)
+        raise RuntimeError("test: argv captured, subprocess intentionally not started")
+
+    orig = mod.asyncio.create_subprocess_exec
+    mod.asyncio.create_subprocess_exec = fake_exec
+    try:
+        asyncio.run(client._serve())
+    finally:
+        mod.asyncio.create_subprocess_exec = orig
+    assert "cmd" in captured, "_serve returned before launching the adapter"
+    return captured["cmd"]
 
 
 class TestCodexModelArgs:
@@ -283,38 +318,121 @@ class TestCodexModelArgs:
     def test_serve_appends_overrides_to_launch_cmd(self, tmp_path):
         """Pin the delivery, not just the mapping: the original bug was
         settings that never reached the launch command at all."""
-        import notebook_intelligence.acp_agent as mod
+        cmd = _captured_launch_cmd(SimpleNamespace(
+            acp_settings={
+                "enabled": True, "agent": "codex",
+                "chat_model": "m1", "base_url": "http://proxy/v1",
+                "full_access": False,
+            },
+            nbi_user_dir=str(tmp_path),
+        ))
 
-        host = SimpleNamespace(
-            websocket_connector=None,
-            nbi_config=SimpleNamespace(
-                acp_settings={
-                    "enabled": True, "agent": "codex",
-                    "chat_model": "m1", "base_url": "http://proxy/v1",
-                    "full_access": False,
-                },
-                nbi_user_dir=str(tmp_path),
-            ),
-        )
-        client = mod.AcpAgentClient(host)
-        captured = {}
-
-        async def fake_exec(*cmd, **kw):
-            captured["cmd"] = list(cmd)
-            raise RuntimeError("captured; abort launch")
-
-        orig = mod.asyncio.create_subprocess_exec
-        mod.asyncio.create_subprocess_exec = fake_exec
-        try:
-            asyncio.run(client._serve())
-        finally:
-            mod.asyncio.create_subprocess_exec = orig
-
-        assert captured["cmd"][-6:] == [
+        assert cmd[-6:] == [
             "-c", 'approval_policy="untrusted"',
             "-c", 'model="m1"',
             "-c", 'openai_base_url="http://proxy/v1"',
         ]
+
+
+class TestFullAccessLaunch:
+    """Full access reaches the launch command as a writable sandbox, and only
+    when the effective, policy-clamped setting allows it."""
+
+    _FULL_ACCESS_PINS = [
+        "-c", 'approval_policy="never"',
+        "-c", 'sandbox_mode="workspace-write"',
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _default_adapter_command(self, monkeypatch):
+        monkeypatch.delenv("NBI_ACP_AGENT_COMMAND", raising=False)
+
+    def test_missing_full_access_setting_means_off(self, tmp_path):
+        """Under ``user-choice`` nothing writes the key, so a user who never
+        touched the toggle has no ``full_access`` stored at all."""
+        cmd = _captured_launch_cmd(SimpleNamespace(
+            acp_settings={"enabled": True, "agent": "codex"},
+            nbi_user_dir=str(tmp_path),
+        ))
+        assert cmd[-2:] == ["-c", 'approval_policy="untrusted"']
+        assert not any("sandbox_mode" in arg for arg in cmd)
+
+    def test_full_access_launches_with_a_writable_sandbox(self, tmp_path):
+        cmd = _captured_launch_cmd(SimpleNamespace(
+            acp_settings={"enabled": True, "agent": "codex", "full_access": True},
+            nbi_user_dir=str(tmp_path),
+        ))
+        assert cmd[-4:] == self._FULL_ACCESS_PINS
+
+    def test_force_off_keeps_a_stored_full_access_off(self, mock_nbi_config):
+        """A stored ``full_access: true`` must not reach the launch command
+        while the policy is force-off; it would now grant workspace writes."""
+        mock_nbi_config.user_config["acp_settings"] = {
+            "enabled": True, "agent": "codex", "full_access": True,
+        }
+        mock_nbi_config.set_feature_policies({"acp_full_access": "force-off"}, {})
+        cmd = _captured_launch_cmd(mock_nbi_config)
+        assert cmd[-2:] == ["-c", 'approval_policy="untrusted"']
+        assert not any("sandbox_mode" in arg for arg in cmd)
+
+    def test_force_on_turns_full_access_on(self, mock_nbi_config):
+        mock_nbi_config.user_config["acp_settings"] = {
+            "enabled": True, "agent": "codex", "full_access": False,
+        }
+        mock_nbi_config.set_feature_policies({"acp_full_access": "force-on"}, {})
+        cmd = _captured_launch_cmd(mock_nbi_config)
+        assert cmd[-4:] == self._FULL_ACCESS_PINS
+
+    def test_agent_command_override_keeps_the_pins(self, tmp_path, monkeypatch):
+        """An admin-pinned adapter binary must not lose the approval and
+        sandbox posture."""
+        monkeypatch.setenv("NBI_ACP_AGENT_COMMAND", "/opt/codex-acp --verbose")
+        cmd = _captured_launch_cmd(SimpleNamespace(
+            acp_settings={"enabled": True, "agent": "codex", "full_access": True},
+            nbi_user_dir=str(tmp_path),
+        ))
+        assert cmd[:2] == ["/opt/codex-acp", "--verbose"]
+        assert cmd[-4:] == self._FULL_ACCESS_PINS
+
+
+class TestNbiMcpServerLaunch:
+    """Codex starts NBI's MCP server outside its sandbox with the workspace as
+    cwd, and full access lets the agent write that workspace, so nothing
+    written there may run in place of the server."""
+
+    @staticmethod
+    def _server():
+        import notebook_intelligence.acp_agent as mod
+
+        client = mod.AcpAgentClient(SimpleNamespace(
+            websocket_connector=None,
+            nbi_config=SimpleNamespace(acp_settings={}, nbi_user_dir="/unused"),
+        ))
+        return client._mcp_servers()[0]
+
+    def test_launches_by_absolute_file_path(self):
+        server = self._server()
+        assert "-m" not in server.args
+        assert os.path.isabs(server.args[0])
+        assert server.args[0].endswith(os.path.join("notebook_intelligence", "acp_mcp_server.py"))
+
+    def test_a_package_planted_in_the_workspace_does_not_run(self, tmp_path):
+        planted = tmp_path / "notebook_intelligence"
+        planted.mkdir()
+        (planted / "__init__.py").write_text("print('PLANTED PACKAGE RAN', flush=True)\n")
+        (planted / "acp_mcp_server.py").write_text("print('PLANTED SERVER RAN', flush=True)\n")
+        server = self._server()
+        request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+
+        proc = subprocess.run(
+            [server.command, *server.args],
+            input=request + "\n", cwd=tmp_path,
+            capture_output=True, text=True, timeout=30,
+        )
+
+        assert "PLANTED" not in proc.stdout + proc.stderr
+        reply = json.loads(proc.stdout.splitlines()[0])
+        assert reply["result"]["serverInfo"]["name"] == "nbi"
 
 
 class TestAssembleQuery:
