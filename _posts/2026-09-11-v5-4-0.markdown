@@ -1,0 +1,77 @@
+---
+layout: post
+title: "NBI 5.4.0: Codex over ACP, readiness checks, and performance diagnostics"
+date: 2026-09-11 06:00:00 -0700
+permalink: /blog/v5-4-0/
+description: "An experimental ACP agent mode with Codex. A Status card that names the missing piece of your configuration. Opt-in per-turn performance timelines. Notebook tools for managed Claude Code configurations. Plus a roundup of 5.2 and 5.3: permission modes, kernel-aware notebooks, and a faster start."
+---
+
+NBI 5.4.0 is out. The last release post covered 5.1.0, and 5.2 and 5.3 shipped without posts of their own, so this one does triple duty. The 5.4 headline is a second, experimental agent mode, alongside two diagnostic surfaces for misconfigured or slow deployments. ACP mode, performance diagnostics, the notebook tools proxy, and the live endpoint test are all opt-in; the Status card's other checks run when you open Settings and bill nothing. Across 5.2 to 5.4, the one removal is the `scope.kernels` rule key in 5.3, covered under [Upgrading](#upgrading). Just want the upgrade command? Jump to [Install](#install). Full release notes are on the [5.4.0 release page](https://github.com/plmbr/notebook-intelligence/releases/tag/v5.4.0) and in the [CHANGELOG](https://github.com/plmbr/notebook-intelligence/blob/main/CHANGELOG.md).
+
+## ACP mode, and Codex goes first
+
+Until now, the only NBI mode that hands a whole turn to an external coding agent was Claude mode. 5.4 adds an experimental ACP mode that drives an external coding agent over the [Agent Client Protocol](https://agentclientprotocol.com/), with OpenAI Codex as the first agent type. Codex runs the turn and NBI hosts it: the chat sidebar renders its tool calls and inline diffs, and the approvals Codex requests appear as NBI prompts.
+
+Two admin policies gate it, and both default to `force-off`: `NBI_ACP_MODE_POLICY` for the mode itself, and `NBI_ACP_FULL_ACCESS_POLICY` for letting the agent act without asking. It is experimental for concrete reasons, chiefly that NBI's notebook UI tools are not yet available to the agent in this mode. [Codex in the chat sidebar]({% post_url 2026-09-07-codex-acp-agent-mode %}) walks through enabling it, a full turn, how approvals and Codex's sandbox fit together, and the current limits.
+
+## Configuration readiness: is this thing on?
+
+A familiar support thread starts with "chat doesn't work" and ends, several messages later, with a missing key or an unreachable endpoint. NBI Settings now opens on a **Status** card that skips to the end of that thread. It answers the question directly and names the specific missing piece.
+
+None of these checks bill anything. They resolve the provider and model, confirm the model list is reachable, and check that the endpoint actually serves your selected model. In Claude mode they also confirm the CLI answers `--version`; in ACP mode, that the adapter command and `npx` resolve; and in both, whether credentials are present. Every warning or blocking row names the failure and the next action. On a fresh install not signed in to GitHub Copilot, for instance, the card reports **Not ready**, explains that the model list in Settings is a built-in fallback rather than the models your account can use, and tells you where to sign in. In the agent modes, a missing key is a warning rather than an error, because the Claude CLI and ACP agents can hold subscription logins NBI cannot see.
+
+**Test the endpoint** goes one step further and sends a single short request, after asking first. It catches two failures nothing cheaper can: a gateway that returns 200s but buffers instead of streaming, and a proxy that strips the `tools` field so tool calls silently never happen. It applies when chat goes through a model provider such as GitHub Copilot or an OpenAI-compatible endpoint; in Claude and ACP modes the agent owns the model call, so the test reports itself as not applicable. Because it is the one check that bills, administrators can switch it off with `NBI_READINESS_LIVE_CHECK=off` and leave the rest available. See [Configuration readiness](https://github.com/plmbr/notebook-intelligence/blob/main/docs/admin-guide.md#configuration-readiness).
+
+## Performance diagnostics: where did this turn's time go?
+
+When NBI feels slower than it should, the culprit is usually outside NBI: an internal LLM gateway, a network home directory, or a TLS-intercepting proxy. The new **Performance** tab is an opt-in way to find out which to blame.
+
+Once enabled, each chat turn records a phase timeline: rule and context preparation, agent connect and spawn, time to first token, streaming with stall events, tool calls, and time spent waiting on you. A verdict column names the phase that dominated. In Claude mode, turns also carry token counts and the API duration the SDK reports, which makes the most useful comparison possible: active time against API time. Close together, the time is in the gateway or the model. Far apart, it is local, and both are off the hook. An environment probe measures filesystem, subprocess, and optional network latency from the server's own vantage point.
+
+It is off by default, and off costs a single boolean check per instrumentation site. Attributes are redacted by default, and each turn is also summarized as one INFO line in the server log, so headless installs get the same signal. For fleets, `NBI_PERF_DIAGNOSTICS_POLICY=force-on` records every user's turns with redaction enforced, and `NBI_PERF_PROBE_NETWORK=off` disables only the probe's network check. The full guide, with worked diagnoses for a slow gateway, a slow home directory, and an intercepting proxy, is [`docs/performance-diagnostics.md`](https://github.com/plmbr/notebook-intelligence/blob/main/docs/performance-diagnostics.md).
+
+## Notebook tools under managed Claude Code configurations
+
+In Claude mode, NBI's Jupyter UI tools (which create and edit notebooks, run cells, and drive the terminal) are normally served by an MCP server NBI registers with the Claude SDK at runtime. Managed and enterprise Claude Code configurations can forbid dynamically configured servers, which left those tools unavailable in exactly the deployments most likely to have that restriction. NBI now also ships a standalone stdio server, `python -m notebook_intelligence.mcp_ui_proxy`, that you can declare in a static `mcp.json` like any other server. Setting `jupyter_ui_tools_external` under `claude_settings` in NBI's `config.json` switches Claude mode over to it. This is a Claude-mode feature; it does not give ACP agents the notebook tools. See [Serving the Jupyter UI tools to an external agent](https://github.com/plmbr/notebook-intelligence/blob/main/docs/admin-guide.md#serving-the-jupyter-ui-tools-to-an-external-agent-398).
+
+## Skills, MCP, and Plugins since May
+
+May's [toolbox post]({% post_url 2026-05-26-claude-toolbox-skills-mcp-plugins %}) still describes how the Skills, MCP, and Plugins tabs work. Two things around them have changed.
+
+- **More of NBI follows `CLAUDE_CONFIG_DIR`** (5.2). The Claude MCP Servers tab now reads user-scope servers from the relocated `.claude.json`, the Plugins tab finds the relocated plugin cache, and the session resume picker finds relocated transcripts.
+- **Skill imports from monorepos** (5.3.1). The GitHub import size cap is measured against the skill's own subdirectory rather than the whole repository, so importing one skill from a large repo no longer fails on repository size.
+
+## Also in 5.4
+
+- **A separate model for inline chat.** Inline chat calls the Anthropic API directly, Claude chat in the sidebar goes through the Claude Code CLI, and the two disagree on how to spell a model id. A collapsible **Inline chat model** control, nested under **Chat model** in the Claude tab, now sets it independently, pinnable with `NBI_CLAUDE_INLINE_CHAT_MODEL`. An existing `NBI_CLAUDE_CHAT_MODEL` pin still governs both unless you set the inline one too.
+- **Long chats fit the model's context window.** Ask-mode history is now fitted to 80% of the active model's context window rather than sent in full. It keeps the system prompt, your workspace rules, and your newest message, drops older turns whole, and adds an omission notice when something was left out. OpenAI-compatible and LiteLLM-compatible providers need an explicit **Context window** setting for this to apply; see [troubleshooting](https://github.com/plmbr/notebook-intelligence/blob/main/docs/troubleshooting.md#the-model-loses-track-of-earlier-messages-in-a-long-chat).
+- **Bounded tool results.** Very large cell outputs, and terminal results in Claude mode, keep their beginning and end with a truncation marker instead of consuming the agent's context, and cell-output tools accept `offset` and `limit` to fetch the rest. Output is capped at about 10,000 tokens by default; in Claude mode, `NBI_CLAUDE_TOOL_RESULT_MAX_OUTPUT_TOKENS` changes that, and `0` turns it off.
+- **GPT-5.4 works in Copilot chat.** Chat requests no longer carry a `stop` parameter that some newer models, GPT-5.4 among them, reject outright.
+- **Inline edits in Claude mode** now receive their system instructions and applicable workspace rules, and turning rules off now also suppresses `AGENTS.md`.
+- **Chat rendering fixes.** Streamed code blocks no longer carry trailing whitespace into anything you copy, inline-code styling no longer leaks into fenced blocks, and empty code blocks no longer offer actions on nothing. For Korean and other IME input, the Enter that commits a composition no longer also sends the message.
+
+## From 5.3: kernel-aware notebooks
+
+5.3 stopped assuming Python. Notebook creation, cell insertion, and inline generation now carry the active notebook's kernel and language, a `list-available-notebook-kernels` tool lets the agent pick a kernel that is actually installed rather than guessing, and asking for a kernel that is not installed now fails instead of quietly falling back to Python. Rules can scope on `scope.languages` or `scope.kernel_names`.
+
+It also added an opt-in per-turn usage footer in Claude mode (**Show usage after each turn** in the Claude tab, or `show_turn_usage`). Duration and tokens always appear; cost appears only when NBI uses a direct Anthropic API key against Anthropic's own endpoint. Claude defaults moved to `claude-sonnet-5` for chat and `claude-haiku-4-5` for inline completion, resolved against the live model list, and inline completions are capped at 1,024 output tokens. Two workspace-containment fixes landed as well: `search_files` could follow a symlink inside the workspace to read files outside it, and now rejects those matches, and directory enumeration no longer stats outbound symlink targets. Attachments also now survive a prompt that starts with a slash command.
+
+## From 5.2: permission modes and a faster start
+
+5.2 put a permission-mode selector in the Claude chat input for switching between Default, Accept Edits, and Plan. The choice rides each message, and it replaces the `/enter-plan-mode` and `/exit-plan-mode` commands, which still work when typed. **Bypass Permissions** sits behind `NBI_CLAUDE_BYPASS_PERMISSIONS_POLICY`, which defaults to `force-off`; where an administrator allows it, it must be armed explicitly each session. Provider SDKs now load on first use, which roughly halves the server extension's import time, with the biggest effect on Windows. And 5.2.1 stopped counting time spent waiting on your approval toward the agent's response timeout, so a careful read of an approval no longer runs down the clock.
+
+## Upgrading
+
+- **`scope.kernels` was removed in 5.3.** A rule file that still uses it is rejected with an error naming the file. Switch to `scope.languages` or `scope.kernel_names`; see [the ruleset docs](https://github.com/plmbr/notebook-intelligence/blob/main/docs/rulesets.md).
+- **`mcp` is capped below 2.0.** `mcp` 2.x moved the server API NBI imports, and no release before 5.4 declared an upper bound, so an environment that resolved `mcp` 2.x could not load the extension. 5.4 declares `mcp<2`, and upgrading lets pip resolve a compatible version.
+- **Security floors moved up in 5.4.** NBI now requires `jupyter_server>=2.20.0`, `tornado>=6.5.7`, `cryptography>=48.0.1`, `litellm>=1.83.7`, and newer releases of several other libraries, so upgrading NBI can upgrade them too. Check any pins your environment holds on these packages.
+- **Closing the tab ends a running Claude turn** (5.2.1). When the browser connection closes, NBI cancels the in-flight turn and stops its Claude subprocess instead of leaving it running.
+- **Custom chat participants** (5.4). Extensions that register a chat participant must finish streaming before `handle_chat_request` returns; writes after it returns are logged and ignored.
+
+## Install
+
+```bash
+pip install --upgrade notebook-intelligence
+```
+
+Then restart JupyterLab. Full release notes are on the [5.4.0 release page](https://github.com/plmbr/notebook-intelligence/releases/tag/v5.4.0).
