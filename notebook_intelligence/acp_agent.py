@@ -53,6 +53,7 @@ from notebook_intelligence import perf
 from notebook_intelligence.acp_registry import (
     AcpAgentSpec,
     codex_approval_args,
+    codex_auth_args,
     codex_model_args,
     resolve_acp_agent,
     resolve_acp_agent_command,
@@ -265,6 +266,49 @@ class _NbiAcpClient(acp.Client):
         return None
 
 
+def _is_link(path: str) -> bool:
+    # Windows directory junctions are not symlinks to os.path.islink.
+    isjunction = getattr(os.path, "isjunction", None)
+    return os.path.islink(path) or bool(isjunction and isjunction(path))
+
+
+def _remove_persisted_codex_credentials(codex_home: str) -> None:
+    """Delete key copies earlier NBI versions let Codex write to its CODEX_HOME.
+
+    NBI points Codex at this directory only when it supplies the API key, so
+    its ``auth.json`` and shell snapshots (which captured the environment,
+    key included) came from those launches. Codex no longer writes either
+    (``codex_auth_args``), but the old files would otherwise stay on disk.
+    Nothing is followed through a symlink or junction, and a failure is
+    logged rather than raised, so it never stops the agent from starting.
+    """
+    if _is_link(codex_home):
+        log.warning("Not cleaning %s: it is a link, not NBI's own directory", codex_home)
+        return
+    if not os.path.isdir(codex_home):
+        return
+    paths = [os.path.join(codex_home, "auth.json")]
+    snapshots = os.path.join(codex_home, "shell_snapshots")
+    if os.path.isdir(snapshots) and not _is_link(snapshots):
+        try:
+            with os.scandir(snapshots) as entries:
+                paths += [
+                    entry.path for entry in entries
+                    if entry.is_symlink() or entry.is_file(follow_symlinks=False)
+                ]
+        except OSError as e:
+            log.warning("Could not list old Codex shell snapshots in %s: %s", snapshots, e)
+    for path in paths:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            log.warning("Could not remove an old Codex key copy at %s: %s", path, e)
+            continue
+        log.info("Removed an old Codex key copy at %s", path)
+
+
 def _block_text(block) -> str:
     if block is None:
         return ""
@@ -418,6 +462,8 @@ class AcpAgentClient:
         env = self._child_env(spec)
         cmd = list(resolve_acp_agent_command(spec))
         if spec.id == "codex":
+            # First, so they stay clear of the pins that follow.
+            cmd += codex_auth_args(spec.api_key_env if self._api_key(spec) else "")
             cmd += codex_approval_args(
                 bool(self.acp_settings.get("full_access", False))
             )
@@ -469,6 +515,12 @@ class AcpAgentClient:
     def _child_env(self, spec: AcpAgentSpec) -> dict:
         env = {k: v for k, v in os.environ.items()
                if k != "CLAUDECODE" and not k.startswith("CLAUDE_CODE_")}
+        if spec.id == "codex":
+            # Whatever the sign-in, so old copies do not outlive a switch away
+            # from an API key.
+            _remove_persisted_codex_credentials(
+                os.path.join(self._host.nbi_config.nbi_user_dir, "codex-home")
+            )
         api_key = self._api_key(spec)
         if api_key:
             env[spec.api_key_env] = api_key

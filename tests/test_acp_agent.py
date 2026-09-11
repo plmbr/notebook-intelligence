@@ -8,6 +8,7 @@ Phase 0 spike and the JupyterLab Playwright check.
 """
 
 import asyncio
+import os
 import concurrent.futures
 from types import SimpleNamespace
 
@@ -315,6 +316,173 @@ class TestCodexModelArgs:
             "-c", 'model="m1"',
             "-c", 'openai_base_url="http://proxy/v1"',
         ]
+
+
+class TestCodexKeyNotPersisted:
+    """When NBI supplies Codex's API key, Codex does not write it to disk or
+    pass it to the commands it runs. By default codex-acp wrote it to
+    CODEX_HOME/auth.json and kept using that saved key after it changed,
+    Codex's shell snapshots wrote it to disk, and every command Codex ran
+    could read it."""
+
+    AUTH_ARGS = [
+        "-c", 'cli_auth_credentials_store="ephemeral"',
+        "-c", "features.shell_snapshot=false",
+        "-c", 'shell_environment_policy.exclude=["OPENAI_API_KEY"]',
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _default_adapter_command(self, monkeypatch):
+        monkeypatch.delenv("NBI_ACP_AGENT_COMMAND", raising=False)
+
+    def _launch(self, tmp_path, acp_settings):
+        import notebook_intelligence.acp_agent as mod
+
+        host = SimpleNamespace(
+            websocket_connector=None,
+            nbi_config=SimpleNamespace(
+                acp_settings={"enabled": True, "agent": "codex", "full_access": False, **acp_settings},
+                nbi_user_dir=str(tmp_path),
+            ),
+        )
+        client = mod.AcpAgentClient(host)
+        captured = {}
+
+        async def fake_exec(*cmd, **kw):
+            captured["cmd"] = list(cmd)
+            captured["env"] = kw.get("env", {})
+            raise RuntimeError("captured; abort launch")
+
+        orig = mod.asyncio.create_subprocess_exec
+        mod.asyncio.create_subprocess_exec = fake_exec
+        try:
+            asyncio.run(client._serve())
+        finally:
+            mod.asyncio.create_subprocess_exec = orig
+        return captured
+
+    def test_auth_args_only_when_nbi_supplies_the_key(self):
+        from notebook_intelligence.acp_registry import codex_auth_args
+        assert codex_auth_args("OPENAI_API_KEY") == self.AUTH_ARGS
+        assert codex_auth_args("") == []
+
+    @pytest.mark.parametrize("settings_key,env_key,supplied", [
+        ("sk-settings", None, True),
+        ("", "sk-env", True),
+        ("   ", None, False),
+        ("", "   ", False),
+        ("", None, False),
+    ])
+    def test_args_come_exactly_with_the_isolated_codex_home(
+        self, tmp_path, monkeypatch, settings_key, env_key, supplied
+    ):
+        if env_key is None:
+            monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("OPENAI_API_KEY", env_key)
+        captured = self._launch(tmp_path, {"api_key": settings_key})
+        codex_home = str(tmp_path / "codex-home")
+        assert (captured["cmd"][3:9] == self.AUTH_ARGS) is supplied
+        assert (captured["env"].get("CODEX_HOME") == codex_home) is supplied
+
+    def test_auth_args_come_before_the_approval_pin(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+        captured = self._launch(tmp_path, {})
+        assert captured["cmd"][3:9] == self.AUTH_ARGS
+        assert captured["cmd"][9:11] == ["-c", 'approval_policy="untrusted"']
+
+    def test_saved_key_copies_left_by_earlier_versions_are_removed(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        codex_home = tmp_path / "codex-home"
+        (codex_home / "shell_snapshots").mkdir(parents=True)
+        (codex_home / "auth.json").write_text('{"OPENAI_API_KEY": "sk-old"}')
+        (codex_home / "shell_snapshots" / "a.sh").write_text("export OPENAI_API_KEY=sk-old")
+        (codex_home / "shell_snapshots" / "b.ps1").write_text("$env:OPENAI_API_KEY='sk-old'")
+        (codex_home / "config.toml").write_text("")
+        self._launch(tmp_path, {"api_key": "sk-new"})
+        assert not (codex_home / "auth.json").exists()
+        assert list((codex_home / "shell_snapshots").iterdir()) == []
+        assert (codex_home / "config.toml").exists()
+
+    def test_old_copies_are_removed_even_without_a_key(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        codex_home = tmp_path / "codex-home"
+        (codex_home / "shell_snapshots").mkdir(parents=True)
+        (codex_home / "shell_snapshots" / "a.sh").write_text("export OPENAI_API_KEY=sk-old")
+        captured = self._launch(tmp_path, {})
+        assert list((codex_home / "shell_snapshots").iterdir()) == []
+        assert "cli_auth_credentials_store" not in " ".join(captured["cmd"])
+
+    def test_cleanup_does_not_follow_symlinks(self, tmp_path):
+        from notebook_intelligence.acp_agent import _remove_persisted_codex_credentials
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "important.txt").write_text("keep")
+        (outside / "auth.json").write_text("keep")
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        (codex_home / "shell_snapshots").symlink_to(outside, target_is_directory=True)
+        _remove_persisted_codex_credentials(str(codex_home))
+        assert (outside / "important.txt").exists()
+
+        linked_home = tmp_path / "linked-home"
+        linked_home.symlink_to(outside, target_is_directory=True)
+        _remove_persisted_codex_credentials(str(linked_home))
+        assert (outside / "auth.json").exists()
+
+    def test_symlinks_inside_the_snapshot_directory_are_removed_as_links(self, tmp_path):
+        from notebook_intelligence.acp_agent import _remove_persisted_codex_credentials
+        target = tmp_path / "target.sh"
+        target.write_text("keep")
+        snapshots = tmp_path / "codex-home" / "shell_snapshots"
+        snapshots.mkdir(parents=True)
+        (snapshots / "link.sh").symlink_to(target)
+        (snapshots / "nested").mkdir()
+        (snapshots / "nested" / "inner.sh").write_text("left alone")
+        _remove_persisted_codex_credentials(str(tmp_path / "codex-home"))
+        assert target.read_text() == "keep"
+        assert not (snapshots / "link.sh").is_symlink()
+        assert (snapshots / "nested" / "inner.sh").exists()
+
+    def test_an_unreadable_snapshot_directory_does_not_stop_the_launch(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        codex_home = tmp_path / "codex-home"
+        snapshots = codex_home / "shell_snapshots"
+        snapshots.mkdir(parents=True)
+        (codex_home / "auth.json").write_text("{}")
+        snapshots.chmod(0)
+        try:
+            if os.access(snapshots, os.R_OK):
+                pytest.skip("running with permissions that ignore the mode")
+            captured = self._launch(tmp_path, {})
+        finally:
+            snapshots.chmod(0o755)
+        assert captured["cmd"][:3] == ["npx", "-y", "@zed-industries/codex-acp@0.16.0"]
+        assert not (codex_home / "auth.json").exists()
+        assert "Could not list old Codex shell snapshots" in caplog.text
+
+    def test_a_linked_codex_home_is_not_cleaned(self, tmp_path, caplog):
+        from notebook_intelligence.acp_agent import _remove_persisted_codex_credentials
+        real = tmp_path / "real-codex"
+        real.mkdir()
+        (real / "auth.json").write_text("keep")
+        (tmp_path / "codex-home").symlink_to(real, target_is_directory=True)
+        _remove_persisted_codex_credentials(str(tmp_path / "codex-home"))
+        assert (real / "auth.json").exists()
+        assert "it is a link" in caplog.text
+
+    def test_a_file_that_cannot_be_removed_is_logged(self, tmp_path, caplog):
+        from notebook_intelligence.acp_agent import _remove_persisted_codex_credentials
+        (tmp_path / "auth.json").mkdir()
+        _remove_persisted_codex_credentials(str(tmp_path))
+        assert "Could not remove an old Codex key copy" in caplog.text
+
+    def test_nothing_is_logged_when_there_is_nothing_to_remove(self, tmp_path, caplog):
+        from notebook_intelligence.acp_agent import _remove_persisted_codex_credentials
+        (tmp_path / "shell_snapshots").mkdir()
+        _remove_persisted_codex_credentials(str(tmp_path))
+        _remove_persisted_codex_credentials(str(tmp_path / "missing"))
+        assert caplog.records == []
 
 
 class TestAssembleQuery:
