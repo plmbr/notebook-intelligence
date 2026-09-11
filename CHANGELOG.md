@@ -8,6 +8,12 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 <!-- <START NEW CHANGELOG ENTRY> -->
 
+## [5.4.1] - unreleased
+
+### Fixed
+
+- **Saving Claude settings keeps keys the tab does not show.** The Claude settings tab saves the keys it renders when it opens, and the server stored that object in place of the old one. Any other `claude_settings` key was erased, including `jupyter_ui_tools_external` (#398), which is set by hand in `config.json`. `POST /notebook-intelligence/config` now merges a posted `claude_settings` onto the stored value. Settings saves also re-read `config.json` first, so a hand edit made while JupyterLab runs is no longer overwritten when a settings tab next saves.
+
 ## [5.4.0] - unreleased
 
 5.4.0 adds a second agent mode (ACP, with Codex as the first agent type) alongside Claude mode, a way to serve NBI's Jupyter-UI tools to an agent running outside the Lab page, and two diagnostic surfaces for deployments where something is misconfigured or slow: a configuration readiness preflight that names the missing piece, and opt-in performance diagnostics with per-turn timelines. Every one of them is opt-in and defaults to off. No traitlet, env-var, REST route, or on-disk-format renames or removals.

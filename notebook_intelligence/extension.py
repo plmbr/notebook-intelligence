@@ -857,14 +857,18 @@ class ConfigHandler(APIHandler):
         has_model_change = False
         has_claude_settings_change = False
         has_acp_settings_change = False
-        # Captured before the loop so the exclusivity check below can tell
-        # which mode this POST newly enabled.
+        # Captured before the reload and the loop, so the exclusivity check and
+        # the change checks below compare against the state this server is
+        # running with, not whatever config.json holds now.
         prior_claude_enabled = bool(
             (ai_service_manager.nbi_config.get("claude_settings") or {}).get("enabled", False)
         )
-        prior_acp_enabled = bool(
-            (ai_service_manager.nbi_config.get("acp_settings") or {}).get("enabled", False)
-        )
+        prior_acp_settings = ai_service_manager.nbi_config.get("acp_settings") or {}
+        prior_acp_enabled = bool(prior_acp_settings.get("enabled", False))
+        # Re-read config.json before applying the POST, as the GET handlers do.
+        # The whole config is saved below, so without a reload a hand edit made
+        # while the server runs is overwritten by the next settings POST.
+        ai_service_manager.nbi_config.load()
         for key in data:
             if key in locked_keys:
                 continue
@@ -891,6 +895,14 @@ class ConfigHandler(APIHandler):
                     continue
                 has_model_change = True
             elif key == "claude_settings":
+                # The settings panel posts only the keys it renders, so merge
+                # onto the stored value instead of replacing it. Otherwise a key
+                # set by hand in config.json, such as jupyter_ui_tools_external,
+                # is erased the first time the Claude tab opens.
+                if isinstance(value, dict):
+                    stored = ai_service_manager.nbi_config.get("claude_settings")
+                    if isinstance(stored, dict):
+                        value = {**stored, **value}
                 value = apply_claude_policies(value, self.feature_policies)
                 value = apply_string_overrides(
                     value, self.string_overrides, CLAUDE_SETTINGS_OVERRIDES
@@ -917,9 +929,7 @@ class ConfigHandler(APIHandler):
                 # against the raw stored value (not the acp_settings property,
                 # which re-injects env overrides such as OPENAI_API_KEY and would
                 # never match the scrubbed value we persist).
-                has_acp_settings_change = (
-                    value != (ai_service_manager.nbi_config.get("acp_settings") or {})
-                )
+                has_acp_settings_change = value != prior_acp_settings
             elif key == "perf_diagnostics":
                 value = apply_perf_policies(value, self.feature_policies)
                 value = apply_string_overrides(
@@ -988,6 +998,16 @@ class ConfigHandler(APIHandler):
                 acp_settings["enabled"] = False
                 ai_service_manager.nbi_config.set("acp_settings", acp_settings)
                 has_acp_settings_change = True
+        elif prior_claude_enabled and not claude_enabled:
+            # Claude was on and is off now. When the POST turned it off, the
+            # loop already queued this update and the call coalesces. When the
+            # reload picked up a disable written to config.json, nothing else
+            # disconnects the live client: the check at the end of this handler
+            # runs after update_models_from_config has swapped the participant.
+            has_claude_settings_change = True
+            default_chat_participant = ai_service_manager.default_chat_participant
+            if isinstance(default_chat_participant, ClaudeCodeChatParticipant):
+                default_chat_participant.update_client_debounced()
 
         ai_service_manager.nbi_config.save()
         perf.configure(

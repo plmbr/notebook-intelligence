@@ -613,7 +613,7 @@ For that case NBI ships a standalone stdio MCP server that exposes the same tool
 
 The CLI-visible tool prefix (`mcp__<key>__*`) comes from the config entry's key, not from the server's own handshake name, so name the entry `nbi` unless you have a reason not to.
 
-Set `jupyter_ui_tools_external` in the Claude settings to switch Claude mode from the in-process tools to the relay. Leave it unset and nothing changes.
+To switch Claude mode from the in-process tools to the relay, add `"jupyter_ui_tools_external": true` alongside the other keys in the `claude_settings` object of NBI's user config, `~/.jupyter/nbi/config.json`. Don't create a `claude_settings` object that holds only this key: a user-level `claude_settings` replaces the environment-wide one as a whole, so Claude mode and its tools would be lost. The key has no control in the Settings dialog, and saving the Claude tab keeps it. It takes effect only while **Jupyter UI tools** is enabled in the Claude tab (`nbi:built-in-jupyter-ui-tools` in `claude_settings.tools`) and, like other manual edits to `config.json`, after a JupyterLab restart. Leave it unset and nothing changes.
 
 **The relay endpoint** is `/notebook-intelligence/ui-tools`: `GET` returns the tool manifest, `POST {"name", "arguments"}` invokes a tool against the active chat turn's UI bridge. It is a normal authenticated NBI route, so the caller needs the Jupyter token like any other. The proxy also sends a per-process bridge secret in an `X-NBI-UI-Tools-Token` header; the relay uses that **only** to exempt the request from the XSRF check, never as an identity, so it is not a second way in.
 
