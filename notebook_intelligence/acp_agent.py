@@ -58,7 +58,7 @@ from notebook_intelligence.acp_registry import (
     resolve_acp_agent_command,
 )
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
-from notebook_intelligence.claude_sessions import CONTROL_SLASH_COMMANDS
+from notebook_intelligence.claude_sessions import CONTROL_SLASH_COMMANDS, NBI_CONTEXT_PREFIX
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_jupyter_root_dir
 
 log = logging.getLogger(__name__)
@@ -283,6 +283,30 @@ def _epoch_from_iso(value) -> float:
         return 0
 
 
+# The directory pointer extension.py puts before every agent-mode prompt. Each
+# segment after the directory is optional, and the kernel display name only
+# follows the kernel name. A display name may hold one level of parentheses,
+# as in "Python 3 (ipykernel)". A value or display name may also run to the
+# end without closing, where an agent truncated the title inside it.
+_POINTER_VALUE = r"[^']*(?:'|\Z)"
+_CONTEXT_POINTER = re.compile(
+    re.escape(NBI_CONTEXT_PREFIX)
+    + r" '(?P<dir>[^']*)(?:'|\Z)"
+    + r"(?: and current file is: '(?P<file>[^']*)(?:'|\Z))?"
+    + r"(?: and active programming language is: '" + _POINTER_VALUE + ")?"
+    + r"(?: with active kernel name: '" + _POINTER_VALUE
+    + r"(?: \((?:[^()]|\([^()]*(?:\)|\Z))*(?:\)|\Z))?)?"
+)
+_CONTEXT_POINTER_SEGMENTS = (
+    " and current file is: '",
+    " and active programming language is: '",
+    " with active kernel name: '",
+)
+# Markers the agents append to a truncated session title: codex-acp cuts at
+# 117 characters plus "...", claude-code-acp at 127 plus a single ellipsis.
+_TITLE_TRUNCATION_MARKERS = ("...", "\u2026")
+
+
 def _strip_context_preamble(title: str) -> str:
     """Drop NBI's leading context lines from an agent-stored session title.
 
@@ -292,9 +316,16 @@ def _strip_context_preamble(title: str) -> str:
 
     Handles both shapes: newline-separated lines, and the joined form codex
     stores (newlines collapsed to spaces, title truncated), where the
-    directory pointer is matched structurally by its quoted segments.
+    directory pointer is matched structurally by its quoted segments. A
+    pointer naming a file and a language is already longer than the agents'
+    title limit, so a truncated title usually ends inside the pointer. When
+    nothing of the question is left, the preview names the current file,
+    relative to the open directory and cut short with the agent's marker if
+    the title ended inside it. If the cut left none of the file's own name, or
+    came before any file, the preview names the directory when the title holds
+    all of it, and is empty otherwise. A title with no file and no question
+    that was not truncated is kept as before.
     """
-    from notebook_intelligence.claude_sessions import NBI_CONTEXT_PREFIX
     lines = [line for line in title.splitlines() if line.strip()]
     while lines and (
         lines[0].startswith(NBI_CONTEXT_PREFIX)
@@ -304,13 +335,37 @@ def _strip_context_preamble(title: str) -> str:
     stripped = " ".join(lines)
     if stripped and stripped != title.strip():
         return stripped
-    # Joined form: peel the directory pointer off the front by shape.
-    joined_preamble = re.compile(
-        re.escape(NBI_CONTEXT_PREFIX)
-        + r" '[^']*'( and current file is: '[^']*')?\s*"
-    )
-    remainder = joined_preamble.sub("", title, count=1)
-    return remainder.strip() or title
+    # Joined form: peel the directory pointer off by shape.
+    marker = next((m for m in _TITLE_TRUNCATION_MARKERS if title.endswith(m)), "")
+    body = title[: len(title) - len(marker)]
+    pointer = _CONTEXT_POINTER.search(body)
+    if pointer is None:
+        return title
+    rest = title[pointer.end():]
+    tail = body[pointer.end():]
+    if marker and any(segment.startswith(tail) for segment in _CONTEXT_POINTER_SEGMENTS):
+        # The title ended inside the pointer: nothing after it is the question.
+        rest = ""
+    remainder = (title[:pointer.start()] + rest.lstrip()).strip()
+    if remainder:
+        return remainder
+    directory = pointer.group("dir")
+    file = pointer.group("file")
+    if not file:
+        if not marker:
+            return title
+        return directory if pointer.end("dir") < len(body) else ""
+    file_cut = bool(marker) and pointer.end("file") == len(body)
+    # The file path starts from the Jupyter root and usually repeats the
+    # open directory, which would otherwise use up the whole preview.
+    inside = f"{directory}/" if directory else ""
+    if inside and file.startswith(inside):
+        file = file[len(inside):]
+    elif inside and file_cut and inside.startswith(file):
+        file = ""
+    if not file:
+        return directory
+    return file + marker if file_cut else file
 
 
 def _diffs_from_content(content) -> list[dict]:
