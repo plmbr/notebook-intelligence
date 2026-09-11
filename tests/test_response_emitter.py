@@ -530,3 +530,16 @@ def test_request_thread_treats_interactive_cancellation_as_normal(error, caplog)
         BackendMessageType.StreamEnd,
     ]
     assert "Unhandled error" not in caplog.text
+
+
+def test_confirmation_details_reach_the_websocket_message():
+    from notebook_intelligence.api import ConfirmationData
+
+    emitter, _, io_loop = _make_emitter()
+    details = [{"label": "Command", "value": "ls -la"}]
+
+    emitter.stream(ConfirmationData(title="Codex tool call", message="Approve?", details=details))
+
+    _, message = io_loop.asyncio_loop.call_soon_threadsafe.call_args.args
+    content = message["data"]["choices"][0]["delta"]["nbiContent"]["content"]
+    assert content["details"] == details

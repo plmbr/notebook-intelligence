@@ -416,6 +416,19 @@ _DISALLOWED_URI_CODEPOINTS = frozenset(
 )
 
 
+# Unicode bidirectional formatting controls. Text containing them can display
+# in a different order from the order a shell or parser reads it.
+BIDI_CONTROL_CODEPOINTS = frozenset(
+    {
+        0x061C,  # ARABIC LETTER MARK
+        0x200E,  # LEFT-TO-RIGHT MARK
+        0x200F,  # RIGHT-TO-LEFT MARK
+        *range(0x202A, 0x202F),  # embeddings, overrides, and pop formatting
+        *range(0x2066, 0x206A),  # directional isolates and pop isolate
+    }
+)
+
+
 def has_dangerous_text_codepoints(s: str) -> bool:
     """Return True if ``s`` contains any codepoint in the same set
     ``safe_anchor_uri`` rejects (C0/DEL/C1, NEL/NBSP/LS/PS/BOM, ZWSP,

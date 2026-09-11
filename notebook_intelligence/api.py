@@ -299,6 +299,10 @@ class ConfirmationData(ResponseStreamData):
     confirmLabel: str = None
     confirmSessionLabel: str = None
     cancelLabel: str = None
+    # Optional [{"label", "value"}] pairs shown between the message and the
+    # buttons. Labels are trusted; each value renders in its own preformatted
+    # block, so untrusted text there cannot pose as another label.
+    details: list = None
 
     @property
     def data_type(self) -> ResponseStreamDataType:

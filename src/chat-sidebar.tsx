@@ -80,6 +80,7 @@ import { mcpServerSettingsToEnabledState } from './components/mcp-util';
 import claudeSvgStr from '../style/icons/claude.svg';
 import openaiSvgStr from '../style/icons/openai.svg';
 import { AskUserQuestion } from './components/ask-user-question';
+import { ConfirmationDetails } from './components/confirmation-details';
 import { ClaudeSessionPicker } from './components/claude-session-picker';
 import {
   BYPASS_PERMISSIONS_MODE,
@@ -1011,6 +1012,7 @@ function ChatResponse(props: any) {
                   {item.content.message ? (
                     <div>{item.content.message}</div>
                   ) : null}
+                  <ConfirmationDetails details={item.content.details} />
                   <button
                     className="jp-Dialog-button jp-mod-accept jp-mod-styled"
                     onClick={() => {

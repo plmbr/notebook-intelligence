@@ -881,6 +881,50 @@ pre:has(.code-block-header) {
   line-height: 20px;
 }
 
+.chat-confirmation-details {
+  margin: 6px 0;
+}
+
+.chat-confirmation-detail + .chat-confirmation-detail {
+  margin-top: 8px;
+}
+
+.chat-confirmation-details dt {
+  font-weight: 600;
+}
+
+.chat-confirmation-details dd {
+  margin: 2px 0 0;
+}
+
+/* Every value is shown whole but scrolls inside a bounded block, so a long or
+   padded value cannot push the command (shown last) away from the buttons.
+   Characters display in the order they are read, so right-to-left text
+   cannot reorder a command. */
+.chat-confirmation-details pre {
+  margin: 0;
+  padding: 4px 6px;
+  max-height: 12em;
+  overflow: auto;
+  direction: ltr;
+  unicode-bidi: bidi-override;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 3px;
+  background: var(--jp-layout-color2);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  line-height: var(--jp-code-line-height);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.chat-confirmation-detail-clipped {
+  font-size: var(--jp-ui-font-size0);
+  font-style: italic;
+  margin-top: 2px;
+}
+
 .chat-confirmation-form button {
   height: 24px;
   line-height: 24px;
