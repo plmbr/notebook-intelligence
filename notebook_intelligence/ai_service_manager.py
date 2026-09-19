@@ -44,6 +44,35 @@ class PromptParts:
     mcp_prompt_name: str = ''
     mcp_arguments: dict = None
 
+GITHUB_COPILOT_PROVIDER_ID = "github-copilot"
+
+
+def github_copilot_serves_a_request(
+    agent_mode: Optional[str],
+    chat_model_provider: str,
+    inline_completion_model_provider: str,
+    claude_inline_completion_setting: str,
+) -> bool:
+    """Whether any surface will actually route a request to Copilot.
+
+    The configured provider fields alone do not answer this, because an agent
+    mode takes chat away from ``chat_model`` while leaving the configured
+    values in place, and both fields default to Copilot. Deciding from the
+    fields meant a Claude-only deployment logged in, refreshed a token, and
+    polled GitHub for the life of the server.
+    """
+    if agent_mode is None and chat_model_provider == GITHUB_COPILOT_PROVIDER_ID:
+        return True
+    if inline_completion_model_provider != GITHUB_COPILOT_PROVIDER_ID:
+        return False
+    # Claude mode replaces inline completion with its own model unless the
+    # user asked it to inherit; ACP mode does not touch inline completion at
+    # all, so the configured provider still serves it there.
+    if agent_mode == "claude":
+        return claude_inline_completion_setting == "inherit"
+    return True
+
+
 class AIServiceManager(Host):
     def __init__(self, options: Optional[dict] = None):
         self.llm_providers: Dict[str, LLMProvider] = {}
@@ -167,8 +196,19 @@ class AIServiceManager(Host):
 
     def update_models_from_config(self):
         using_github_copilot_service = self.nbi_config.using_github_copilot_service
+        # Configured-as-a-provider is not the same question as will-serve-a-
+        # request, and only the second one justifies logging in.
+        copilot_serves_a_request = github_copilot_serves_a_request(
+            self.active_agent_mode,
+            self.nbi_config.chat_model.get("provider", ""),
+            self.nbi_config.inline_completion_model.get("provider", ""),
+            self.nbi_config.claude_settings.get("inline_completion_model", ""),
+        )
         if using_github_copilot_service:
-            github_copilot.login_with_existing_credentials(self._nbi_config.store_github_access_token)
+            github_copilot.login_with_existing_credentials(
+                self._nbi_config.store_github_access_token,
+                allow_login=copilot_serves_a_request,
+            )
         github_copilot.enable_github_login_status_change_updater(using_github_copilot_service)
 
         chat_model_cfg = self.nbi_config.chat_model

@@ -296,17 +296,29 @@ def delete_stored_github_access_token() -> bool:
 
     return False
 
-def login_with_existing_credentials(store_access_token: bool):
+def login_with_existing_credentials(store_access_token: bool, allow_login: bool = True):
     global github_access_token_provided, remember_github_access_token
 
     if github_auth["status"] is not LoginStatus.NOT_LOGGED_IN:
         return
 
     if store_access_token:
-        github_access_token_provided = read_stored_github_access_token()
+        # Kept above the early return below, so the preference is recorded
+        # even when the token read is skipped.
         remember_github_access_token = True
+        if allow_login:
+            github_access_token_provided = read_stored_github_access_token()
     else:
+        # Turning "remember login" off must delete the token whether or not
+        # Copilot is in use, so this runs before the allow_login check.
         delete_stored_github_access_token()
+
+    if not allow_login:
+        # Nothing in this configuration will route a request to Copilot.
+        # Logging in would store a token, start the refresh thread, and poll
+        # GitHub for the life of the server, and reading the stored token
+        # would warn about the token password for a service that never runs.
+        return
 
     if github_access_token_provided is not None:
         login()
@@ -323,6 +335,16 @@ def store_github_access_token():
             log.error("Failed to store GitHub access token")
 
 def login():
+    global github_access_token_provided
+
+    # A stored token short-circuits the device flow in the waiter thread, but
+    # only once it has been read. Startup skips that read when nothing will
+    # route a request to Copilot, so read it here instead: signing in from
+    # Settings must not send the user through a device code they already have
+    # a valid token for.
+    if github_access_token_provided is None and remember_github_access_token:
+        github_access_token_provided = read_stored_github_access_token()
+
     login_info = get_device_verification_info()
     if login_info is not None:
         wait_for_tokens()
