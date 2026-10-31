@@ -13,6 +13,7 @@ This guide covers deploying Notebook Intelligence at scale — JupyterHub, KubeS
 - [Shared filesystem and multi-user notes](#shared-filesystem-and-multi-user-notes)
 - [Environment variables and traitlets](#environment-variables-and-traitlets)
 - [Security model](#security-model)
+- [Chat Markdown images](#chat-markdown-images)
 - [API-key handling](#api-key-handling)
 - [Self-hosted LLM endpoints](#self-hosted-llm-endpoints)
 - [Custom CA certs and corporate proxies](#custom-ca-certs-and-corporate-proxies)
@@ -165,6 +166,16 @@ For regulated tenants:
 2. Restrict the providers the user can pick. Force a single self-hosted endpoint with `disabled_providers` plus the org's base config.
 3. Disable user-initiated skill imports with `allow_github_skill_import = False` (env `NBI_ALLOW_GITHUB_SKILL_IMPORT=false`), and plugin marketplace adds from GitHub with `allow_github_plugin_import = False` (env `NBI_ALLOW_GITHUB_PLUGIN_IMPORT=false`). Reinforce at the network layer where stronger isolation is required. See [`skills.md`](skills.md#disabling-user-initiated-github-imports) and the [Plugins tab section](#disabling-the-plugins-tab) below.
 4. Run with a non-root container user, with no host-network access and no host-path mounts beyond the user's PVC.
+
+---
+
+## Chat Markdown images
+
+Images written in chat Markdown by a model or tool display a visible blocked-image notice instead of an image. Safe image descriptions appear in the notice; missing descriptions or descriptions containing control or bidirectional formatting characters use a generic notice. The notice supports JupyterLab translations and falls back to English when a translation is unavailable.
+
+All Markdown image destinations are blocked, including remote, same-origin, and relative URLs. An image URL can contain chat or workspace data, and browsers normally request images without a click. The chat renderer therefore never places the image URL in a fetching element. It does not offer a load button or fetch images through a proxy. Ordinary Markdown images consequently lose their visual rendering in chat.
+
+Dedicated image results, such as figures delivered through image response events, still render. Notebook Markdown cells use JupyterLab's separate renderer and are outside this protection. This change prevents automatic requests from chat Markdown images; it does not constrain tools, notebook content, or other network access.
 
 ---
 

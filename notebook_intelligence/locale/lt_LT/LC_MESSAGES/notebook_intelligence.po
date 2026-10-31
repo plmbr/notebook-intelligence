@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: notebook_intelligence\n"
 "Report-Msgid-Bugs-To: https://github.com/plmbr/notebook-intelligence/issues\n"
-"POT-Creation-Date: 2026-10-26 07:14-0400\n"
+"POT-Creation-Date: 2026-10-30 18:46-0400\n"
 "PO-Revision-Date: 2026-10-24 22:00-0400\n"
 "Last-Translator: AI draft, not yet reviewed\n"
 "Language-Team: lt_LT\n"
@@ -3123,6 +3123,15 @@ msgstr "Nesate prisijungę prie GitHub Copilot. Prisijunkite dabar, kad suaktyvi
 #: src/chat-sidebar.tsx
 msgid "Your code and data are directly transferred to GitHub Copilot as needed without storing any copies other than keeping in the process memory."
 msgstr "Jūsų kodas ir duomenys pagal poreikį perduodami tiesiogiai GitHub Copilot, nesaugant jokių kopijų, išskyrus laikymą proceso atmintyje."
+
+#: src/components/markdown-image.tsx
+msgid "[Image blocked: %1]"
+msgstr ""
+
+#: src/components/markdown-image.tsx
+#, fuzzy
+msgid "[Image blocked]"
+msgstr "blokuota"
 
 #: src/components/claude-scope.ts
 msgid "available in all your projects"

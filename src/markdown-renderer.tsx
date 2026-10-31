@@ -14,6 +14,7 @@ import {
 import { VscNewFile, VscInsert, VscCopy, VscNotebook, VscAdd } from './icons';
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { PathExt } from '@jupyterlab/coreutils';
+import { MarkdownImage } from './components/markdown-image';
 import { MarkdownLink } from './components/markdown-link';
 import { isDarkTheme, writeTextToClipboard } from './utils';
 import { IActiveDocumentInfo } from './tokens';
@@ -95,6 +96,13 @@ export function MarkdownRenderer({
             {children}
           </MarkdownLink>
         ),
+        // CommonMark `![alt](url)` and reference-style images normalize to
+        // the same `img` node. Unlike an anchor it needs no click: the
+        // browser fetches `src` as soon as the node renders, so a model
+        // steered by injected content could stream out an image URL that
+        // carries chat/workspace context in its query string. `MarkdownImage`
+        // keeps `src` out of the DOM entirely.
+        img: ({ alt }: any) => <MarkdownImage alt={alt} />,
         code({ node, inline, className, children, getApp, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
           const codeString =
