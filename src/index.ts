@@ -183,7 +183,10 @@ import {
   isInlineCompletionOriginCurrent
 } from './inline-completion-origin';
 
-import { classifyInlineCompletionResponse } from './inline-completion-request';
+import {
+  classifyInlineCompletionResponse,
+  inlineCompletionText
+} from './inline-completion-request';
 
 const addInlinePromptEffect = StateEffect.define<{
   pos: number;
@@ -730,9 +733,10 @@ class NBIInlineCompletionProvider
         ActiveDocumentWatcher.activeDocumentInfo.filename,
         {
           emit: (response: any) => {
+            const completion = inlineCompletionText(response);
             const action = classifyInlineCompletionResponse(
               response.id,
-              response.type === BackendMessageType.StreamMessage,
+              completion,
               requestInfo,
               this._lastRequestInfo
             );
@@ -742,17 +746,16 @@ class NBIInlineCompletionProvider
             }
 
             // Resolving with no items, rather than rejecting, keeps a
-            // superseded or empty request out of the console: the completer
-            // logs a rejected provider promise as a warning.
+            // superseded, ended or failed request out of the console: the
+            // completer logs a rejected provider promise as a warning.
             if (action === 'discard') {
               resolve({ items });
               return;
             }
 
-            if (isInlineCompletionOriginCurrent(origin)) {
-              items.push({
-                insertText: response.data.completions
-              });
+            // An empty completion is a response with nothing to suggest.
+            if (completion && isInlineCompletionOriginCurrent(origin)) {
+              items.push({ insertText: completion });
             }
 
             const timeElapsed =

@@ -12,6 +12,8 @@
  * standing up the extension.
  */
 
+import { BackendMessageType } from './tokens';
+
 export interface IInlineCompletionRequestInfo {
   chatId: string;
   messageId: string;
@@ -31,6 +33,28 @@ export interface IInlineCompletionRequestInfo {
 export type InlineCompletionResponseAction = 'ignore' | 'discard' | 'accept';
 
 /**
+ * The completion text a response carries, or null when it carries none.
+ *
+ * Only a stream message with a string `completions` is a completion; an
+ * empty string is the model's "no suggestion". Anything else (a stream end,
+ * or a chat-style error notice, which the server no longer sends on an
+ * inline completion's id) is not. Handing JupyterLab an item whose
+ * `insertText` is not a string makes its ghost text rendering throw inside
+ * the editor update, which leaves the drawn caret behind the text until the
+ * next click (#535).
+ */
+export function inlineCompletionText(response: {
+  type?: unknown;
+  data?: { completions?: unknown } | null;
+}): string | null {
+  if (response.type !== BackendMessageType.StreamMessage) {
+    return null;
+  }
+  const completions = response.data?.completions;
+  return typeof completions === 'string' ? completions : null;
+}
+
+/**
  * Decide how a response relates to the request that is waiting for it.
  *
  * `latestRequestInfo` is the provider's shared field. When it no longer
@@ -40,7 +64,7 @@ export type InlineCompletionResponseAction = 'ignore' | 'discard' | 'accept';
  */
 export function classifyInlineCompletionResponse(
   responseId: string,
-  isStreamMessage: boolean,
+  completion: string | null,
   requestInfo: IInlineCompletionRequestInfo,
   latestRequestInfo: IInlineCompletionRequestInfo | null
 ): InlineCompletionResponseAction {
@@ -52,9 +76,9 @@ export function classifyInlineCompletionResponse(
     return 'discard';
   }
 
-  // A stream end, or a cancellation acknowledgement, rather than a
-  // completion payload.
-  if (!isStreamMessage) {
+  // A stream end, a cancellation acknowledgement, or an error notice rather
+  // than a completion (see inlineCompletionText).
+  if (completion === null) {
     return 'discard';
   }
 

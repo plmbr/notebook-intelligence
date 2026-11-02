@@ -3478,9 +3478,13 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
         ai_service_manager.websocket_connector = ws_connector
         github_copilot.websocket_connector = ws_connector
 
-    def _run_request_thread(self, coro, message_id, response_emitter):
+    def _run_request_thread(self, coro, message_id, response_emitter, error_notice=True):
         """Worker-thread entrypoint that finalizes the explicit emitter and
         pops the messageId on completion (success or failure).
+
+        ``error_notice`` streams a chat notice when the request fails. An
+        inline completion turns it off: it has no transcript to show the
+        notice in, and the editor would read it as completion text (#535).
 
         Passing the emitter directly keeps terminal delivery independent of a
         concurrent cancellation removing the callback-handler entry before
@@ -3507,20 +3511,21 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
         except Exception:
             status = "error"
             log.exception("Unhandled error while processing request %s", message_id)
-            try:
-                trans = i18n.response_bundle(response_emitter)
-                response_emitter.stream_transient_markdown(
-                    "\n\n"
-                    + trans.__(
-                        "Oops! There was a problem handling this request. "
-                        "Please try again. Check the server logs for details."
+            if error_notice:
+                try:
+                    trans = i18n.response_bundle(response_emitter)
+                    response_emitter.stream_transient_markdown(
+                        "\n\n"
+                        + trans.__(
+                            "Oops! There was a problem handling this request. "
+                            "Please try again. Check the server logs for details."
+                        )
                     )
-                )
-            except Exception:
-                log.exception(
-                    "Failed to stream terminal notice for request %s",
-                    message_id,
-                )
+                except Exception:
+                    log.exception(
+                        "Failed to stream terminal notice for request %s",
+                        message_id,
+                    )
         except BaseException:
             # Not caught above (asyncio.CancelledError, KeyboardInterrupt).
             # Record the outcome, then let it propagate as before.
@@ -4037,7 +4042,7 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             self._messageCallbackHandlers[messageId] = MessageCallbackHandlers(response_emitter, cancel_token)
 
             coro = WebsocketCopilotHandler.handle_inline_completions(prefix, suffix, language, filename, response_emitter, cancel_token)
-            thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId, response_emitter))
+            thread = threading.Thread(target=self._run_request_thread, args=(coro, messageId, response_emitter), kwargs={"error_notice": False})
             thread.start()
         elif messageType == RequestDataType.ChatUserInput:
             handlers = self._messageCallbackHandlers.get(messageId)
@@ -4121,7 +4126,8 @@ class WebsocketCopilotHandler(WebSocketMixin, websocket.WebSocketHandler, Jupyte
             response_emitter.finish()
             return
 
-        response_emitter.stream({"completions": completions})
+        # A provider may return None for "no suggestion"; the editor needs a string.
+        response_emitter.stream({"completions": completions or ""})
         response_emitter.finish()
 
 class NotebookIntelligence(ExtensionApp):
