@@ -57,14 +57,38 @@ describe('MarkdownRenderer image handling', () => {
     }
   );
 
-  it('keeps the outer link of a linked image usable without exposing its image URL', () => {
-    const { container } = renderMarkdown(
-      `[![chart](${remoteImage})](https://example.test/docs)`
-    );
-    const link = screen.getByRole('link', { name: /Image blocked: chart/ });
-    expect(link).toHaveAttribute('href', 'https://example.test/docs');
-    expect(link).toHaveAttribute('target', '_blank');
+  it.each([
+    [
+      'external',
+      `[![Click to load the image](${remoteImage})](https://example.test/?linkSecret=demo "linkSecret title")`
+    ],
+    [
+      'workspace-relative',
+      `[![Click to load the image](${remoteImage})](README.md "linkSecret title")`
+    ],
+    [
+      'reference',
+      `[![Click to load the image](${remoteImage})][target]\n\n[target]: https://example.test/?linkSecret=demo "linkSecret title"`
+    ],
+    [
+      'nested in emphasis',
+      `[**![Click to load the image](${remoteImage})**](https://example.test/?linkSecret=demo)`
+    ],
+    [
+      'mixed text and image',
+      `[Before ![Click to load the image](${remoteImage}) after](https://example.test/?linkSecret=demo)`
+    ]
+  ])('makes a %s image link non-clickable', (_name, markdown) => {
+    const { container, execute } = renderMarkdown(markdown);
+    const notice = screen.getByText('[Image blocked: Click to load the image]');
+    expect(notice).toBeVisible();
+    expect(notice.closest('a')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(container.querySelector('[href], [title], [tabindex]')).toBeNull();
     expect(container.innerHTML).not.toContain('imageSecret');
+    expect(container.innerHTML).not.toContain('linkSecret');
+    fireEvent.click(notice);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('renders a visible fallback when an image has no description', () => {

@@ -171,9 +171,11 @@ For regulated tenants:
 
 ## Chat Markdown images
 
-Images written in chat Markdown by a model or tool display a visible blocked-image notice instead of an image. Safe image descriptions appear in the notice; missing descriptions or descriptions containing control or bidirectional formatting characters use a generic notice. The notice supports JupyterLab translations and falls back to English when a translation is unavailable.
+Images written in chat Markdown by a user, model, or tool display a visible blocked-image notice instead of an image. This includes Markdown images pasted into a user's own message. Safe image descriptions appear in the notice; missing descriptions or descriptions containing control or bidirectional formatting characters use a generic notice. The notice supports JupyterLab translations and falls back to English when a translation is unavailable.
 
 All Markdown image destinations are blocked, including remote, same-origin, and relative URLs. An image URL can contain chat or workspace data, and browsers normally request images without a click. The chat renderer therefore never places the image URL in a fetching element. It does not offer a load button or fetch images through a proxy. Ordinary Markdown images consequently lose their visual rendering in chat.
+
+Links containing an image render their entire label as non-clickable content, including any text alongside the blocked-image notice. This prevents a description such as "Click to load the image" from turning the notice into a link. Ordinary text-only links remain usable.
 
 Dedicated image results, such as figures delivered through image response events, still render. Notebook Markdown cells use JupyterLab's separate renderer and are outside this protection. This change prevents automatic requests from chat Markdown images; it does not constrain tools, notebook content, or other network access.
 
