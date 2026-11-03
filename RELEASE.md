@@ -50,6 +50,8 @@ python -m build
 
 > `python setup.py sdist bdist_wheel` is deprecated and will not work for this package.
 
+Building the wheel also compiles the translation catalogs (`hatch_build.py`) into the `.json` and `.mo` files it ships, and fails on a catalog with mismatched placeholders or plural forms. See [Translations](CONTRIBUTING.md#translations).
+
 Then to upload the package to PyPI, do:
 
 ```bash
