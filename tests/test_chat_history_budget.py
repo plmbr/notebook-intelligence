@@ -1,19 +1,42 @@
+import importlib.util
 import logging
+import subprocess
+import sys
+import textwrap
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import tiktoken
 
-import notebook_intelligence.chat_history_budget as budget_module
-from notebook_intelligence.chat_history_budget import (
-    CHAT_INPUT_BUDGET_RATIO,
-    CONTEXT_OMISSION_NOTICE,
-    TRUNCATION_MARKER,
-    budget_chat_messages,
-    estimate_message_tokens,
-    text_token_count,
-    truncate_text,
-    warm_tokenizer_encoding,
-)
+import notebook_intelligence.chat_history_budget as shared_budget_module
+
+
+def _load_budget_module():
+    # Execute the real implementation with private globals. Reloading the
+    # shared module would still let earlier warm-up workers overwrite the
+    # state these tests set up, including their fallback-only scenarios.
+    spec = importlib.util.spec_from_file_location(
+        "notebook_intelligence._test_chat_history_budget",
+        shared_budget_module.__file__,
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+budget_module = _load_budget_module()
+CHAT_INPUT_BUDGET_RATIO = budget_module.CHAT_INPUT_BUDGET_RATIO
+CONTEXT_OMISSION_NOTICE = budget_module.CONTEXT_OMISSION_NOTICE
+TRUNCATION_MARKER = budget_module.TRUNCATION_MARKER
+budget_chat_messages = budget_module.budget_chat_messages
+estimate_message_tokens = budget_module.estimate_message_tokens
+text_token_count = budget_module.text_token_count
+truncate_text = budget_module.truncate_text
+warm_tokenizer_encoding = budget_module.warm_tokenizer_encoding
 
 
 class _CharacterEncoding:
@@ -35,6 +58,19 @@ class _ImmediateThread:
 
 @pytest.fixture(autouse=True)
 def stable_tokenizer_state(monkeypatch):
+    # Patching members of the imported threading/time/tiktoken modules would
+    # affect every user of those modules, including background chat threads.
+    monkeypatch.setattr(
+        budget_module, "threading", SimpleNamespace(Thread=threading.Thread)
+    )
+    monkeypatch.setattr(
+        budget_module, "time", SimpleNamespace(monotonic=time.monotonic)
+    )
+    monkeypatch.setattr(
+        budget_module,
+        "tiktoken",
+        SimpleNamespace(encoding_for_model=tiktoken.encoding_for_model),
+    )
     monkeypatch.setattr(
         budget_module,
         "_tokenizer_encoding",
@@ -50,6 +86,72 @@ def stable_tokenizer_state(monkeypatch):
         "_tokenizer_fallback_last_logged_at",
         None,
     )
+
+
+def test_tokenizer_dependency_mocks_do_not_affect_other_modules(monkeypatch):
+    real_thread = threading.Thread
+    real_monotonic = time.monotonic
+    real_encoding_for_model = tiktoken.encoding_for_model
+    monkeypatch.setattr(budget_module.threading, "Thread", Mock())
+    monkeypatch.setattr(budget_module.time, "monotonic", Mock(return_value=0))
+    monkeypatch.setattr(budget_module.tiktoken, "encoding_for_model", Mock())
+
+    assert threading.Thread is real_thread
+    assert time.monotonic is real_monotonic
+    assert tiktoken.encoding_for_model is real_encoding_for_model
+    assert shared_budget_module.threading.Thread is real_thread
+    assert shared_budget_module.time.monotonic is real_monotonic
+    assert shared_budget_module.tiktoken.encoding_for_model is real_encoding_for_model
+
+
+@pytest.mark.timeout(120)
+def test_late_shared_warmup_cannot_replace_the_test_fallback():
+    # This probe intentionally writes to the production module. Confine it to
+    # a subprocess so real workers elsewhere in the suite never see its fake
+    # encoding. Invoke the late callback synchronously at the critical point
+    # rather than depending on thread scheduling, sleeps, or tokenizer downloads.
+    probe = textwrap.dedent("""\
+        import runpy
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import pytest
+
+        tests = runpy.run_path(sys.argv[1])
+        shared = tests['shared_budget_module']
+        isolated = tests['budget_module']
+        encoding = tests['_CharacterEncoding']()
+
+        with pytest.MonkeyPatch.context() as patch:
+            tests['stable_tokenizer_state'].__wrapped__(patch)
+            patch.setattr(shared, 'tiktoken', SimpleNamespace(
+                encoding_for_model=Mock(return_value=encoding)
+            ))
+            patch.setattr(isolated, '_tokenizer_encoding', None)
+
+            def finish_earlier_warmup_then_fail_start():
+                shared._load_tokenizer_encoding(1)
+                raise RuntimeError('thread limit')
+
+            thread = Mock()
+            thread.start.side_effect = finish_earlier_warmup_then_fail_start
+            patch.setattr(isolated.threading, 'Thread', Mock(return_value=thread))
+
+            result = tests['text_token_count']('é')
+            thread.start.assert_called_once_with()
+            assert result == 2, f'expected UTF-8 fallback 2, got {result}'
+            assert shared._tokenizer_encoding is encoding
+            assert isolated._tokenizer_encoding is None
+            assert isolated._tokenizer_load_in_progress is False
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", probe, __file__],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        timeout=110,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_messages_under_budget_are_unchanged():
