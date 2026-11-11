@@ -21,9 +21,11 @@ NBI is free and open-source. Connect it to a free or paid LLM provider of your c
   - [Notebook toolbar generation](#notebook-toolbar-generation)
   - [Multi-language and kernel-aware notebooks](#multi-language-and-kernel-aware-notebooks)
   - [Reload open files when changed on disk](#reload-open-files-when-changed-on-disk)
+  - [Interface in your language](#interface-in-your-language)
   - [Replies in your language](#replies-in-your-language)
 - [Configuration](#configuration)
   - [Configuration files](#configuration-files)
+  - [Admin policies](#admin-policies)
   - [Remembering GitHub Copilot login](#remembering-github-copilot-login)
 - [Built-in tools](#built-in-tools)
 - [Model Context Protocol (MCP) support](#model-context-protocol-mcp-support)
@@ -91,7 +93,7 @@ Configure via the NBI Settings dialog (gear icon in the chat panel, or _Settings
 - **Chat Agent setting sources** — user, project, or both, mirroring [Claude Code's settings](https://code.claude.com/docs/en/settings).
 - **Chat Agent tools** — which tool sets to activate. _Claude Code tools_ are always on. _Jupyter UI tools_ are NBI's own (authoring notebooks, running cells, etc.).
 - **API key** and **Base URL** — point at Anthropic or a self-hosted endpoint.
-- **Show turn usage**: off by default. When on, each completed turn ends with a one-line italic footer giving the turn's duration and token counts. A `$` cost figure appears only when NBI is running against a direct Anthropic API key on Anthropic's own endpoint: the SDK prices from the CLI's built-in public list rates, which are not the marginal cost on a subscription login and not the rate on a custom `base_url`, so NBI omits a number it cannot stand behind rather than showing a misleading one.
+- **Show usage after each turn**: off by default. When on, each completed turn ends with a one-line italic footer giving the turn's duration and token counts. A `$` cost figure appears only when NBI is running against a direct Anthropic API key on Anthropic's own endpoint: the SDK prices from the CLI's built-in public list rates, which are not the marginal cost on a subscription login and not the rate on a custom `base_url`, so NBI omits a number it cannot stand behind rather than showing a misleading one.
 
 **Model defaults.** With no model selected, the chat model resolves to the newest Sonnet (`claude-sonnet-5` today) and auto-complete to the newest Haiku, both matched against the model list fetched from the configured endpoint rather than a hardcoded ID. If a configured ID no longer exists, NBI falls back within the same tier by version rather than alphabetically, so `claude-sonnet-99` resolves to the newest Sonnet. The fetched list is cached per endpoint, so changing **Base URL** does not reuse the previous endpoint's models. Auto-complete responses are capped at 1024 tokens, since a suggestion is at most a few dozen lines; `NBI_CLAUDE_INLINE_COMPLETION_MAX_TOKENS` overrides the cap and is clamped to `[1, 4096]`.
 
@@ -161,7 +163,7 @@ It is off by default and the Settings tab stays hidden until an admin allows the
 
 ### Chatbook
 
-A Chatbook is a notebook whose cells can be written in English. Running a prompt cell generates code for the notebook's backend kernel and runs it; each cell carries a badge showing whether it is a prompt (**NL**) or ordinary code (**Cd**), and `Ctrl J` switches between them.
+A Chatbook is a notebook whose cells can be written in plain language instead of code. Running a prompt cell generates code for the notebook's backend kernel and runs it; each cell carries a badge showing whether it is a prompt (**NL**) or ordinary code (**Cd**), and `Ctrl J` switches between them.
 
 What happens to generated code before it runs is yours to choose: **Always confirm** (the default) shows the code and waits, **Confirm if risky** waits only when a scan finds destructive calls, and **Auto-run** executes straight away. Admins can cap that choice fleet-wide, or turn Chatbook off entirely.
 
@@ -197,8 +199,6 @@ Right-click a cell output (or hover for the toolbar) to send it straight into th
 
 Each is per-user toggleable from Settings (saved as `enable_explain_error`, `enable_output_followup`, `enable_output_toolbar` in `config.json`, default on) and admin-lockable via `NBI_EXPLAIN_ERROR_POLICY` / `NBI_OUTPUT_FOLLOWUP_POLICY` / `NBI_OUTPUT_TOOLBAR_POLICY`.
 
-A revert is skipped while that document's kernel is busy, so a change landing mid-execution is applied when the cell finishes rather than swapped in under it, and the notice naming the reloaded file is shown only for the document you are looking at.
-
 ### Notebook toolbar generation
 
 Active notebooks show a sparkle icon on the toolbar. Click it to open a popover that scopes the generation request to that specific notebook — handy for multi-notebook sessions where you don't want the chat sidebar to compete for context.
@@ -213,9 +213,15 @@ When the agent needs a notebook in a language the current context has not establ
 
 NBI reloads open document tabs when their files change on disk, so edits an AI agent makes via its Read/Write tools appear in the editor without a manual refresh. Tabs with unsaved local edits are skipped so user work is never clobbered. Toggle via the **NBI Settings dialog → External changes → "Refresh open files when changed on disk"** (default on).
 
+A revert is skipped while that document's kernel is busy, so a change landing mid-execution is applied when the cell finishes rather than swapped in under it, and the notice naming the reloaded file is shown only for the document you are looking at.
+
+### Interface in your language
+
+NBI follows the language chosen under JupyterLab's **Settings → Language**. It ships translations for the 29 languages JupyterLab has a language pack for, covering the sidebar, settings, panels, Chatbook, the tour, and messages the server writes such as the readiness report and approval cards; Arabic and Hebrew lay NBI's panels out right to left. The translations were drafted with AI and have not yet been reviewed by native speakers. See [`docs/translating.md`](docs/translating.md) to fix or add one.
+
 ### Replies in your language
 
-When JupyterLab is set to another language through a language pack, turn on **NBI Settings dialog → Language → "Reply in my JupyterLab language"** (default off) to have the AI write its chat replies and Chatbook cell descriptions in that language, in every chat mode (the configured provider, Claude, and ACP agents). Code, identifiers, file names and file contents are left as they are. The language is sent to the model by the English name of its JupyterLab language pack ("German (Germany)"), and while JupyterLab is in English, or the setting is off, prompts are unchanged. In Claude and ACP mode the instruction goes with each message rather than a slash command, and a conversation keeps following it after the setting is turned off until you start a new chat.
+When JupyterLab is set to another language through a language pack, turn on **NBI Settings → General → Language → "Reply in my JupyterLab language"** (default off) to have the AI write its chat replies and Chatbook cell descriptions in that language, in every chat mode (the configured provider, Claude, and ACP agents). Code, identifiers, file names and file contents are left as they are. The language is sent to the model by the English name of its JupyterLab language pack ("German (Germany)"), and while JupyterLab is in English, or the setting is off, prompts are unchanged. In Claude and ACP mode the instruction goes with each message rather than a slash command, and a conversation keeps following it after the setting is turned off until you start a new chat.
 
 ## Configuration
 
@@ -267,7 +273,7 @@ Chatbook NL execution is capped separately (not a boolean policy):
 
 The matching traitlets are `c.NotebookIntelligence.chatbook_policy` and `c.NotebookIntelligence.chatbook_max_execution_mode`. See [`docs/chatbook.md`](docs/chatbook.md).
 
-The first three also have matching traitlets on `NotebookIntelligence` (`explain_error_policy`, `output_followup_policy`, `output_toolbar_policy`); add the others as needed in the same shape:
+Each policy also has a matching traitlet on `NotebookIntelligence`, named in lower case without the `NBI_` prefix (`explain_error_policy`, `output_followup_policy`, `output_toolbar_policy`, and so on):
 
 ```python
 c.NotebookIntelligence.claude_mode_policy = "force-on"

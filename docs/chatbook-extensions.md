@@ -40,7 +40,8 @@ code) is configured in Settings → Chatbook; see [`chatbook.md`](chatbook.md).
 
 ## Mention providers
 
-Subclass `ChatbookMentionProvider` to add a browsable root. List item values are
+Subclass `ChatbookMentionProvider` to add a browsable root. Its `id` may contain
+only letters, digits, `.`, `_`, and `-`, or registration fails. List item values are
 provider-local opaque strings; NBI namespaces them as
 `@ext:<provider-id>:<value>`, or `@ext:"<provider-id>:<value>"` when the value
 contains whitespace or `@`. `resolve_mention` receives the value exactly as written:

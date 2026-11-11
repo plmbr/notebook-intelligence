@@ -4,9 +4,9 @@ NBI's ruleset system lets you inject custom guidelines into AI prompts so the as
 
 ## How it works
 
-Rules live in `~/.jupyter/nbi/rules/`. NBI loads them at startup, watches the directory for changes, and selects which rules apply to each chat turn based on the file frontmatter and the current context (file name, notebook language and kernel, cell type, working directory, and chat mode).
+Rules live in `~/.jupyter/nbi/rules/`. NBI loads them at startup, watches the directory for changes, and selects which rules apply to each chat turn based on the file frontmatter and the current context (file name, notebook language and kernel, working directory, and chat mode).
 
-Selected rules are concatenated in priority order and prepended to the system prompt sent to the LLM.
+Selected rules are appended to the system prompt sent to the LLM under an **Additional Guidelines** heading: global rules first, then mode rules, each group in priority order.
 
 ## Repository-level `AGENTS.md`
 
@@ -73,7 +73,7 @@ scope:
     - 'ir'
   directory_patterns: # Apply only under these paths (fnmatch, so wildcards).
     - '*/projects/ml/*'
-  cell_types: # Apply only for these cell types.
+  cell_types: # Parsed and reported, but not currently matched.
     - 'code'
 ---
 ```
@@ -85,7 +85,7 @@ Two things worth knowing before you write a `scope`:
 - **`directory_patterns` are fnmatch patterns, not path prefixes.** `'/projects/ml'` matches only that exact string; to match everything underneath it, write `'*/projects/ml/*'`.
 - **`languages` and `kernel_names` are different things.** `languages` matches the notebook's language (`python`, `r`); `kernel_names` matches the installed kernelspec name (`python3`, `ir`). Pick whichever you actually mean. Chatbook generation matches the backend kernelspec the notebook runs, not the `chatbook` wrapper it is open under, so scope a Chatbook rule to the kernel you actually execute in (or put it under `modes/chatbook/` to apply it to Chatbook regardless of kernel). An earlier `scope.kernels` key conflated the two and was removed in 5.3.0: a rule that still uses it is rejected at load with an error naming the file, rather than being silently ignored.
 
-**On `apply`:** the value is parsed, validated, and reported by the rules API, but it does not currently affect whether a rule is selected. Only `active` does. Treat `apply` as metadata until that changes; a rule you do not want applied needs `active: false`.
+**On `apply`:** the value is parsed, validated, and reported by the rules API, but it does not currently affect whether a rule is selected. Only `active` does. Treat `apply` as metadata until that changes; a rule you do not want applied needs `active: false`. The same goes for `scope.cell_types`: no context supplies a cell type, so it narrows nothing.
 
 ## Discovery layout
 
@@ -107,15 +107,15 @@ To disable a single rule, set `active: false` in its frontmatter. With auto-relo
 
 There is no Rules tab in the Settings dialog. The server does expose the rule inventory over REST, so a deployment that wants a management surface can build one against these routes (all of them require Jupyter authentication, like every other NBI route):
 
-| Route                                      | Method | Purpose                                                             |
-| ------------------------------------------ | ------ | ------------------------------------------------------------------- |
-| `/notebook-intelligence/rules`             | GET    | List every discovered rule with its frontmatter and resolved scope. |
-| `/notebook-intelligence/rules/<id>/toggle` | PUT    | Toggle a rule's `active` field for the current session.             |
-| `/notebook-intelligence/rules/reload`      | POST   | Re-read the rules directory immediately.                            |
+| Route                                      | Method | Purpose                                                                                                                                                                                                                                                                           |
+| ------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/notebook-intelligence/rules`             | GET    | List every discovered rule with its frontmatter and resolved scope.                                                                                                                                                                                                               |
+| `/notebook-intelligence/rules/<id>/toggle` | PUT    | Set a rule's `active` state from the JSON body (`{"active": false}`) until the server restarts. `<id>` is the rule's file name; if several rules share it, only the first found changes. The value is also written to `active_rules` in `config.json`, but nothing reads it back. |
+| `/notebook-intelligence/rules/reload`      | POST   | Re-read the rules directory immediately.                                                                                                                                                                                                                                          |
 
 A toggle through that route lasts for the session only: it does not rewrite the file's frontmatter, so the rule comes back on the next reload. `active: false` in the file is what persists.
 
-To disable the system entirely, edit `~/.jupyter/nbi/config.json`:
+To disable the system entirely, including the `AGENTS.md` injection, edit `~/.jupyter/nbi/config.json`:
 
 ```json
 {

@@ -20,6 +20,8 @@ When the agent wants to do something it considers worth asking about, NBI shows 
 
 Previous sessions are listed by the history control, and picking one resumes it through the agent's own session storage rather than NBI's.
 
+With **Reply in my JupyterLab language** on (see [Replies in your language](../README.md#replies-in-your-language)), NBI adds the reply-language instruction after each message's prompt, except a slash command, and strips it from session titles. The agent keeps its own conversation, so it goes on following earlier instructions after the setting is turned off, until you start a new chat.
+
 ## Limits worth knowing
 
 - **Agent commands use a filtered `PATH` by default.** Workspace directories, including a project's `.venv/bin`, are removed. Commands such as `python` or `pytest` may therefore select another installation or be unavailable. An administrator's explicit adapter override retains the full server `PATH` and requires trusting its contents.

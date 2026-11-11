@@ -74,7 +74,7 @@ steps:
     title: 'Run an agent in a terminal'
     # Special: templates for the only step whose copy is built at
     # runtime from the list of installed CLI tools. `{launchers}` is
-    # substituted with the comma-joined list. Singular fires when one
+    # substituted with the list, joined in the user's language. Singular fires when one
     # CLI is installed; plural when two or more. Unset templates fall
     # back to the built-in copy.
     description_singular: '{launchers} opens a CLI session in a terminal.'
