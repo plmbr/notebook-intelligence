@@ -75,6 +75,7 @@ class OpenAICompatibleChatModel(ChatModel):
         base_url = base_url_prop.value if base_url_prop is not None else None
         base_url = base_url if base_url.strip() != "" else None
         api_key = self.get_property("api_key").value
+        api_key = api_key if api_key and api_key.strip() else None
 
         client = OpenAI(base_url=base_url, api_key=api_key)
         if stream and cancel_token is not None and cancel_token.is_cancel_requested:
@@ -188,6 +189,7 @@ class OpenAICompatibleInlineCompletionModel(InlineCompletionModel):
         base_url = base_url_prop.value if base_url_prop is not None else None
         base_url = base_url if base_url and base_url.strip() != "" else None
         api_key = self.get_property("api_key").value
+        api_key = api_key if api_key and api_key.strip() else None
 
         client = OpenAI(base_url=base_url, api_key=api_key)
         resp = client.chat.completions.create(
