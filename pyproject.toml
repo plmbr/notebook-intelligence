@@ -59,11 +59,15 @@ dependencies = [
     # request-body SSRF and credential exfiltration (GHSA-3cv6-jpf6-8222); it
     # is the lowest floor that does so, because the fix was backported to each
     # minor line from 1.88 to 1.96 and an earlier floor would still admit the
-    # unpatched 1.89.0 through 1.96.1 releases. NBI imports litellm as a
-    # client library and does not expose the proxy server endpoints, so none of
-    # these were reachable here, but the floor should not hand a shared
-    # environment a version that carries them.
-    "litellm>=1.96.2",
+    # unpatched 1.89.0 through 1.96.1 releases. 1.103.1 closes the proxy-admin
+    # escalation through salt key reuse (GHSA-7hp6-4w63-5g45) on the same
+    # reasoning: fixes landed in 1.100.4, 1.101.3, 1.102.2 and 1.103.1, so
+    # 1.103.1 is the lowest floor that admits no unpatched release once the
+    # vulnerable 1.104.0rc1 pre-release is excluded. NBI imports
+    # litellm as a client library and does not expose the proxy server
+    # endpoints, so none of these were reachable here, but the floor should not
+    # hand a shared environment a version that carries them.
+    "litellm>=1.103.1,!=1.104.0rc1",
     "openai",
     "ollama",
     # The official Anthropic MCP Python SDK. NBI used to import the ``fastmcp``
@@ -83,7 +87,10 @@ dependencies = [
     # separate ``fastmcp`` package as a dependency or porting that import to
     # the 2.x server API.
     "mcp>=1.30.0,<2",
-    "claude-agent-sdk",
+    # 0.2.121 fixes argument injection through the ``resume`` option
+    # (GHSA-h4mw-j7qp-8mwm). NBI passes a session id to ``resume`` when it
+    # continues a Claude session, so this one is on a path NBI uses.
+    "claude-agent-sdk>=0.2.121",
     # Agent Client Protocol client SDK for ACP agent mode (Codex first, more
     # agents as their adapters are validated, #378). Capped below 1.0 because
     # the protocol is pre-1.0 and the Python SDK still ships occasional
@@ -127,7 +134,12 @@ dependencies = [
     # GHSA-pw6j-qg29-8w7f fix. 6.5.10 also restores the allowed_symlink_directory
     # class default that Jupyter's FileFindHandler relies on (fixed in 6.5.9,
     # which introduced the attribute but crashed subclasses that skip initialize()).
-    "tornado>=6.5.10",
+    # 6.6 fixes quadratic header line folding, chunked-body event loop
+    # blocking and a RedirectHandler open redirect (GHSA-pcg2-g6cj-q92c,
+    # GHSA-r4j5-9xpp-3985, GHSA-pw9p-v7r6-gx4p). 6.6 requires Python 3.11 and
+    # there is no 6.5.x backport, so Python 3.10 keeps the 6.5.10 floor.
+    "tornado>=6.5.10; python_version < '3.11'",
+    "tornado>=6.6; python_version >= '3.11'",
     # starlette and pydantic-settings reach us via the mcp SDK, whose pins
     # don't force the fixed releases.
     "starlette>=1.3.1",  # PYSEC-2026-248 / PYSEC-2026-249
@@ -147,6 +159,39 @@ dependencies = [
     # can finally be stated: 1.2.2 fixes symlink following in ``set_key``
     # (CVE-2026-28684 / GHSA-mf9w-mj56-hr94).
     "python-dotenv>=1.2.2",
+    # pyjwt reaches us via the mcp SDK. 2.14.0 stops an empty HMAC key from an
+    # oct JWK verifying HS256/384/512 tokens (GHSA-pxh4-856f-4h89) and 2.15.0
+    # fixes a RecursionError DoS in the pre-verification payload parse
+    # (GHSA-42vr-xj54-vc7v) and the OKP private-JWK check (GHSA-x33g-cr3x-6449).
+    "pyjwt>=2.15.0",
+    # certifi reaches us via requests, httpx and litellm. 2026.10.18 removes the
+    # emSign roots whose intermediate CA keys were compromised
+    # (GHSA-6q48-6c7w-9gw2), which every TLS connection to a model provider
+    # trusts otherwise.
+    "certifi>=2026.10.18",
+    # multidict reaches us via aiohttp and yarl. 6.9.1 fixes a reference leak
+    # in items-view union and subtraction (GHSA-54p9-h82j-f925).
+    "multidict>=6.9.1",
+    # fsspec reaches us via huggingface-hub (litellm's tokenizers path).
+    # 2026.6.0 fixes template injection in ReferenceFileSystem
+    # (GHSA-27vj-qcqg-25rc).
+    "fsspec>=2026.6.0",
+    # filelock reaches us via huggingface-hub and litellm. 4.2.1 fixes a set of
+    # lock file races and symlink-following issues another local user can
+    # trigger (e.g. GHSA-69hj-f68j-2879, GHSA-v4x8-3wr5-3wq8). 4.2.1 requires
+    # Python 3.11, so 3.10 cannot reach it. There, 4.0.9 fixes the ReadWriteLock
+    # symlink issue (GHSA-j8f7-rjxc-mr56), and skipping 4.1.0 avoids four more
+    # introduced in that release (e.g. GHSA-2g95-wg33-c5x2).
+    "filelock>=4.0.9,!=4.1.0; python_version < '3.11'",
+    "filelock>=4.2.1; python_version >= '3.11'",
+    # soupsieve reaches us via beautifulsoup4 (nbconvert, through
+    # jupyter_server). 2.9 fixes a polynomial-time ReDoS in its selector
+    # parser (GHSA-gjv8-xp57-g29c).
+    "soupsieve>=2.9",
+    # ipython reaches us via ipykernel, whose >=6.0 floor still admits 7.x.
+    # 8.10.0 fixes command injection through set_term_title on Windows
+    # (CVE-2023-24816).
+    "ipython>=8.10.0",
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
@@ -162,8 +207,10 @@ dynamic = ["version", "description", "authors", "urls", "keywords"]
 # (GHSA-6w46-j5rx-g56g / PYSEC-2026-1845). The old ``<9`` cap was written to
 # match the project's range style rather than for any incompatibility, and the
 # suite passes unchanged on 9.x.
+# pyyaml 5.4 fixes arbitrary code execution in full_load (CVE-2020-14343);
+# earlier sdists fail to build under Cython 3, and 6.0.1 is the first that installs.
 # polib: tests/test_i18n_catalogs.py compiles catalogs with the wheel build hook.
-test = ["pytest>=9.0.3,<10", "pytest-timeout>=2.3.0", "psutil", "pyyaml", "polib>=1.2"]
+test = ["pytest>=9.0.3,<10", "pytest-timeout>=2.3.0", "psutil", "pyyaml>=6.0.1", "polib>=1.2"]
 # Extracting and updating translation catalogs (scripts/i18n.py); building a
 # wheel needs only polib, through the custom build hook below.
 i18n = ["jupyterlab-translate>=1.3.7,<2"]

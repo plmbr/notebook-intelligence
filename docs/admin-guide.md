@@ -1026,13 +1026,13 @@ NBI is tested against the JupyterLab and `jupyter_server` versions declared in [
 | 4.4.x       | 4.x        | 2.x            | 3.10–3.12 |
 | 4.3.x       | 4.x        | 2.x            | 3.10–3.12 |
 
-`mcp` is capped at `<2` in `pyproject.toml` (2.x moved the FastMCP server out of the SDK, so `mcp.server.fastmcp.tools` no longer resolves and the server extension fails to load). `litellm` (`>=1.96.2` as of 6.3.0) and `anthropic` carry lower bounds only, and `claude-agent-sdk` is unbounded. For production deployments, pin all of them in your image build, at or above NBI's floors:
+`mcp` is capped at `<2` in `pyproject.toml` (2.x moved the FastMCP server out of the SDK, so `mcp.server.fastmcp.tools` no longer resolves and the server extension fails to load). `litellm` (`>=1.103.1`), `claude-agent-sdk` (`>=0.2.121`), and `anthropic` carry lower bounds only. For production deployments, pin all of them in your image build, at or above NBI's floors:
 
 ```bash
 pip install \
   "notebook-intelligence==6.3.*" \
-  "litellm>=1.96.2,<1.97" \
-  "claude-agent-sdk==0.x.*" \
+  "litellm>=1.103.1,<1.104" \
+  "claude-agent-sdk>=0.2.121,<0.3" \
   "anthropic==0.x.*" \
   "mcp==1.30.*"
 ```

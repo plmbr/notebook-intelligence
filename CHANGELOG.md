@@ -10,6 +10,10 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 ## [Unreleased]
 
+### Changed
+
+- **More dependency floors raised past published advisories.** `claude-agent-sdk>=0.2.121` closes argument injection through the `resume` option, which NBI uses to continue Claude sessions. The other Python floors move to `litellm>=1.103.1`, `tornado>=6.6`, `filelock>=4.2.1`, `pyjwt>=2.15.0`, `certifi>=2026.10.18`, `multidict>=6.9.1`, `fsspec>=2026.6.0`, `soupsieve>=2.9`, and `ipython>=8.10.0`, and the test extra requires `pyyaml>=6.0.1`. The certifi floor removes the emSign root certificates after their intermediate CA keys were compromised, so an endpoint whose certificate chains to an emSign root now fails TLS verification. tornado 6.6 and filelock 4.2.1 require Python 3.11; on Python 3.10, tornado stays at `>=6.5.10` and filelock at `>=4.0.9,!=4.1.0`, which still carry some of these advisories. The npm `postcss-selector-parser` resolution moves to `^6.1.6`; it is lint and build tooling and does not reach the shipped bundle.
+
 ### Fixed
 
 - **Chat Markdown images no longer load automatically** (#533). Images in user, model, and tool Markdown now display a visible, translatable blocked-image notice, preserving safe image descriptions. Both local and remote image URLs are blocked to prevent requests that could disclose chat context without a click. Links containing images become non-clickable content so the notice cannot act as a load-image link. Dedicated image results still render; notebook Markdown cells use a separate renderer. See [Chat Markdown images](docs/admin-guide.md#chat-markdown-images).
