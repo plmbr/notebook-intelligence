@@ -1,8 +1,8 @@
 # Translating Notebook Intelligence
 
-Notebook Intelligence (NBI) follows the language you pick for JupyterLab under **Settings → Language**. It ships a translation for every language JupyterLab has a language pack for: Arabic, Armenian, Catalan, Chinese (Simplified and Traditional), Czech, Danish, Dutch, Estonian, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian, Italian, Japanese, Korean, Lithuanian, Norwegian, Polish, Portuguese (Brazil), Romanian, Russian, Spanish, Turkish, Ukrainian and Vietnamese.
+Notebook Intelligence (NBI) follows the language you pick for JupyterLab under **Settings → Language**. It ships a translation for every language JupyterLab publishes a language pack for on PyPI: Arabic, Armenian, Catalan, Chinese (Simplified and Traditional), Czech, Danish, Dutch, Estonian, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian, Italian, Japanese, Korean, Lithuanian, Norwegian, Polish, Portuguese (Brazil), Romanian, Russian, Spanish, Turkish, Ukrainian and Vietnamese.
 
-**These translations were drafted with AI and have not all been reviewed by native speakers yet.** Each catalog's header says whether it has been. If a word reads wrong in your language, a fix is one line in a text file, and a pull request with it is very welcome.
+**These translations were drafted with AI and have not yet been reviewed by native speakers.** Each catalog's header says whether it has been. If a word reads wrong in your language, a fix is one line in a text file, and a pull request with it is very welcome.
 
 ## Seeing NBI in your language
 
