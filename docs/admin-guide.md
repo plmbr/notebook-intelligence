@@ -204,7 +204,7 @@ Endpoint settings live on the model selection, not in a separate provider block.
 Four things to know before copying an example:
 
 - **The `model` field is a fixed placeholder id** for these two providers (`openai-compatible-chat-model`, `litellm-compatible-chat-model`, and the matching `-inline-completion-model` ids), because the real upstream model name goes in the `model_id` property. The model dropdown will show that placeholder rather than `gpt-4`, which is expected and not a sign the config was ignored.
-- **`api_key` has to be set here.** Contrary to the [API-key handling](#api-key-handling) section above, the `openai-compatible` provider does not fall back to `OPENAI_API_KEY`: it passes its stored value through even when empty, and the OpenAI SDK only consults the environment when no key was supplied at all. Injecting the key some other way (templating this file at pod startup, mounting it from a secret) is currently the only way to keep it out of the config.
+- **`api_key` can be omitted for the `openai-compatible` provider.** Chat and inline completions use `OPENAI_API_KEY` when the saved key is `null`, empty, or contains only whitespace. A nonblank saved key takes precedence. See [API-key handling](#api-key-handling).
 - **`${ENV_VAR}` interpolation is not supported** anywhere in `config.json`, per the note above, so every value here is literal.
 - **Set `context_window` if your endpoint's window is smaller than the model's usual one.** When it is unset, NBI does not prune chat history at all rather than assuming a default, so a long conversation against a locally served 8K model will overflow it.
 
