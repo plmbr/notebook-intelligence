@@ -3082,6 +3082,14 @@ msgstr ""
 msgid "Your code and data are directly transferred to GitHub Copilot as needed without storing any copies other than keeping in the process memory."
 msgstr ""
 
+#: src/components/markdown-image.tsx
+msgid "[Image blocked: %1]"
+msgstr ""
+
+#: src/components/markdown-image.tsx
+msgid "[Image blocked]"
+msgstr ""
+
 #: src/components/claude-scope.ts
 msgid "available in all your projects"
 msgstr ""

@@ -1,7 +1,7 @@
 // Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
 import React from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Prism as SyntaxHighlighterBase } from 'react-syntax-highlighter';
@@ -14,6 +14,7 @@ import {
 import { VscNewFile, VscInsert, VscCopy, VscNotebook, VscAdd } from './icons';
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { PathExt } from '@jupyterlab/coreutils';
+import { MarkdownImage } from './components/markdown-image';
 import { MarkdownLink } from './components/markdown-link';
 import { isDarkTheme, writeTextToClipboard } from './utils';
 import { IActiveDocumentInfo } from './tokens';
@@ -45,6 +46,16 @@ const autoDirectionComponents = Object.fromEntries(
       React.createElement(tag, { ...props, dir: 'auto' })
   ])
 );
+
+function containsMarkdownImage(node: ExtraProps['node']): boolean {
+  return (
+    node?.children.some(
+      child =>
+        child.type === 'element' &&
+        (child.tagName === 'img' || containsMarkdownImage(child))
+    ) ?? false
+  );
+}
 
 type MarkdownRendererProps = {
   children: string;
@@ -85,16 +96,31 @@ export function MarkdownRenderer({
         // hrefs through Lab's docmanager so an LLM-emitted link can't
         // replace the JupyterLab shell, and hands everything else to
         // SafeAnchor for the `_blank` + scheme-allowlist treatment.
-        a: ({ href, title, children }: any) => (
-          <MarkdownLink
-            app={app}
-            baseDir={linkBaseDir}
-            href={href}
-            title={title}
-          >
-            {children}
-          </MarkdownLink>
-        ),
+        a: ({ node, href, title, children }) => {
+          // A blocked-image notice must not become a clickable invitation
+          // supplied by the surrounding Markdown link. Inspect descendants
+          // too, since an image can be nested in emphasis or a mixed label.
+          if (containsMarkdownImage(node)) {
+            return <>{children}</>;
+          }
+          return (
+            <MarkdownLink
+              app={app}
+              baseDir={linkBaseDir}
+              href={href}
+              title={title}
+            >
+              {children}
+            </MarkdownLink>
+          );
+        },
+        // CommonMark `![alt](url)` and reference-style images normalize to
+        // the same `img` node. Unlike an anchor it needs no click: the
+        // browser fetches `src` as soon as the node renders, so a model
+        // steered by injected content could stream out an image URL that
+        // carries chat/workspace context in its query string. `MarkdownImage`
+        // keeps `src` out of the DOM entirely.
+        img: ({ alt }: any) => <MarkdownImage alt={alt} />,
         code({ node, inline, className, children, getApp, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
           const codeString =
