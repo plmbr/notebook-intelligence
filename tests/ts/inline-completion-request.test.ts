@@ -2,8 +2,10 @@
 
 import {
   classifyInlineCompletionResponse,
-  IInlineCompletionRequestInfo
+  IInlineCompletionRequestInfo,
+  inlineCompletionText
 } from '../../src/inline-completion-request';
+import { BackendMessageType } from '../../src/tokens';
 
 function makeRequest(messageId: string): IInlineCompletionRequestInfo {
   return {
@@ -17,9 +19,9 @@ describe('classifyInlineCompletionResponse', () => {
   it('accepts a completion for the request that is still current', () => {
     const request = makeRequest('a');
 
-    expect(classifyInlineCompletionResponse('a', true, request, request)).toBe(
-      'accept'
-    );
+    expect(
+      classifyInlineCompletionResponse('a', 'x = 1', request, request)
+    ).toBe('accept');
   });
 
   it('ignores a response addressed to a different request', () => {
@@ -27,9 +29,9 @@ describe('classifyInlineCompletionResponse', () => {
 
     // Another callback owns this one. Resolving here would hand this
     // request's promise an answer computed for different text.
-    expect(classifyInlineCompletionResponse('b', true, request, request)).toBe(
-      'ignore'
-    );
+    expect(
+      classifyInlineCompletionResponse('b', 'x = 1', request, request)
+    ).toBe('ignore');
   });
 
   it('discards its own response once a newer request has started', () => {
@@ -39,15 +41,23 @@ describe('classifyInlineCompletionResponse', () => {
     // The regression this guards: reading the shared field instead of the
     // captured request made a slow answer look like it belonged to whichever
     // request had started most recently.
-    expect(classifyInlineCompletionResponse('a', true, request, newer)).toBe(
+    expect(classifyInlineCompletionResponse('a', 'x = 1', request, newer)).toBe(
       'discard'
     );
   });
 
-  it('discards a stream end rather than treating it as a completion', () => {
+  it('accepts an empty completion, a response with nothing to suggest', () => {
     const request = makeRequest('a');
 
-    expect(classifyInlineCompletionResponse('a', false, request, request)).toBe(
+    expect(classifyInlineCompletionResponse('a', '', request, request)).toBe(
+      'accept'
+    );
+  });
+
+  it('discards a response with no completion text', () => {
+    const request = makeRequest('a');
+
+    expect(classifyInlineCompletionResponse('a', null, request, request)).toBe(
       'discard'
     );
   });
@@ -58,7 +68,7 @@ describe('classifyInlineCompletionResponse', () => {
 
     // Ownership is checked first on purpose: a callback must never resolve a
     // promise for a message it was not waiting for, superseded or not.
-    expect(classifyInlineCompletionResponse('c', true, request, newer)).toBe(
+    expect(classifyInlineCompletionResponse('c', 'x = 1', request, newer)).toBe(
       'ignore'
     );
   });
@@ -66,7 +76,7 @@ describe('classifyInlineCompletionResponse', () => {
   it('discards when the provider has no request on record', () => {
     const request = makeRequest('a');
 
-    expect(classifyInlineCompletionResponse('a', true, request, null)).toBe(
+    expect(classifyInlineCompletionResponse('a', 'x = 1', request, null)).toBe(
       'discard'
     );
   });
@@ -78,7 +88,72 @@ describe('classifyInlineCompletionResponse', () => {
     // Two requests can carry the same id only through a bug, but identity
     // comparison is what the provider relies on, so pin it.
     expect(
-      classifyInlineCompletionResponse('a', true, request, lookalike)
+      classifyInlineCompletionResponse('a', 'x = 1', request, lookalike)
     ).toBe('discard');
+  });
+});
+
+describe('inlineCompletionText', () => {
+  it('reads the completion from a stream message', () => {
+    expect(
+      inlineCompletionText({
+        type: BackendMessageType.StreamMessage,
+        data: { completions: 'x = 1' }
+      })
+    ).toBe('x = 1');
+  });
+
+  it("has none in a failed request's error notice", () => {
+    // What the server streams when the request fails: a chat-style notice,
+    // with no completions field. Passed on, its undefined text made the
+    // ghost text renderer throw and the drawn caret stop (#535).
+    const notice = {
+      type: BackendMessageType.StreamMessage,
+      data: {
+        choices: [
+          {
+            delta: {
+              nbiContent: {
+                type: 'markdown-part',
+                content: 'Oops!',
+                reasoning_content: null
+              },
+              content: '',
+              role: 'assistant'
+            }
+          }
+        ]
+      }
+    };
+    expect(inlineCompletionText(notice)).toBeNull();
+  });
+
+  it('keeps an empty completion, which means no suggestion', () => {
+    expect(
+      inlineCompletionText({
+        type: BackendMessageType.StreamMessage,
+        data: { completions: '' }
+      })
+    ).toBe('');
+  });
+
+  it('has none in a stream end, a missing payload or a non-string one', () => {
+    expect(
+      inlineCompletionText({ type: BackendMessageType.StreamEnd, data: {} })
+    ).toBeNull();
+    expect(
+      inlineCompletionText({
+        type: BackendMessageType.StreamMessage,
+        data: null
+      })
+    ).toBeNull();
+    for (const completions of [null, 42, { text: 'x' }]) {
+      expect(
+        inlineCompletionText({
+          type: BackendMessageType.StreamMessage,
+          data: { completions }
+        })
+      ).toBeNull();
+    }
   });
 });

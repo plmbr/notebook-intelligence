@@ -11,6 +11,8 @@ through the IOLoop's ``call_soon_threadsafe`` so the bug can't regress.
 """
 
 import asyncio
+import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,6 +20,7 @@ import pytest
 from notebook_intelligence import extension
 from notebook_intelligence.api import (
     BackendMessageType,
+    RequestDataType,
     UICommandCancelledError,
     UserInputCancelledError,
 )
@@ -193,6 +196,113 @@ def test_request_thread_converts_uncaught_exception_to_one_terminal_response():
     ]
     emitter.chat_history.add_message.assert_not_called()
     assert "mid" not in handler._messageCallbackHandlers
+
+
+def _sent_messages(io_loop):
+    return [
+        call.args[1]
+        for call in io_loop.asyncio_loop.call_soon_threadsafe.call_args_list
+    ]
+
+
+class _InlineModel:
+    def __init__(self, result=None, error=None):
+        self._result = result
+        self._error = error
+
+    def inline_completions(self, *args):
+        if self._error is not None:
+            raise self._error
+        return self._result
+
+
+def _run_inline_completion(monkeypatch, model):
+    """Run an inline completion request the way the websocket handler does."""
+
+    async def get_completion_context(_request):
+        return None
+
+    monkeypatch.setattr(
+        extension,
+        "ai_service_manager",
+        SimpleNamespace(
+            inline_completion_model=model,
+            get_completion_context=get_completion_context,
+            get_chat_participant=lambda _prefix: None,
+        ),
+    )
+    emitter, _websocket, io_loop = _make_emitter()
+    handler = WebsocketCopilotHandler.__new__(WebsocketCopilotHandler)
+    handler._messageCallbackHandlers = {}
+    coro = WebsocketCopilotHandler.handle_inline_completions(
+        "x = ", "", "python", "a.ipynb", emitter,
+        SimpleNamespace(is_cancel_requested=False),
+    )
+    handler._run_request_thread(coro, "mid", emitter, error_notice=False)
+    return _sent_messages(io_loop)
+
+
+def test_failed_inline_completion_ends_without_a_notice(monkeypatch, caplog):
+    """#535: the chat error notice, sent on an inline completion's id, was
+    read by the editor as completion text with no text in it."""
+    messages = _run_inline_completion(
+        monkeypatch, _InlineModel(error=RuntimeError("rate limited"))
+    )
+
+    assert [message["type"] for message in messages] == [
+        BackendMessageType.StreamEnd
+    ]
+    # Still logged in full, as any failed request is.
+    assert "Unhandled error while processing request mid" in caplog.text
+    assert "rate limited" in caplog.text
+
+
+def test_inline_completion_still_streams_its_completion(monkeypatch):
+    """Turning the notice off leaves a successful completion untouched."""
+    messages = _run_inline_completion(monkeypatch, _InlineModel(result="1"))
+
+    assert [message["type"] for message in messages] == [
+        BackendMessageType.StreamMessage,
+        BackendMessageType.StreamEnd,
+    ]
+    assert messages[0]["data"] == {"completions": "1"}
+
+
+def test_inline_completion_of_none_is_sent_as_empty(monkeypatch):
+    """A provider's None ("no suggestion") goes out as a string."""
+    messages = _run_inline_completion(monkeypatch, _InlineModel(result=None))
+
+    assert messages[0]["data"] == {"completions": ""}
+
+
+def test_inline_completion_requests_are_run_without_the_notice(monkeypatch):
+    """The dispatch, not just the wrapper: an inline completion request is
+    started with error_notice off."""
+    started = []
+
+    class _Thread:
+        def __init__(self, target, args=(), kwargs=None):
+            started.append((target, args, kwargs or {}))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(extension.threading, "Thread", _Thread)
+    handler = WebsocketCopilotHandler.__new__(WebsocketCopilotHandler)
+    handler._messageCallbackHandlers = {}
+    message = {
+        "id": "mid",
+        "type": RequestDataType.InlineCompletionRequest,
+        "data": {"chatId": "cid", "prefix": "x = ", "suffix": "",
+                 "language": "python", "filename": "a.ipynb"},
+    }
+    with patch.object(extension.tornado.ioloop.IOLoop, "current", return_value=MagicMock()):
+        handler.on_message(json.dumps(message))
+
+    [(target, args, kwargs)] = started
+    args[0].close()
+    assert target == handler._run_request_thread
+    assert kwargs == {"error_notice": False}
 
 
 def test_terminal_notice_failure_does_not_replace_original_exception(caplog):
