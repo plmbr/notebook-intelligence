@@ -84,6 +84,12 @@ other columns, not recorded by the server:
 Expanding a row shows every span in the turn as a proportional bar with its
 attributes, followed by the events with their offsets from turn start.
 
+The panel follows the JupyterLab language: labels, verdicts, and probe
+explanations are translated, and numbers and times use that locale's
+separators. **Copy as JSON**, the log file, and the `perf turn` log line keep
+raw numbers and English field names, so a ticket reads the same whatever
+language the panel was in.
+
 ### Span reference
 
 | Span           | Measures                                                                                                                            | Attributes             |
@@ -105,11 +111,11 @@ will mislead you. The panel indents accordingly.
 Events are point-in-time marks carrying `t_ms`, an offset from the start of the
 turn.
 
-| Event         | Meaning                                                             | Attributes                               |
-| ------------- | ------------------------------------------------------------------- | ---------------------------------------- |
-| `first_token` | The first content-bearing chunk reached the browser.                | none                                     |
-| `stall`       | A gap between streamed messages over the stall threshold.           | `gap_ms`, `after` (`tool_use` or `text`) |
-| `egress`      | Written once at the end of the turn with the totals for the stream. | `count`, `bytes`                         |
+| Event         | Meaning                                                                                                                            | Attributes                               |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `first_token` | The first content-bearing chunk reached the browser.                                                                               | none                                     |
+| `stall`       | A gap between streamed messages over the stall threshold (3 s; set `NBI_CLAUDE_PERF_STALL_GAP_MS` to change it). Claude mode only. | `gap_ms`, `after` (`tool_use` or `text`) |
+| `egress`      | Written once at the end of the turn with the totals for the stream.                                                                | `count`, `bytes`                         |
 
 A turn document also carries `dropped_spans` and `dropped_attrs`. Anything
 above zero means the per-turn caps truncated the record, and the timeline you

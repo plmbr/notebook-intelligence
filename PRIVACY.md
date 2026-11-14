@@ -25,6 +25,12 @@ NBI does **not** automatically include rendered cell outputs in every prompt. Ou
 
 If your cells contain sensitive outputs (PHI, PII, secrets), clear them before invoking AI features, or use a local-only provider (Ollama). Inline completion is keystroke-driven and sends only the cell source; it does not transmit unrelated cells or outputs.
 
+### Your JupyterLab language
+
+The frontend adds your JupyterLab locale to its requests as an `nbi_locale` query parameter. It goes only to NBI's own server extension, which uses it to translate the text it shows you; providers do not receive it.
+
+If you turn on **Reply in my JupyterLab language** (off by default) and JupyterLab is not in English, NBI adds a short instruction that names your language (for example "German (Germany)") and asks the model to reply in it. It goes into the system prompt of chat requests to the configured provider, and into the request for a Chatbook code cell's description; it is not added to the requests that generate a Chatbook cell's code. In Claude and ACP mode it is appended to your message, so it is also kept in the agent's session transcript.
+
 ## Egress allowlist
 
 Hosts NBI may contact, depending on which features are enabled:
