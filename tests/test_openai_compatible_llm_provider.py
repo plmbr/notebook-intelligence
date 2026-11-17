@@ -1,9 +1,10 @@
+from contextlib import nullcontext
 from functools import partial
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 
 from notebook_intelligence.api import CancelToken, CompletionContext
 
@@ -84,6 +85,7 @@ def test_openai_compatible_chat_model_drops_strict_before_request(mock_openai_cl
     assert tools[0]["function"]["strict"] is True
 
 
+@pytest.mark.parametrize("environment_key", [None, "", "environment-key"], ids=["env-unset", "env-empty", "env-set"])
 @pytest.mark.parametrize("mode", ["chat", "inline"])
 @pytest.mark.parametrize("set_key, configured_key", [
     pytest.param(False, None, id="unset"),
@@ -92,8 +94,11 @@ def test_openai_compatible_chat_model_drops_strict_before_request(mock_openai_cl
     pytest.param(True, " \t ", id="whitespace"),
     pytest.param(True, "configured-key", id="explicit"),
 ])
-def test_api_key_fallback_reaches_request(monkeypatch, mode, set_key, configured_key):
-    monkeypatch.setenv("OPENAI_API_KEY", "environment-key")
+def test_api_key_fallback_reaches_request(monkeypatch, mode, set_key, configured_key, environment_key):
+    if environment_key is None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("OPENAI_API_KEY", environment_key)
     provider = OpenAICompatibleLLMProvider()
     model = provider.chat_models[0] if mode == "chat" else provider.inline_completion_models[0]
     model.set_property_value("model_id", "test-model")
@@ -112,7 +117,10 @@ def test_api_key_fallback_reaches_request(monkeypatch, mode, set_key, configured
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
         })
 
-    with httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
+    # Saved null keeps the SDK's existing missing-credential error.
+    missing_key = set_key and configured_key is None and environment_key is None
+    expected_error = pytest.raises(OpenAIError, match="api_key client option must be set") if missing_key else nullcontext()
+    with expected_error, httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
         with patch("openai.OpenAI", wraps=partial(OpenAI, http_client=http_client)):
             if mode == "chat":
                 result = model.completions(messages=[{"role": "user", "content": "hi"}])
@@ -120,6 +128,21 @@ def test_api_key_fallback_reaches_request(monkeypatch, mode, set_key, configured
             else:
                 assert model.inline_completions("", "", "python", "test.py", CompletionContext([]), CancelToken()) == "ok"
 
-    expected_key = "configured-key" if configured_key == "configured-key" else "environment-key"
+    if missing_key:
+        assert requests == []
+        return
     assert len(requests) == 1
-    assert requests[0].headers["Authorization"] == f"Bearer {expected_key}"
+    assert str(requests[0].url) == "https://example.com/v1/chat/completions"
+    if configured_key == "configured-key":
+        assert requests[0].headers["Authorization"] == "Bearer configured-key"
+    elif environment_key:
+        assert requests[0].headers["Authorization"] == "Bearer environment-key"
+    else:
+        assert "Authorization" not in requests[0].headers
+
+
+def test_api_key_is_optional_for_chat_and_inline_settings():
+    provider = OpenAICompatibleLLMProvider()
+    for model in [*provider.chat_models, *provider.inline_completion_models]:
+        assert model.get_property("api_key").to_dict()["optional"] is True
+        assert model.get_property("model_id").to_dict()["optional"] is False
