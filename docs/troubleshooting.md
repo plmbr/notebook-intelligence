@@ -102,6 +102,8 @@ To see more detail:
 jupyter lab --debug
 ```
 
+`NBI_LOG_LEVEL=DEBUG` is another option, but it is not limited to NBI: it sets the level of Python's root logger, so every library that logs through it (HTTP clients, model SDKs, MCP) logs at that level too, and model SDKs' debug output can include the prompts and messages they send. If something configured the root logger before NBI loaded, the variable has no effect.
+
 Frontend errors go to the **browser DevTools console** (`Cmd+Option+I` on macOS, `Ctrl+Shift+I` on Linux or Windows). Look for messages from `notebook-intelligence`.
 
 For configuration inspection:
@@ -165,6 +167,16 @@ Either give the server a credential or point auto-complete elsewhere:
 If your administrator pins the auto-complete model, that dropdown is disabled and the only remedy is giving the server a credential.
 
 A misconfigured credential is a different case: an `ANTHROPIC_PROFILE` or `ANTHROPIC_CONFIG_DIR` pointing at files the Anthropic SDK cannot read logs `Could not create the Claude inline completion model` with the underlying error instead of the warning above. Fix the profile path rather than adding a key.
+
+## NBI stays in English after choosing another language
+
+NBI is translated only when JupyterLab's language pack for exactly that locale is installed in the Jupyter server's environment (for example `pip install jupyterlab-language-pack-fr-FR`) and JupyterLab was restarted afterwards. If JupyterLab's own menus are still in English, the pack is missing; if they are translated but NBI is not, hard-refresh the browser. A string with no translation yet appears in English, and logs and text sent to the model always stay English.
+
+Replies from the model stay in English until **NBI Settings → General → Language → Reply in my JupyterLab language** is on. In Claude and ACP mode, a conversation keeps replying in that language after the setting is turned off, until you start a new chat. See [`translating.md`](translating.md).
+
+## ACP mode: "Adapter runtime" is blocked
+
+Since 6.3.0, NBI no longer downloads the ACP adapter with `npx`. The readiness card in NBI Settings, General shows **Adapter runtime** as blocked when it cannot find a preinstalled `codex-acp` on an absolute server `PATH` directory outside the workspace, or when `NBI_ACP_AGENT_COMMAND` does not start with the absolute path of an executable (for example a relative command, a bare `npx`, or an empty value). Readiness does not check that an absolute override is the adapter itself, so point it at the installed `codex-acp`, never at `npx`, another package runner, or an `env` wrapper. To fix a blocked check, install `@zed-industries/codex-acp@0.16.0` in a trusted location outside the workspace and put its executable's directory on the Jupyter server's `PATH`, or set `NBI_ACP_AGENT_COMMAND` to its absolute path. The Node.js it runs on must be on that `PATH` too. Then restart JupyterLab. To return to default discovery, unset `NBI_ACP_AGENT_COMMAND`; setting it to an empty value is an error. See [Gating the experimental ACP agent](admin-guide.md#gating-the-experimental-acp-agent-378).
 
 ## Still stuck?
 

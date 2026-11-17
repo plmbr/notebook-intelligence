@@ -40,6 +40,7 @@ NBI has two halves:
   - `notebook_intelligence/chatbook_kernel/` — the Chatbook kernel: `kernel.py` (the wrapper that proxies to a backend kernelspec), `codegen.py`, `execution.py` (execution modes), `danger.py` (the risk scan), and the shipped kernelspec.
   - `notebook_intelligence/chatbook_generate.py` — the generate, summarize, and danger-scan endpoint behind Chatbook cells.
   - `notebook_intelligence/acp_agent.py`, `acp_registry.py` — ACP agent mode: the protocol client, what NBI serves or refuses an agent, and adapter launch.
+  - `notebook_intelligence/i18n.py`: server-side translation bundles and the reply-language instruction (see [Translations](#translations)).
 - **Frontend extension** — TypeScript package `src/`. Compiled to a JupyterLab labextension. Key entry points:
   - `src/index.ts` — JupyterLab plugin registration.
   - `src/chat-sidebar.tsx` — chat sidebar React tree.
@@ -48,6 +49,7 @@ NBI has two halves:
   - `src/api.ts` — high-level client for the server extension (chat WebSocket, capabilities, config).
   - `src/handler.ts` — thin wrapper over Jupyter's `ServerConnection.makeRequest`.
   - `src/chatbook.ts`, `src/chatbook-core.ts` — Chatbook cell behavior: mode switching, the confirm bar, export, and the cell metadata format.
+  - `src/i18n.ts`: the frontend translation bundle (`getTrans`, `useTrans`, `interpolate`).
 
 The two halves communicate over the routes registered in `extension.py` (REST and WebSocket). All routes live under `/notebook-intelligence/`. See [`docs/admin-guide.md`](docs/admin-guide.md#http-api-surface) for the full list.
 
@@ -170,14 +172,14 @@ jlpm tsc --noEmit
 jlpm test
 ```
 
-Python tests (the `test` extra pulls in pytest, `pytest-timeout`, `psutil`, and `pyyaml`):
+Python tests (the `test` extra pulls in pytest, `pytest-timeout`, `psutil`, `pyyaml`, and `polib`):
 
 ```bash
 pip install -e ".[test]"
 pytest tests/ -q
 ```
 
-CI runs both suites on every push, Python first, then TypeScript. Every test is capped at 30 seconds by `pytest-timeout`, so a hung subprocess or pipe fails the run instead of stalling the job.
+CI runs both suites on every push, Python first, then TypeScript, and a separate `i18n` job checks the translation template and catalogs (see [Updating catalogs](#updating-catalogs)). Every test is capped at 30 seconds by `pytest-timeout`, so a hung subprocess or pipe fails the run instead of stalling the job.
 
 ## Linting
 
@@ -186,7 +188,7 @@ jlpm lint:check   # check, no fixes
 jlpm lint         # check and auto-fix prettier, eslint, and stylelint
 ```
 
-CI runs `lint:check`. Identifiers prefixed with `_` are treated as intentionally unused and excluded from the unused-vars rule.
+Both run every linter (Stylelint, Prettier, ESLint) even when an earlier one fails, so read the whole output. CI runs `lint:check`. Identifiers prefixed with `_` are treated as intentionally unused and excluded from the unused-vars rule.
 
 ### Automatic formatting
 
@@ -251,10 +253,12 @@ The tooling needs the `i18n` extra (`pip install -e ".[i18n]"`) and Node.js:
 ```bash
 jlpm i18n:extract               # regenerate the .pot after changing strings
 jlpm i18n:update                # merge it into every .po
-jlpm i18n:update -l ca_ES       # start a new language
-jlpm i18n:compile               # build the .json bundles locally to try a catalog
+jlpm i18n:update -l sk_SK       # start a new language
+jlpm i18n:compile               # build the .json and .mo files locally to try a catalog
 jlpm i18n:check                 # what CI runs: fails when the .pot is out of date
 ```
+
+CI's `i18n` job also runs `tests/test_i18n_catalogs.py`, which compiles every catalog with the wheel build hook, so a translation with mismatched placeholders or plural forms fails the PR.
 
 To try a catalog, compile it, reinstall the package (`pip install -e .`) so the entry point is registered, install the matching JupyterLab language pack (for example `pip install jupyterlab-language-pack-de-DE`), and choose the language under **Settings → Language**. A string missing from a catalog falls back to English.
 
