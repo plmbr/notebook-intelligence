@@ -1,7 +1,9 @@
 # Copyright (c) Mehmet Bektas <mbektasgh@outlook.com>
 
-"""MCP credentials must not reach the browser or the workspace in clear text."""
+"""MCP credentials, and the CLI and Claude-mode error text that may echo them,
+must not reach the browser or the workspace in clear text."""
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -146,3 +148,124 @@ class TestMcpConfigHandler:
         assert not config.saved
 
 
+class TestCliErrorScrubbing:
+    """`claude mcp add` takes env and header values as flags, and the
+    handlers forward the CLI's error text to the browser."""
+
+    def _manager(self, tmp_path, monkeypatch, stderr):
+        from pathlib import Path
+
+        from notebook_intelligence.claude_mcp_manager import ClaudeMCPManager
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.setattr(
+            "notebook_intelligence._claude_cli.resolve_claude_cli_path",
+            lambda: "/usr/local/bin/claude",
+        )
+
+        async def fake_subprocess(*argv, **kwargs):
+            proc = MagicMock()
+
+            async def communicate():
+                return (b"", stderr)
+
+            proc.communicate = communicate
+            proc.returncode = 1
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subprocess)
+        project = tmp_path / "project"
+        project.mkdir()
+        return ClaudeMCPManager(working_dir=str(project))
+
+    def test_header_and_env_values_are_scrubbed_from_the_error(
+        self, tmp_path, monkeypatch
+    ):
+        stderr = (
+            b"error: invalid header 'Authorization: Bearer tok-abcdef123456'; "
+            b"env GITHUB_TOKEN=ghp-local-secret-1 rejected"
+        )
+        manager = self._manager(tmp_path, monkeypatch, stderr)
+        with pytest.raises(ValueError) as caught:
+            asyncio.run(
+                manager.add_server(
+                    name="srv",
+                    scope="user",
+                    transport="http",
+                    command_or_url="https://mcp.example",
+                    headers={"Authorization": "Bearer tok-abcdef123456"},
+                    env={"GITHUB_TOKEN": "ghp-local-secret-1"},
+                )
+            )
+        message = str(caught.value)
+        assert "tok-abcdef123456" not in message
+        assert "ghp-local-secret-1" not in message
+        assert "invalid header" in message
+
+
+class TestClaudeStreamErrorScrubbing:
+    def test_inline_stream_error_marker_is_scrubbed(self, monkeypatch):
+        from notebook_intelligence.claude import ClaudeChatModel
+
+        monkeypatch.setenv("PROXY_API_KEY", "proxy-master-key-0042")
+        model = ClaudeChatModel.__new__(ClaudeChatModel)
+        model._model_id = "claude-sonnet-test"
+        model._model_name = "Claude Sonnet (test)"
+        model._context_window = 200000
+        model._supports_tools = True
+        model._client = MagicMock()
+        boom = RuntimeError("401 Received API Key = proxy-master-key-0042")
+        model._client.messages.stream = MagicMock(side_effect=boom)
+        response = MagicMock()
+
+        with pytest.raises(RuntimeError):
+            model.completions(
+                messages=[{"role": "user", "content": "x"}], response=response
+            )
+
+        payload = response.stream.call_args_list[-1].args[0]
+        assert "proxy-master-key-0042" not in repr(payload)
+        assert "Stream interrupted" in payload["choices"][0]["delta"]["content"]
+        assert "proxy-master-key-0042" not in payload["nbi_stream_error"]
+
+
+class TestClaudeChatErrorScrubbing:
+    def _stream(self, participant):
+        from notebook_intelligence.api import ChatResponse, MarkdownData
+        from notebook_intelligence import i18n
+        from tests.test_claude_client import _make_chat_request
+
+        response = MagicMock(spec=ChatResponse, trans=i18n.english())
+        asyncio.run(participant.handle_chat_request(_make_chat_request(), response))
+        return [
+            call.args[0].content
+            for call in response.stream.call_args_list
+            if isinstance(call.args[0], MarkdownData)
+        ]
+
+    @pytest.fixture(autouse=True)
+    def _proxy_key(self, monkeypatch):
+        monkeypatch.setenv("PROXY_API_KEY", "proxy-master-key-0042")
+
+    def test_the_bail_out_string_is_scrubbed(self):
+        from tests.test_claude_client import _make_participant
+
+        participant = _make_participant()
+        participant._client.query.return_value = "401 Received API Key = proxy-master-key-0042"
+        messages = self._stream(participant)
+        assert any("Claude agent error" in m for m in messages)
+        assert "proxy-master-key-0042" not in " ".join(messages)
+
+    def test_an_exception_is_scrubbed(self):
+        from tests.test_claude_client import _make_participant
+
+        participant = _make_participant()
+        participant._client.query.side_effect = RuntimeError(
+            "401 Received API Key = proxy-master-key-0042"
+        )
+        messages = self._stream(participant)
+        assert any("Error" in m for m in messages)
+        assert "proxy-master-key-0042" not in " ".join(messages)

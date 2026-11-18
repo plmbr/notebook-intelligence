@@ -29,7 +29,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal, Optional
 
-from notebook_intelligence.credential_mask import mask_mcp_server_credentials
+from notebook_intelligence.credential_mask import (
+    credential_parts,
+    mask_mcp_server_credentials,
+)
 
 from notebook_intelligence._claude_cli import (
     CLAUDE_SCOPES,
@@ -284,8 +287,15 @@ class ClaudeMCPManager:
             tail.append("--")
             tail.extend(args)
 
+        # env and header values can only travel as flags, so the CLI's error
+        # text, which the handlers forward to the browser, is scrubbed of them.
+        secret_args = [
+            part
+            for value in [*(env or {}).values(), *(headers or {}).values()]
+            for part in credential_parts(value)
+        ]
         async with self._write_lock:
-            await self._run_cli(tail)
+            await self._run_cli(tail, secret_args=secret_args)
         srv = self.get_server(name, scope)
         if srv is None:
             # Surfaced if Claude wrote elsewhere or our reads missed it. The CLI
@@ -390,10 +400,13 @@ class ClaudeMCPManager:
 
     # --- internals -----------------------------------------------------
 
-    async def _run_cli(self, tail: list[str]) -> str:
+    async def _run_cli(
+        self, tail: list[str], secret_args: Optional[list[str]] = None
+    ) -> str:
         return await run_claude_cli(
             tail,
             cwd=str(self._working_dir),
             timeout=CLI_TIMEOUT_SECONDS,
             label="claude mcp",
+            secret_args=secret_args,
         )

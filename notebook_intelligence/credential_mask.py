@@ -240,3 +240,12 @@ def restore_masked_mcp_config(posted: Any, stored: Any) -> Any:
     if unresolved:
         raise UnresolvedMaskError(unresolved)
     return result
+
+
+def credential_parts(value: str) -> list:
+    """The value, plus the token of a ``Bearer abc`` style header value."""
+    parts = [value]
+    scheme, _, token = value.partition(" ")
+    if token and scheme.isalpha():
+        parts.append(token.strip())
+    return parts

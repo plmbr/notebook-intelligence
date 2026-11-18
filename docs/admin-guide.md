@@ -204,6 +204,8 @@ Recommended approach for clusters:
 
 Tokens in an MCP server's `env` or `headers` are stored in plaintext: in `mcp.json` for NBI's own MCP Servers tab, and in Claude's own config (`~/.claude.json` or `.mcp.json`) for the Claude-mode MCP Servers tab. NBI never sends those values to the browser in clear text. The Claude-mode server list masks them, and the `mcp.json` editor masks credential-named values and keeps the stored value when the mask is saved back.
 
+The Claude-mode **Add MCP server** form hands values to `claude mcp add` as command-line flags, because the CLI has no other input for them. For the second or so the CLI runs, another local user on the same machine can read them from the process list. NBI scrubs those values from the CLI's error output. On a shared machine, avoid typing a real token into that form. Instead, add the server without the secret and supply it another way, for example with a `${VAR}` reference in the value. Check that your Claude CLI version expands `${VAR}` in MCP `env` and `headers` before relying on it.
+
 ---
 
 ## Self-hosted LLM endpoints
