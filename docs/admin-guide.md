@@ -198,6 +198,8 @@ Recommended approach for clusters:
 - **Source secrets from your secret manager.** Vault, External Secrets Operator, AWS Secrets Manager, GCP Secret Manager, or KubeSpawner's `c.KubeSpawner.environment` callback can all populate the pod env from a secret backend at spawn time.
 - **Don't commit `config.json`.** Even the env-prefix base config should not contain keys; pull keys from env at spawn.
 
+`OPENAI_API_KEY` is shared by the OpenAI-compatible provider and the Codex ACP agent. When the provider's saved key is blank or `null`, chat and inline completions send that environment key to the configured `base_url`. This also applies when you set the variable only for ACP. A nonblank saved provider key takes precedence.
+
 `${ENV_VAR}`-style interpolation inside `config.json` is not currently supported. Tracked as a feature request.
 
 ---
@@ -211,7 +213,7 @@ Endpoint settings live on the model selection, not in a separate provider block.
 Four things to know before copying an example:
 
 - **The `model` field is a fixed placeholder id** for these two providers (`openai-compatible-chat-model`, `litellm-compatible-chat-model`, and the matching `-inline-completion-model` ids), because the real upstream model name goes in the `model_id` property. The model dropdown will show that placeholder rather than `gpt-4`, which is expected and not a sign the config was ignored.
-- **`api_key` has to be set here.** Contrary to the [API-key handling](#api-key-handling) section above, the `openai-compatible` provider does not fall back to `OPENAI_API_KEY`: it passes its stored value through even when empty, and the OpenAI SDK only consults the environment when no key was supplied at all. Injecting the key some other way (templating this file at pod startup, mounting it from a secret) is currently the only way to keep it out of the config.
+- **The `openai-compatible` provider uses `OPENAI_API_KEY` when its saved key is blank.** If the SDK has no other credentials, behavior depends on its version. For example, version 2.20.0 sends a request without an `Authorization` header for an empty string, while 3.54.0 raises a missing-credentials error before sending the request. A saved `null` uses the SDK's environment lookup. See [API-key handling](#api-key-handling) for precedence and the shared ACP variable.
 - **`${ENV_VAR}` interpolation is not supported** anywhere in `config.json`, per the note above, so every value here is literal.
 - **Set `context_window` if your endpoint's window is smaller than the model's usual one.** When it is unset, NBI does not prune chat history at all rather than assuming a default, so a long conversation against a locally served 8K model will overflow it.
 

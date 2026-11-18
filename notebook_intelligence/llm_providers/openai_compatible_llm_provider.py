@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import re
 from typing import Any
 from notebook_intelligence.api import ChatModel, EmbeddingModel, InlineCompletionModel, LLMProvider, CancelToken, ChatResponse, CompletionContext, LLMProviderProperty
@@ -33,7 +34,7 @@ class OpenAICompatibleChatModel(ChatModel):
         super().__init__(provider)
         self._provider = provider
         self._properties = [
-            LLMProviderProperty("api_key", "API key", "API key", "", False),
+            LLMProviderProperty("api_key", "API key", "API key", "", True),
             LLMProviderProperty("model_id", "Model", "Model (must support streaming)", "", False),
             LLMProviderProperty("base_url", "Base URL", "Base URL", "", True),
             LLMProviderProperty("context_window", "Context window", "Context window length", "", True),
@@ -75,6 +76,8 @@ class OpenAICompatibleChatModel(ChatModel):
         base_url = base_url_prop.value if base_url_prop is not None else None
         base_url = base_url if base_url.strip() != "" else None
         api_key = self.get_property("api_key").value
+        if api_key is not None and not api_key.strip():
+            api_key = None if os.environ.get("OPENAI_API_KEY") else ""
 
         client = OpenAI(base_url=base_url, api_key=api_key)
         if stream and cancel_token is not None and cancel_token.is_cancel_requested:
@@ -134,7 +137,7 @@ class OpenAICompatibleInlineCompletionModel(InlineCompletionModel):
         super().__init__(provider)
         self._provider = provider
         self._properties = [
-            LLMProviderProperty("api_key", "API key", "API key", "", False),
+            LLMProviderProperty("api_key", "API key", "API key", "", True),
             LLMProviderProperty("model_id", "Model", "Model", "", False),
             LLMProviderProperty("base_url", "Base URL", "Base URL", "", True),
             LLMProviderProperty("context_window", "Context window", "Context window length", "", True),
@@ -188,6 +191,8 @@ class OpenAICompatibleInlineCompletionModel(InlineCompletionModel):
         base_url = base_url_prop.value if base_url_prop is not None else None
         base_url = base_url if base_url and base_url.strip() != "" else None
         api_key = self.get_property("api_key").value
+        if api_key is not None and not api_key.strip():
+            api_key = None if os.environ.get("OPENAI_API_KEY") else ""
 
         client = OpenAI(base_url=base_url, api_key=api_key)
         resp = client.chat.completions.create(
