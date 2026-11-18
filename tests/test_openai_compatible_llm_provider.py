@@ -1,3 +1,4 @@
+import re
 from contextlib import nullcontext
 from functools import partial
 from unittest.mock import MagicMock, patch
@@ -95,6 +96,7 @@ def test_openai_compatible_chat_model_drops_strict_before_request(mock_openai_cl
     pytest.param(True, "configured-key", id="explicit"),
 ])
 def test_api_key_fallback_reaches_request(monkeypatch, mode, set_key, configured_key, environment_key):
+    monkeypatch.delenv("OPENAI_ADMIN_KEY", raising=False)
     if environment_key is None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     else:
@@ -117,16 +119,32 @@ def test_api_key_fallback_reaches_request(monkeypatch, mode, set_key, configured
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
         })
 
-    # Saved null keeps the SDK's existing missing-credential error.
-    missing_key = set_key and configured_key is None and environment_key is None
-    expected_error = pytest.raises(OpenAIError, match="api_key client option must be set") if missing_key else nullcontext()
-    with expected_error, httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
-        with patch("openai.OpenAI", wraps=partial(OpenAI, http_client=http_client)):
+    expected_error = nullcontext()
+    missing_key = False
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
+        # Compare keyless requests with the installed SDK's handling of the
+        # original saved value. Some versions reject even an empty string.
+        if not environment_key and not (configured_key or "").strip():
+            saved_key = None if set_key and configured_key is None else ""
+            try:
+                OpenAI(api_key=saved_key, http_client=http_client)
+            except OpenAIError as error:
+                expected_error = pytest.raises(type(error), match=re.escape(str(error)))
+                missing_key = True
+        with expected_error, patch("openai.OpenAI", wraps=partial(OpenAI, http_client=http_client)) as client_class:
             if mode == "chat":
                 result = model.completions(messages=[{"role": "user", "content": "hi"}])
                 assert result["choices"][0]["message"]["content"] == "ok"
             else:
                 assert model.inline_completions("", "", "python", "test.py", CompletionContext([]), CancelToken()) == "ok"
+
+    if configured_key and configured_key.strip():
+        expected_key = configured_key
+    elif environment_key or (set_key and configured_key is None):
+        expected_key = None
+    else:
+        expected_key = ""
+    client_class.assert_called_once_with(base_url="https://example.com/v1", api_key=expected_key)
 
     if missing_key:
         assert requests == []
