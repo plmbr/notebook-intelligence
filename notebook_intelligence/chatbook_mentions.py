@@ -20,6 +20,7 @@ from notebook_intelligence.api import (
 from notebook_intelligence.util import (
     get_jupyter_root_dir,
     has_dangerous_text_codepoints,
+    is_protected_nbi_path,
     safe_jupyter_path,
 )
 
@@ -80,7 +81,12 @@ def _safe_relative_path(
         or any(part in skipped for part in parts)
     ):
         raise ValueError("unsafe mention path")
-    return safe_jupyter_path(value)
+    path = safe_jupyter_path(value)
+    # A workspace symlink can lead to NBI's own config, which the dot-directory
+    # check above does not see once the link is resolved.
+    if is_protected_nbi_path(path):
+        raise ValueError("unsafe mention path")
+    return path
 
 
 def list_filesystem_mentions(

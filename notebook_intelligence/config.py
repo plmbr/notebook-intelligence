@@ -8,7 +8,13 @@ import sys
 import tempfile
 from typing import Optional
 
-from notebook_intelligence.util import get_claude_config_dir
+from notebook_intelligence.util import (
+    get_claude_config_dir,
+    invalidate_protected_paths_cache,
+    invalidate_stored_secret_cache,
+    register_protected_paths,
+)
+from notebook_intelligence.credential_mask import collect_stored_secrets
 from notebook_intelligence.feature_flags import (
     ACP_SETTINGS_OVERRIDES,
     CHAT_MODEL_OVERRIDES,
@@ -50,6 +56,14 @@ class NBIConfig:
         self.user_config_file = os.path.join(self.nbi_user_dir, "config.json")
         self.env_mcp_file = os.path.join(self.nbi_env_dir, "mcp.json")
         self.user_mcp_file = os.path.join(self.nbi_user_dir, "mcp.json")
+        register_protected_paths([
+            self.env_config_file,
+            self.user_config_file,
+            self.env_mcp_file,
+            self.user_mcp_file,
+            self.deprecated_env_config_file,
+            self.deprecated_user_config_file,
+        ])
         self.env_config = {}
         self.user_config = {}
         self.env_mcp = {}
@@ -69,6 +83,13 @@ class NBIConfig:
         return self.options.get('server_root_dir', '')
 
     def load(self):
+        try:
+            self._read_files()
+        finally:
+            # Redaction caches the credentials found here; see util.py.
+            invalidate_stored_secret_cache()
+
+    def _read_files(self):
         if os.path.exists(self.env_config_file):
             with open(self.env_config_file, 'r') as file:
                 self.env_config = json.load(file)
@@ -109,6 +130,14 @@ class NBIConfig:
 
         _atomic_write_json(self.user_config_file, self.user_config)
         _atomic_write_json(self.user_mcp_file, self.user_mcp)
+        invalidate_stored_secret_cache()
+        # The atomic write replaced the files, and with them their inodes.
+        invalidate_protected_paths_cache()
+
+    def stored_secret_values(self) -> list:
+        """Credential values kept in config.json and mcp.json, for redacting
+        shell output (see ``util.set_stored_secret_provider``)."""
+        return collect_stored_secrets([self.user_config, self.env_config], self.mcp)
 
     def get(self, key, default=None):
         return self.user_config.get(key, self.env_config.get(key, default))

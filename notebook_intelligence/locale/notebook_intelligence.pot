@@ -2816,6 +2816,10 @@ msgstr ""
 msgid "The turn ended in an error."
 msgstr ""
 
+#: notebook_intelligence/extension.py
+msgid "These MCP values are masked and have no saved value to keep: %1. Enter the real value."
+msgstr ""
+
 #: src/components/claude-mcp-panel.tsx
 msgid "These are Claude Code's own MCP servers (read from %1, project %2, and the per-user-per-project block). Independent of the NBI MCP Servers tab."
 msgstr ""

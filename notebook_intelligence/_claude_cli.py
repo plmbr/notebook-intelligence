@@ -17,9 +17,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Optional
+from typing import Iterable, Optional
 
-from notebook_intelligence.util import resolve_claude_cli_path
+from notebook_intelligence.util import (
+    _replace_values,
+    redact_env_secrets,
+    resolve_claude_cli_path,
+)
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +106,7 @@ async def run_claude_cli(
     timeout: float = CLI_TIMEOUT_DEFAULT_SECONDS,
     label: str = "claude",
     env_overrides: Optional[dict[str, str]] = None,
+    secret_args: Optional[Iterable[str]] = None,
 ) -> str:
     """Run ``claude <tail...>`` and return its stdout.
 
@@ -110,6 +115,11 @@ async def run_claude_cli(
     ``GITHUB_TOKEN`` for marketplace fetches against private repos).
     Values pass via env, not argv, so they don't appear in the redacted
     DEBUG log.
+
+    ``secret_args`` are values that have to travel in argv (``claude mcp add``
+    takes env and header values only as flags). The CLI's error text is
+    scrubbed of them before it is raised, since the handlers forward it to the
+    browser.
 
     Raises:
         FileNotFoundError: when the CLI can't be resolved.
@@ -148,8 +158,22 @@ async def run_claude_cli(
         # The CLI's stderr is forwarded to the browser via the handlers'
         # `_error()`; scrub any injected secret that the underlying tool
         # might have echoed (git in verbose mode, curl 401 challenges, etc.).
-        raise ValueError(_scrub_env_overrides(raw, env_overrides))
+        raise ValueError(_scrub_error_text(raw, env_overrides, secret_args))
     return out
+
+
+def _scrub_error_text(
+    text: str,
+    env_overrides: Optional[dict[str, str]],
+    secret_args: Optional[Iterable[str]],
+) -> str:
+    """Scrub CLI error text of every credential this module knows about:
+    injected env values, secret argv values, then the shared redactor (process
+    env, stored credentials, known token prefixes)."""
+    out = _scrub_env_overrides(text, env_overrides)
+    if secret_args:
+        out = _replace_values(out, secret_args)
+    return redact_env_secrets(out)
 
 
 def _scrub_env_overrides(text: str, env_overrides: Optional[dict[str, str]]) -> str:
