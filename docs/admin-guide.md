@@ -200,6 +200,10 @@ Recommended approach for clusters:
 
 `${ENV_VAR}`-style interpolation inside `config.json` is not currently supported. Tracked as a feature request.
 
+### MCP server credentials
+
+Tokens in an MCP server's `env` or `headers` are stored in plaintext: in `mcp.json` for NBI's own MCP Servers tab, and in Claude's own config (`~/.claude.json` or `.mcp.json`) for the Claude-mode MCP Servers tab. NBI never sends those values to the browser in clear text. The Claude-mode server list masks them, and the `mcp.json` editor masks credential-named values and keeps the stored value when the mask is saved back.
+
 ---
 
 ## Self-hosted LLM endpoints

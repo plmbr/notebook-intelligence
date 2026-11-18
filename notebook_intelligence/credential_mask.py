@@ -11,7 +11,10 @@ re-save its form untouched without overwriting the key it never saw.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Optional
+
+from notebook_intelligence.util import _SECRET_ENV_NAME_PATTERNS
 
 SECRET_MASK = "********"
 
@@ -130,3 +133,110 @@ def restore_masked_model_properties(posted: Any, stored: Any) -> Any:
             prop = {**prop, "value": stored_values.get(prop.get("id"), "")}
         properties.append(prop)
     return {**posted, "properties": properties}
+
+
+# MCP server entries carry credentials in two maps: stdio ``env`` and remote
+# ``headers``. Names are matched case-insensitively with ``-`` read as ``_``,
+# using the shell-output redactor's list plus the bare words an MCP config
+# tends to use (``X-Api-Key``, ``MY_KEY``).
+_MCP_SECRET_NAME_PATTERNS = (*_SECRET_ENV_NAME_PATTERNS, "KEY", "PASS")
+_MCP_CREDENTIAL_FIELDS = ("env", "headers")
+
+
+def _is_secret_name(name: Any) -> bool:
+    upper = str(name).upper().replace("-", "_")
+    return any(pattern in upper for pattern in _MCP_SECRET_NAME_PATTERNS)
+
+
+def _mcp_servers(config: Any) -> dict:
+    servers = config.get("mcpServers") if isinstance(config, dict) else None
+    return servers if isinstance(servers, dict) else {}
+
+
+def mask_mcp_server_credentials(server: dict) -> dict:
+    """A copy of a Claude MCP server dict with every ``env`` and ``headers``
+    value masked. The panel lists names only, so nothing there needs a value."""
+    result = dict(server)
+    for field in _MCP_CREDENTIAL_FIELDS:
+        values = result.get(field)
+        if isinstance(values, dict):
+            result[field] = {key: mask_secret(value) for key, value in values.items()}
+    return result
+
+
+def mask_mcp_config(config: Any) -> Any:
+    """A copy of an ``mcp.json`` document with credential-named ``env`` and
+    ``headers`` values masked, for the editor that shows the file.
+
+    Only names that look like credentials are masked, so settings such as
+    ``PYTHONPATH`` stay editable. ``args`` and ``url`` are left as they are:
+    a secret inside one cannot be told from the rest of the string.
+    """
+    result = copy.deepcopy(config)
+    for server in _mcp_servers(result).values():
+        if not isinstance(server, dict):
+            continue
+        for field in _MCP_CREDENTIAL_FIELDS:
+            values = server.get(field)
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    if _is_secret_name(key):
+                        values[key] = mask_secret(value)
+    return result
+
+
+def has_masked_mcp_values(config: Any) -> bool:
+    """Whether a posted ``mcp.json`` carries any mask to restore."""
+    return any(
+        isinstance(server, dict)
+        and any(
+            isinstance(server.get(field), dict)
+            and SECRET_MASK in server[field].values()
+            for field in _MCP_CREDENTIAL_FIELDS
+        )
+        for server in _mcp_servers(config).values()
+    )
+
+
+class UnresolvedMaskError(ValueError):
+    """A posted mask has no stored value behind it. ``names`` lists each as
+    ``server.field.key`` so the handler can word the message in the user's
+    language."""
+
+    def __init__(self, names: list):
+        super().__init__(
+            "Masked MCP values with no saved value: " + ", ".join(names)
+        )
+        self.names = list(names)
+
+
+def restore_masked_mcp_config(posted: Any, stored: Any) -> Any:
+    """Swap masks in a posted ``mcp.json`` for the stored values.
+
+    Raises ``UnresolvedMaskError`` naming each mask with no stored value
+    behind it (a renamed server, or a key added as the mask), so the save is
+    refused instead of persisting ``********`` as a credential.
+    """
+    result = copy.deepcopy(posted)
+    stored_servers = _mcp_servers(stored)
+    unresolved = []
+    for name, server in _mcp_servers(result).items():
+        if not isinstance(server, dict):
+            continue
+        for field in _MCP_CREDENTIAL_FIELDS:
+            values = server.get(field)
+            if not isinstance(values, dict):
+                continue
+            stored_values = (stored_servers.get(name) or {}).get(field)
+            for key, value in values.items():
+                if value != SECRET_MASK:
+                    continue
+                if isinstance(stored_values, dict) and isinstance(
+                    stored_values.get(key), str
+                ):
+                    values[key] = stored_values[key]
+                else:
+                    unresolved.append(f"{name}.{field}.{key}")
+    if unresolved:
+        raise UnresolvedMaskError(unresolved)
+    return result
