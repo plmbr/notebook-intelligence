@@ -15,6 +15,7 @@ import fnmatch
 
 from notebook_intelligence.util import (
     get_jupyter_root_dir,
+    is_protected_nbi_path,
     redact_env_secrets,
     safe_jupyter_path,
 )
@@ -25,6 +26,13 @@ from notebook_intelligence.util import (
 # working through the alias; new code should call ``safe_jupyter_path``
 # directly.
 _get_safe_path = safe_jupyter_path
+
+# Returned to the model, so it stays English. The same text for every
+# protected file: it says nothing about whether the file exists.
+PROTECTED_NBI_FILE_MESSAGE = (
+    "Error: Notebook Intelligence's own configuration files are not available "
+    "to this tool."
+)
 
 
 def _glob_pattern_escapes(pattern: str) -> bool:
@@ -588,6 +596,8 @@ async def search_files(
                 # whether or not its target exists, so no outside-path
                 # existence can be inferred. Matches read_file's gate.
                 continue
+            if is_protected_nbi_path(safe_file):
+                continue
             # Safe to stat now: the path is confirmed inside the workspace.
             if safe_file.is_file():
                 seen.add(key)
@@ -744,6 +754,8 @@ async def read_file(
     """
     try:
         target_file = _get_safe_path(file_path)
+        if is_protected_nbi_path(target_file):
+            return PROTECTED_NBI_FILE_MESSAGE
         
         if not target_file.exists():
             return f"File '{file_path}' does not exist"
@@ -786,6 +798,8 @@ async def insert_content(file_path: str, line_number: int, content: str, **args)
     """
     try:
         target_file = _get_safe_path(file_path)
+        if is_protected_nbi_path(target_file):
+            return PROTECTED_NBI_FILE_MESSAGE
         
         if not target_file.exists():
             return f"File '{file_path}' does not exist"
@@ -825,6 +839,8 @@ async def write_to_file(file_path: str, content: str, **args) -> str:
     """
     try:
         target_file = _get_safe_path(file_path)
+        if is_protected_nbi_path(target_file):
+            return PROTECTED_NBI_FILE_MESSAGE
         
         # Create parent directories if they don't exist
         target_file.parent.mkdir(parents=True, exist_ok=True)

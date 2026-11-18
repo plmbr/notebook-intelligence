@@ -7,6 +7,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional, Set
@@ -46,6 +47,102 @@ def set_jupyter_root_dir(root_dir: str):
 
 def get_jupyter_root_dir() -> str:
     return _jupyter_root_dir
+
+
+# The agent's file tools stay inside the workspace, but a workspace that
+# contains the user's home directory also contains NBI's own config. Those
+# files hold API keys and MCP commands, and a write bypasses the checks the
+# config API applies, so the file tools refuse them.
+NBI_MCP_TEMP_FILENAME = "nbi.mcp.temp.json"
+_registered_protected_paths: set = set()
+_protected_paths_version = 0
+
+# Resolving every candidate costs about 200 us, and search_files asks once
+# per matched file. The resolved set is rebuilt when the home directory,
+# prefix or registrations change, and after a few seconds so a symlink that
+# was repointed is noticed.
+_PROTECTED_PATHS_CACHE_SECONDS = 5.0
+# (key, expires_at, resolved paths, (st_dev, st_ino) of the ones that exist)
+_protected_paths_cache = None
+
+
+def register_protected_paths(paths) -> None:
+    """Add files the agent's file tools must not touch (NBIConfig registers
+    the ones it reads and writes)."""
+    global _protected_paths_version
+    for path in paths:
+        if path:
+            _registered_protected_paths.add(str(path))
+    _protected_paths_version += 1
+
+
+def _default_protected_paths() -> list:
+    home = os.path.expanduser("~")
+    env_dir = os.path.join(sys.prefix, "share", "jupyter", "nbi")
+    user_dir = os.path.join(home, ".jupyter", "nbi")
+    return [
+        os.path.join(env_dir, "config.json"),
+        os.path.join(env_dir, "mcp.json"),
+        os.path.join(user_dir, "config.json"),
+        os.path.join(user_dir, "mcp.json"),
+        os.path.join(user_dir, "user-data.json"),
+        os.path.join(sys.prefix, "share", "jupyter", "nbi-config.json"),
+        os.path.join(home, ".jupyter", "nbi-config.json"),
+        os.path.join(home, ".jupyter", "nbi-data.json"),
+    ]
+
+
+def is_protected_nbi_path(path) -> bool:
+    """True for NBI's config and credential files, and the MCP editor's
+    temp copy of them. Compares resolved paths, so a symlink to one counts."""
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if resolved.name == NBI_MCP_TEMP_FILENAME:
+        return True
+    paths, file_ids = _resolved_protected_paths()
+    if resolved in paths:
+        return True
+    # Same file under another name: a different-case spelling on a
+    # case-insensitive filesystem, or a hard link. The path match above
+    # cannot see either, the device and inode can.
+    try:
+        info = os.stat(resolved)
+    except (OSError, ValueError):
+        return False
+    return (info.st_dev, info.st_ino) in file_ids
+
+
+def invalidate_protected_paths_cache() -> None:
+    """Drop the cached protected set; the next check rebuilds it. NBIConfig
+    calls this after a save, which replaces the files and so their inodes."""
+    global _protected_paths_cache
+    _protected_paths_cache = None
+
+
+def _resolved_protected_paths() -> tuple:
+    global _protected_paths_cache
+    key = (os.path.expanduser("~"), sys.prefix, _protected_paths_version)
+    now = time.monotonic()
+    cached = _protected_paths_cache
+    if cached is not None and cached[0] == key and now < cached[1]:
+        return cached[2], cached[3]
+    resolved = set()
+    file_ids = set()
+    for candidate in [*_default_protected_paths(), *_registered_protected_paths]:
+        try:
+            path = Path(candidate).expanduser().resolve()
+            resolved.add(path)
+            info = os.stat(path)
+        except FileNotFoundError:
+            continue
+        except (OSError, RuntimeError, ValueError):
+            continue
+        file_ids.add((info.st_dev, info.st_ino))
+    resolved, file_ids = frozenset(resolved), frozenset(file_ids)
+    _protected_paths_cache = (key, now + _PROTECTED_PATHS_CACHE_SECONDS, resolved, file_ids)
+    return resolved, file_ids
 
 
 def safe_jupyter_path(path: str) -> Path:
@@ -647,6 +744,62 @@ _TOKEN_PREFIX_RE = re.compile(
 )
 
 
+# Where `redact_env_secrets` asks for the credentials NBI keeps in its own
+# config files. One slot, owned by the running extension: the latest
+# registration wins, so a test or a second manager cannot pile up providers.
+_stored_secret_provider = None
+
+# The shell tools redact line by line, and the provider walks the whole
+# config each time. The result is reused for a few seconds; NBIConfig also
+# clears it on every load and save, so the TTL only covers a hand edit that
+# nothing has reloaded yet.
+_STORED_SECRET_CACHE_SECONDS = 5.0
+_stored_secret_cache = None  # (provider, expires_at, values)
+_stored_secret_generation = 0
+
+
+def set_stored_secret_provider(provider) -> None:
+    """Register a zero-argument callable returning the stored credential
+    values to redact, or ``None`` to clear it."""
+    global _stored_secret_provider
+    _stored_secret_provider = provider
+    invalidate_stored_secret_cache()
+
+
+def invalidate_stored_secret_cache() -> None:
+    """Drop the cached credential values; the next redaction asks again."""
+    global _stored_secret_cache, _stored_secret_generation
+    _stored_secret_generation += 1
+    _stored_secret_cache = None
+
+
+def _stored_secret_values() -> list:
+    global _stored_secret_cache
+    provider = _stored_secret_provider
+    if provider is None:
+        return []
+    cached = _stored_secret_cache
+    now = time.monotonic()
+    # Keyed on the provider object too, so swapping it, even by patching the
+    # module attribute, never serves another provider's values.
+    if cached is not None and cached[0] is provider and now < cached[1]:
+        return cached[2]
+    generation = _stored_secret_generation
+    try:
+        values = [v for v in provider() if isinstance(v, str)]
+    except Exception:
+        # Redaction is defense in depth; a broken provider must not turn a
+        # shell tool result into an error. Not cached, so it is retried.
+        log.debug("Stored-secret provider failed", exc_info=True)
+        return []
+    # A load or save that ran while the provider was walking the config bumped
+    # the generation; what was collected may predate it, so use it once and
+    # let the next call collect again.
+    if generation == _stored_secret_generation:
+        _stored_secret_cache = (provider, now + _STORED_SECRET_CACHE_SECONDS, values)
+    return values
+
+
 def redact_env_secrets(text: str) -> str:
     """Replace any process-env values that look like secrets with
     ``<redacted>``. Defense in depth for the shell-execute tools, which
@@ -690,6 +843,9 @@ def redact_env_secrets(text: str) -> str:
         for name, value in os.environ.items()
         if value and _looks_like_secret_env_name(name)
     ]
+    # Credentials NBI itself stores (API keys, MCP headers) rarely carry a
+    # known prefix, so a `cat config.json` would otherwise show them.
+    sensitive_values.extend(_stored_secret_values())
     out = _replace_values(text, sensitive_values)
     # Pass 2: redact known-prefix forms. Catches base64/derived shapes
     # plus tokens an upstream tool might emit that aren't in this

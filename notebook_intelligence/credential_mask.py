@@ -12,7 +12,7 @@ re-save its form untouched without overwriting the key it never saw.
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from notebook_intelligence.util import _SECRET_ENV_NAME_PATTERNS
 
@@ -249,3 +249,73 @@ def credential_parts(value: str) -> list:
     if token and scheme.isalpha():
         parts.append(token.strip())
     return parts
+
+
+# What the OpenAI-compatible clients document as the "key" for a server that
+# checks none (Ollama, LM Studio, vLLM, llama.cpp). They are not secrets, and
+# redacting them would blank ordinary words wherever shell output mentions
+# them. Compared lower-cased, with ``_`` read as ``-``.
+PLACEHOLDER_API_KEYS = frozenset(
+    {
+        "dummy",
+        "dummy-api-key",
+        "dummy-key",
+        "empty",
+        "fake-key",
+        "lm-studio",
+        "lmstudio",
+        "no-key",
+        "no-key-required",
+        "no-api-key",
+        "none",
+        "not-needed",
+        "not-required",
+        "null",
+        "ollama",
+        "placeholder",
+        "sk-no-key-required",
+    }
+)
+
+
+def is_placeholder_api_key(value: str) -> bool:
+    return value.strip().lower().replace("_", "-") in PLACEHOLDER_API_KEYS
+
+
+def collect_stored_secrets(configs: Iterable[Any], mcp: Any) -> list:
+    """Every credential value NBI keeps in its config, for output redaction.
+
+    ``configs`` are config.json layers; ``mcp`` is the merged mcp.json.
+    """
+    found = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, str) and value and value != SECRET_MASK:
+            parts = credential_parts(value)
+            # `Bearer not-needed` is as much a placeholder as `not-needed`.
+            if not any(is_placeholder_api_key(part) for part in parts):
+                found.extend(parts)
+
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
+        for key in ("claude_settings", "acp_settings"):
+            settings = config.get(key)
+            if isinstance(settings, dict):
+                add(settings.get("api_key"))
+        for key in ("chat_model", "inline_completion_model"):
+            model = config.get(key)
+            properties = model.get("properties") if isinstance(model, dict) else None
+            for prop in properties if isinstance(properties, list) else []:
+                if isinstance(prop, dict) and prop.get("id") in SECRET_PROPERTY_IDS:
+                    add(prop.get("value"))
+    for server in _mcp_servers(mcp).values():
+        if not isinstance(server, dict):
+            continue
+        for field in _MCP_CREDENTIAL_FIELDS:
+            values = server.get(field)
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    if _is_secret_name(key):
+                        add(value)
+    return found

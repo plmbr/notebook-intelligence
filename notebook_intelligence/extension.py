@@ -109,7 +109,7 @@ from notebook_intelligence.credential_mask import (
     restore_masked_api_key,
     restore_masked_model_properties,
 )
-from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_claude_config_dir, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, filter_models_by_enabled_providers, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri, has_dangerous_text_codepoints, split_csv
+from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_claude_config_dir, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, filter_models_by_enabled_providers, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri, has_dangerous_text_codepoints, split_csv, set_stored_secret_provider
 from notebook_intelligence.context_factory import RuleContextFactory
 from notebook_intelligence.skillset import SKILL_NAME_REGEX
 from notebook_intelligence.chatbook_generate import (
@@ -4837,6 +4837,9 @@ class NotebookIntelligence(ExtensionApp):
             "string_overrides": string_overrides,
             "mcp_stdio_command_allowlist": mcp_command_allowlist,
         })
+        # Shell-tool output is scrubbed of the credentials kept in config.json
+        # and mcp.json, which rarely carry a recognizable prefix.
+        set_stored_secret_provider(ai_service_manager.nbi_config.stored_secret_values)
         # Apply env-var perf policy/locks immediately at boot, mirroring the
         # comment above about acp_mode: don't wait for the first config POST
         # to see a force-on/force-off admin policy take effect.
