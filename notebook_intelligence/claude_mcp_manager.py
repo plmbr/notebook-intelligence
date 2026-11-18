@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal, Optional
 
+from notebook_intelligence.credential_mask import mask_mcp_server_credentials
+
 from notebook_intelligence._claude_cli import (
     CLAUDE_SCOPES,
     reject_flag_smuggling,
@@ -77,6 +79,11 @@ class ClaudeMCPServer:
             "headers": dict(self.headers),
             "disabled_for_workspace": self.disabled_for_workspace,
         }
+
+    def to_wire_dict(self) -> dict:
+        """``to_dict`` for the browser: ``env`` and ``headers`` values are
+        masked, since they hold tokens and the panel never shows them."""
+        return mask_mcp_server_credentials(self.to_dict())
 
 
 def _read_json(path: Path) -> Optional[dict]:
