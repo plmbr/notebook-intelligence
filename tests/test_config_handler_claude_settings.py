@@ -356,3 +356,55 @@ class TestConfigPostReloadsFromDisk:
 
         with open(config.user_config_file) as f:
             assert f.read() == '{"claude_settings": {"enabled": true,}}'
+
+
+class TestApiKeyMaskRoundTrip:
+    """The capabilities response masks a stored key; saving it back must not
+    overwrite the key with the mask."""
+
+    def test_claude_key_survives_a_posted_mask(self, config):
+        from notebook_intelligence.credential_mask import SECRET_MASK
+
+        _store(config, claude_settings={"enabled": True, "api_key": "sk-real"})
+
+        stored = _post(config, {"claude_settings": {**PANEL_PAYLOAD, "api_key": SECRET_MASK}})
+
+        assert stored["api_key"] == "sk-real"
+
+    def test_claude_key_can_still_be_replaced_or_cleared(self, config):
+        _store(config, claude_settings={"api_key": "sk-real"})
+        assert _post(config, {"claude_settings": {**PANEL_PAYLOAD, "api_key": "sk-new"}})["api_key"] == "sk-new"
+        assert _post(config, {"claude_settings": {**PANEL_PAYLOAD, "api_key": ""}})["api_key"] == ""
+
+    def test_acp_key_survives_a_posted_mask(self, config):
+        from notebook_intelligence.credential_mask import SECRET_MASK
+
+        _store(config, acp_settings={"enabled": False, "api_key": "sk-openai"})
+
+        _post(config, {"acp_settings": {"enabled": False, "api_key": SECRET_MASK}})
+
+        assert _on_disk(config)["acp_settings"]["api_key"] == "sk-openai"
+
+    def test_model_property_key_survives_a_posted_mask(self, config):
+        from notebook_intelligence.credential_mask import SECRET_MASK
+
+        _store(config, chat_model={
+            "provider": "openai-compatible",
+            "model": "openai-compatible-chat-model",
+            "properties": [
+                {"id": "api_key", "value": "sk-real"},
+                {"id": "base_url", "value": "https://old"},
+            ],
+        })
+
+        _post(config, {"chat_model": {
+            "provider": "openai-compatible",
+            "model": "openai-compatible-chat-model",
+            "properties": [
+                {"id": "api_key", "value": SECRET_MASK},
+                {"id": "base_url", "value": "https://new"},
+            ],
+        }})
+
+        props = {p["id"]: p["value"] for p in _on_disk(config)["chat_model"]["properties"]}
+        assert props == {"api_key": "sk-real", "base_url": "https://new"}

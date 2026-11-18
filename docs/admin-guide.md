@@ -190,7 +190,7 @@ Dedicated image results, such as figures delivered through image response events
 
 ## API-key handling
 
-By default, custom-provider API keys (Anthropic, OpenAI-compatible, LiteLLM-compatible) are stored plaintext in `~/.jupyter/nbi/config.json`. This is acceptable for single-tenant developer workstations and unacceptable for multi-tenant clusters.
+By default, custom-provider API keys (Anthropic, OpenAI-compatible, LiteLLM-compatible) are stored plaintext in `~/.jupyter/nbi/config.json`. The Settings dialog never receives a stored key: the server sends `********` in its place and keeps the stored key when the mask is saved back unchanged. This is acceptable for single-tenant developer workstations and unacceptable for multi-tenant clusters.
 
 Recommended approach for clusters:
 

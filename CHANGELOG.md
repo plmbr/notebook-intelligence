@@ -16,6 +16,7 @@ For each release we list user-facing changes grouped as **Added**, **Changed**, 
 
 ### Fixed
 
+- **Stored API keys no longer reach the browser in clear text.** A key kept in `config.json`, whether typed in Settings or written by hand, used to come back in the capabilities response and fill a plain text input. The OpenAI-compatible and LiteLLM-compatible `api_key` properties (in the model lists and in the stored `chat_model` and `inline_completion_model` entries), `claude_settings.api_key`, and `acp_settings.api_key` are now sent as `********`, and the Settings inputs are password fields. Saving the panel with the mask untouched keeps the stored key; typing a new value replaces it and clearing the field removes it. Extension providers can opt a property in with `LLMProviderProperty(..., secret=True)`. Keys supplied through environment variables were already withheld.
 - **Chat Markdown images no longer load automatically** (#533). Images in user, model, and tool Markdown now display a visible, translatable blocked-image notice, preserving safe image descriptions. Both local and remote image URLs are blocked to prevent requests that could disclose chat context without a click. Links containing images become non-clickable content so the notice cannot act as a load-image link. Dedicated image results still render; notebook Markdown cells use a separate renderer. See [Chat Markdown images](docs/admin-guide.md#chat-markdown-images).
 
 ## [6.3.0] - 2026-10-28

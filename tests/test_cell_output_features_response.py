@@ -5,6 +5,7 @@ and value-presence-locks to the frontend."""
 
 from types import SimpleNamespace
 
+from notebook_intelligence.credential_mask import SECRET_MASK
 from notebook_intelligence.extension import (
     FEATURE_POLICY_NAMES,
     _build_cell_output_features_response,
@@ -271,8 +272,14 @@ class TestBuildSettingLocksResponse:
 
 
 class TestScrubCredentialsForWire:
-    def test_unlocked_settings_pass_through_unchanged(self):
+    def test_unlocked_key_is_masked_not_sent(self):
         settings = {"api_key": "sk-secret", "base_url": "https://x"}
+        masked = _scrub_credentials_for_wire(settings, {})
+        assert masked == {"api_key": SECRET_MASK, "base_url": "https://x"}
+        assert settings["api_key"] == "sk-secret"
+
+    def test_settings_without_a_key_pass_through_unchanged(self):
+        settings = {"api_key": "", "base_url": "https://x"}
         assert _scrub_credentials_for_wire(settings, {}) is settings
 
     def test_claude_key_scrubbed_when_env_locks_it(self):
@@ -288,12 +295,9 @@ class TestScrubCredentialsForWire:
     def test_acp_key_scrubbed_with_its_own_lock_name(self):
         settings = {"api_key": "sk-openai"}
         # The Claude lock must not scrub the Codex key.
-        assert (
-            _scrub_credentials_for_wire(
-                settings, {"claude_api_key": "sk-env"}, "acp_api_key"
-            )
-            is settings
-        )
+        assert _scrub_credentials_for_wire(
+            settings, {"claude_api_key": "sk-env"}, "acp_api_key"
+        ) == {"api_key": SECRET_MASK}
         scrubbed = _scrub_credentials_for_wire(
             settings, {"acp_api_key": "sk-env"}, "acp_api_key"
         )
