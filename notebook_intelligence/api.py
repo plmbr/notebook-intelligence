@@ -1139,6 +1139,9 @@ class LLMProviderProperty:
     description: str
     value: str
     optional: bool = False
+    # A credential: the capabilities response masks it and the settings panel
+    # renders it as a password field.
+    secret: bool = False
 
     def to_dict(self):
         return asdict(self)

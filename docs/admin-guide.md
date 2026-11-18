@@ -190,7 +190,7 @@ Dedicated image results, such as figures delivered through image response events
 
 ## API-key handling
 
-By default, custom-provider API keys (Anthropic, OpenAI-compatible, LiteLLM-compatible) are stored plaintext in `~/.jupyter/nbi/config.json`. This is acceptable for single-tenant developer workstations and unacceptable for multi-tenant clusters.
+By default, custom-provider API keys (Anthropic, OpenAI-compatible, LiteLLM-compatible) are stored plaintext in `~/.jupyter/nbi/config.json`. The Settings dialog never receives a stored key: the server sends `********` in its place and keeps the stored key when the mask is saved back unchanged. This is acceptable for single-tenant developer workstations and unacceptable for multi-tenant clusters.
 
 Recommended approach for clusters:
 
@@ -199,6 +199,12 @@ Recommended approach for clusters:
 - **Don't commit `config.json`.** Even the env-prefix base config should not contain keys; pull keys from env at spawn.
 
 `${ENV_VAR}`-style interpolation inside `config.json` is not currently supported. Tracked as a feature request.
+
+### MCP server credentials
+
+Tokens in an MCP server's `env` or `headers` are stored in plaintext: in `mcp.json` for NBI's own MCP Servers tab, and in Claude's own config (`~/.claude.json` or `.mcp.json`) for the Claude-mode MCP Servers tab. NBI never sends those values to the browser in clear text. The Claude-mode server list masks them, and the `mcp.json` editor masks credential-named values and keeps the stored value when the mask is saved back.
+
+The Claude-mode **Add MCP server** form hands values to `claude mcp add` as command-line flags, because the CLI has no other input for them. For the second or so the CLI runs, another local user on the same machine can read them from the process list. NBI scrubs those values from the CLI's error output. On a shared machine, avoid typing a real token into that form. Instead, add the server without the secret and supply it another way, for example with a `${VAR}` reference in the value. Check that your Claude CLI version expands `${VAR}` in MCP `env` and `headers` before relying on it.
 
 ---
 

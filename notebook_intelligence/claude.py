@@ -31,7 +31,7 @@ import base64
 import logging
 from claude_agent_sdk import AssistantMessage, PermissionResultAllow, PermissionResultDeny, ResultMessage, SdkMcpTool, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, create_sdk_mcp_server, ClaudeAgentOptions, ClaudeSDKClient, tool
 
-from notebook_intelligence.util import ThreadSafeWebSocketConnector, _emit, get_jupyter_root_dir, import_litellm, resolve_claude_cli_path, safe_jupyter_path, terminate_process_tree
+from notebook_intelligence.util import ThreadSafeWebSocketConnector, _emit, get_jupyter_root_dir, import_litellm, redact_env_secrets, resolve_claude_cli_path, safe_jupyter_path, terminate_process_tree
 from notebook_intelligence.inline_completion import (
     extract_inline_completion,
     inline_completion_system_prompt,
@@ -1343,14 +1343,17 @@ class ClaudeChatModel(ChatModel):
             # detect the failure and skip writing the partial buffer to the
             # user's cell. Re-raise so the caller logs and runs finish().
             if response is not None:
+                # Scrubbed: the text goes to the browser, and SDK and proxy
+                # errors can echo part of the credential they rejected.
+                error_text = redact_env_secrets(str(e))
                 response.stream({
                     "choices": [{
                         "delta": {
                             "role": "assistant",
-                            "content": f"\n\n[Stream interrupted: {e}]"
+                            "content": f"\n\n[Stream interrupted: {error_text}]"
                         }
                     }],
-                    "nbi_stream_error": str(e)
+                    "nbi_stream_error": error_text
                 })
             raise
 
@@ -1563,7 +1566,7 @@ class ClaudeCodeClient():
             return True
         except Exception as e:
             self._client_thread = None
-            log.error(f"Error occurred while connecting to Claude agent client: {str(e)}")
+            log.error(f"Error occurred while connecting to Claude agent client: {redact_env_secrets(str(e))}")
             self._set_status(ClaudeAgentClientStatus.FailedToConnect)
             self._connect_resolved.set()
             return False
@@ -1879,12 +1882,12 @@ class ClaudeCodeClient():
                                         ))
                                     in_flight_tools.clear()
                         except Exception as e:
-                            err_msg = f"Error communicating with Claude agent: {str(e)}"
-                            log.error(err_msg)
+                            error_text = redact_env_secrets(str(e))
+                            log.error(f"Error communicating with Claude agent: {error_text}")
                             if not self._reconnect_required:
                                 trans = i18n.response_bundle(response)
                                 response.stream(MarkdownData(
-                                    trans.__("Error communicating with Claude agent: %1", str(e))
+                                    trans.__("Error communicating with Claude agent: %1", error_text)
                                 ))
                         finally:
                             _emit(signal, {"id": event_id, "data": "query completed"})
@@ -2910,11 +2913,11 @@ class ClaudeCodeChatParticipant(BaseChatParticipant):
             # worker thread died. Surface it so the user sees why instead of a
             # silent spinner stop.
             if isinstance(result, str) and result:
-                response.stream(MarkdownData(trans.__("**Claude agent error:** %1", result)))
+                response.stream(MarkdownData(trans.__("**Claude agent error:** %1", redact_env_secrets(result))))
         except Exception as e:
-            log.error(f"Error while handling Claude chat request: {e}", exc_info=True)
+            log.error(f"Error while handling Claude chat request: {redact_env_secrets(str(e))}", exc_info=True)
             try:
-                response.stream(MarkdownData(trans.__("**Error:** %1", e)))
+                response.stream(MarkdownData(trans.__("**Error:** %1", redact_env_secrets(str(e)))))
             except Exception as stream_err:
                 log.debug(f"Could not stream error to client (likely closed websocket): {stream_err}")
         finally:
