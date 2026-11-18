@@ -118,6 +118,23 @@ function useNbiPolicies() {
 const OPENAI_COMPATIBLE_CHAT_MODEL_ID = 'openai-compatible-chat-model';
 
 /**
+ * What the server sends in place of a stored API key (see
+ * credential_mask.py). Posting it back leaves the stored key as it is.
+ */
+const SECRET_MASK = '********';
+
+/**
+ * Select the mask when a key field gains focus, so the first keystroke or
+ * paste replaces it. Without this, typing appends to the mask and saves
+ * `********abc` as the key.
+ */
+function selectMask(event: React.FocusEvent<HTMLInputElement>): void {
+  if (event.target.value === SECRET_MASK) {
+    event.target.select();
+  }
+}
+
+/**
  * A required provider property left empty. The value persists as an empty
  * string and requests then go out with that field blank, which the endpoint
  * rejects, so the field has to say so rather than looking saved.
@@ -149,6 +166,7 @@ export function ModelPropertyList(props: {
     description: string;
     value: string;
     optional?: boolean;
+    secret?: boolean;
   }[];
   providerId: string;
   modelId: string;
@@ -187,6 +205,7 @@ export function ModelPropertyField(props: {
     description: string;
     value: string;
     optional?: boolean;
+    secret?: boolean;
   };
   inputName: string;
   onChange: (value: string) => void;
@@ -204,6 +223,8 @@ export function ModelPropertyField(props: {
       </div>
       <input
         name={inputName}
+        type={property.secret ? 'password' : 'text'}
+        autoComplete={property.secret ? 'new-password' : undefined}
         placeholder={property.description}
         className="jp-mod-styled"
         spellCheck={false}
@@ -213,6 +234,7 @@ export function ModelPropertyField(props: {
           setTouched(true);
           onChange(event.target.value);
         }}
+        onFocus={property.secret ? selectMask : undefined}
         onBlur={() => setTouched(true)}
       />
       {showError && (
@@ -2243,6 +2265,8 @@ function SettingsPanelComponentClaude(props: any) {
                   </div>
                   <input
                     name="chat-model-id-input"
+                    type="password"
+                    autoComplete="new-password"
                     placeholder={
                       settingLocks.claude_api_key.locked
                         ? lockedByEnvironmentTip(trans, 'ANTHROPIC_API_KEY')
@@ -2253,6 +2277,7 @@ function SettingsPanelComponentClaude(props: any) {
                     value={settingLocks.claude_api_key.locked ? '' : apiKey}
                     disabled={settingLocks.claude_api_key.locked}
                     title={lockedTip(trans, settingLocks.claude_api_key.locked)}
+                    onFocus={selectMask}
                     onChange={event => setApiKey(event.target.value)}
                   />
                 </div>
@@ -2478,6 +2503,8 @@ function SettingsPanelComponentAcp(props: any) {
                   </div>
                   <input
                     name="acp-api-key-input"
+                    type="password"
+                    autoComplete="new-password"
                     placeholder={
                       settingLocks.acp_api_key.locked
                         ? lockedByEnvironmentTip(trans, 'OPENAI_API_KEY')
@@ -2488,6 +2515,7 @@ function SettingsPanelComponentAcp(props: any) {
                     value={settingLocks.acp_api_key.locked ? '' : apiKey}
                     disabled={settingLocks.acp_api_key.locked}
                     title={lockedTip(trans, settingLocks.acp_api_key.locked)}
+                    onFocus={selectMask}
                     onChange={event => setApiKey(event.target.value)}
                   />
                 </div>

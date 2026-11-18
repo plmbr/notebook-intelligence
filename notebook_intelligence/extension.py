@@ -98,6 +98,13 @@ import notebook_intelligence.github_copilot as github_copilot
 from notebook_intelligence.built_in_toolsets import built_in_toolsets, toolset_description
 from notebook_intelligence.base_chat_participant import BaseChatParticipant
 from notebook_intelligence.llm_providers.property_labels import translate_model_properties
+from notebook_intelligence.credential_mask import (
+    mask_model_config,
+    mask_model_properties,
+    mask_settings_api_key,
+    restore_masked_api_key,
+    restore_masked_model_properties,
+)
 from notebook_intelligence.util import ThreadSafeWebSocketConnector, get_claude_config_dir, get_jupyter_root_dir, set_jupyter_root_dir, is_builtin_tool_enabled_in_env, is_provider_enabled_in_env, filter_models_by_enabled_providers, VALID_CODING_AGENT_LAUNCHERS, compute_effective_disabled_launchers, validate_coding_agent_launcher_ids, resolve_claude_cli_path, resolve_opencode_cli_path, resolve_pi_cli_path, resolve_copilot_cli_path, resolve_codex_cli_path, safe_anchor_uri, has_dangerous_text_codepoints, split_csv
 from notebook_intelligence.context_factory import RuleContextFactory
 from notebook_intelligence.skillset import SKILL_NAME_REGEX
@@ -741,14 +748,16 @@ def _build_setting_locks_response(string_overrides: dict) -> dict:
 def _scrub_credentials_for_wire(
     settings: dict, string_overrides: dict, api_key_lock: str = "claude_api_key"
 ) -> dict:
-    """Strip the api_key from the capabilities response when locked by env.
+    """Keep the api_key out of the capabilities response.
 
     The SDKs read their key env var directly (ANTHROPIC_API_KEY for Claude,
     OPENAI_API_KEY for the Codex ACP agent); surfacing the value through the frontend would
-    leak the credential.
+    leak the credential, so a key locked by env is blanked. A key stored in
+    config.json is masked instead: the panel shows that one is set, and
+    ConfigHandler maps the mask posted back onto the stored key.
     """
     if not string_overrides.get(api_key_lock):
-        return settings
+        return mask_settings_api_key(settings)
     result = dict(settings or {})
     result["api_key"] = ""
     return result
@@ -871,26 +880,31 @@ class GetCapabilitiesHandler(APIHandler):
             # Filtered by the same predicate as `llm_providers` above: the
             # model lists walk every registered provider, so without this a
             # disabled provider kept shipping its models (#431).
-            "chat_models": translate_model_properties(
-                trans,
-                filter_models_by_enabled_providers(
-                    ai_service_manager.chat_model_ids, is_provider_enabled
-                ),
+            "chat_models": mask_model_properties(
+                translate_model_properties(
+                    trans,
+                    filter_models_by_enabled_providers(
+                        ai_service_manager.chat_model_ids, is_provider_enabled
+                    ),
+                )
             ),
-            "inline_completion_models": translate_model_properties(
-                trans,
-                filter_models_by_enabled_providers(
-                    ai_service_manager.inline_completion_model_ids, is_provider_enabled
-                ),
+            "inline_completion_models": mask_model_properties(
+                translate_model_properties(
+                    trans,
+                    filter_models_by_enabled_providers(
+                        ai_service_manager.inline_completion_model_ids,
+                        is_provider_enabled,
+                    ),
+                )
             ),
             "embedding_models": filter_models_by_enabled_providers(
                 ai_service_manager.embedding_model_ids, is_provider_enabled
             ),
-            "chat_model": nbi_config.chat_model,
+            "chat_model": mask_model_config(nbi_config.chat_model),
             "chat_model_supports_vision": _resolve_supports_vision(
                 ai_service_manager
             ),
-            "inline_completion_model": nbi_config.inline_completion_model,
+            "inline_completion_model": mask_model_config(nbi_config.inline_completion_model),
             "embedding_model": nbi_config.embedding_model,
             "chat_participants": [],
             "store_github_access_token": nbi_config.store_github_access_token,
@@ -1251,6 +1265,9 @@ class ConfigHandler(APIHandler):
             # Re-apply the env override after the user's POST so locked fields
             # stay pinned; non-locked fields keep the user's value.
             if key == "chat_model":
+                value = restore_masked_model_properties(
+                    value, ai_service_manager.nbi_config.get("chat_model")
+                )
                 value = apply_string_overrides(
                     value, self.string_overrides, CHAT_MODEL_OVERRIDES
                 )
@@ -1258,6 +1275,9 @@ class ConfigHandler(APIHandler):
                     continue
                 has_model_change = True
             elif key == "inline_completion_model":
+                value = restore_masked_model_properties(
+                    value, ai_service_manager.nbi_config.get("inline_completion_model")
+                )
                 value = apply_string_overrides(
                     value, self.string_overrides, INLINE_COMPLETION_MODEL_OVERRIDES
                 )
@@ -1276,6 +1296,11 @@ class ConfigHandler(APIHandler):
                     stored = ai_service_manager.nbi_config.get("claude_settings")
                     if isinstance(stored, dict):
                         value = {**stored, **value}
+                # The capabilities response masks a stored key; a mask posted
+                # back means "unchanged", not a new key.
+                value = restore_masked_api_key(
+                    value, ai_service_manager.nbi_config.get("claude_settings")
+                )
                 value = apply_claude_policies(value, self.feature_policies)
                 value = apply_string_overrides(
                     value, self.string_overrides, CLAUDE_SETTINGS_OVERRIDES
@@ -1288,6 +1313,9 @@ class ConfigHandler(APIHandler):
                     value = dict(value)
                     value["api_key"] = ""
             elif key == "acp_settings":
+                value = restore_masked_api_key(
+                    value, ai_service_manager.nbi_config.get("acp_settings")
+                )
                 value = apply_acp_policies(value, self.feature_policies)
                 value = apply_string_overrides(
                     value, self.string_overrides, ACP_SETTINGS_OVERRIDES

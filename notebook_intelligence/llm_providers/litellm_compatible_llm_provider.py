@@ -20,7 +20,7 @@ class LiteLLMCompatibleChatModel(ChatModel):
         self._properties = [
             LLMProviderProperty("model_id", "Model", "Model (must support streaming)", "", False),
             LLMProviderProperty("base_url", "Base URL", "Base URL", "", False),
-            LLMProviderProperty("api_key", "API key", "API key", "", True),
+            LLMProviderProperty("api_key", "API key", "API key", "", True, secret=True),
             LLMProviderProperty("context_window", "Context window", "Context window length", "", True),
         ]
 
@@ -120,7 +120,7 @@ class LiteLLMCompatibleInlineCompletionModel(InlineCompletionModel):
         self._properties = [
             LLMProviderProperty("model_id", "Model", "Model", "", False),
             LLMProviderProperty("base_url", "Base URL", "Base URL", "", False),
-            LLMProviderProperty("api_key", "API key", "API key", "", True),
+            LLMProviderProperty("api_key", "API key", "API key", "", True, secret=True),
             LLMProviderProperty("context_window", "Context window", "Context window length", "", True),
         ]
 
